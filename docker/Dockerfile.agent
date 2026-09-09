@@ -1,0 +1,44 @@
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+COPY agent/package*.json ./
+RUN npm ci
+
+COPY agent/tsconfig.json ./
+COPY agent/src ./src
+COPY proto ../proto
+
+RUN npm run build
+
+# Runtime stage
+FROM node:22-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache curl unzip ca-certificates
+
+# Download and install Xray-core
+ARG XRAY_VERSION=v25.1.30
+ARG TARGETARCH
+RUN set -ex; \
+    ARCH="64"; \
+    if [ "$TARGETARCH" = "arm64" ]; then ARCH="arm64-v8a"; fi; \
+    curl -sSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH}.zip" || \
+    curl -sSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v24.11.30/Xray-linux-64.zip" || true; \
+    if [ -f /tmp/xray.zip ]; then \
+      unzip /tmp/xray.zip xray -d /usr/local/bin/ || true; \
+      chmod +x /usr/local/bin/xray || true; \
+      rm -f /tmp/xray.zip; \
+    fi
+
+COPY agent/package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
+COPY proto ../proto
+
+ENV NODE_ENV=production
+ENV XRAY_BIN_PATH=/usr/local/bin/xray
+
+CMD ["node", "dist/index.js"]

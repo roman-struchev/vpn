@@ -1,0 +1,33 @@
+# Build stage
+FROM eclipse-temurin:25-jdk-alpine AS builder
+
+WORKDIR /workspace
+
+# Copy build configuration
+COPY settings.gradle.kts gradlew ./
+COPY gradle ./gradle
+COPY proto ./proto
+COPY server/build.gradle.kts ./server/
+
+# Pre-fetch dependencies
+RUN ./gradlew :server:dependencies --no-daemon || true
+
+# Copy server sources
+COPY server/src ./server/src
+
+# Build bootJar
+RUN ./gradlew :server:bootJar --no-daemon -x test
+
+# Runtime stage
+FROM eclipse-temurin:25-jre-alpine
+
+WORKDIR /app
+
+RUN addgroup -S vpn && adduser -S vpn -G vpn
+USER vpn
+
+COPY --from=builder /workspace/server/build/libs/*.jar app.jar
+
+EXPOSE 8080 9090
+
+ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "app.jar"]

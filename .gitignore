@@ -1,0 +1,23 @@
+# Java & Gradle
+.gradle/
+build/
+server/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Node.js
+node_modules/
+agent/node_modules/
+agent/dist/
+agent/.agent-state.json
+agent/xray-config.json
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS & Environment
+.DS_Store
+*.log
+.env
+.env.local
