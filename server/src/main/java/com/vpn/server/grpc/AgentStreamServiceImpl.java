@@ -114,4 +114,28 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
             }
         }
     }
+
+    public void pushConfigSyncToAll() {
+        for (Long nodeId : activeStreams.keySet()) {
+            pushConfigSync(nodeId);
+        }
+    }
+
+    public boolean sendCommand(Long nodeId, ServerCommand command) {
+        StreamObserver<ServerMessage> observer = activeStreams.get(nodeId);
+        if (observer != null) {
+            try {
+                ServerMessage msg = ServerMessage.newBuilder()
+                        .setTimestampEpochMs(System.currentTimeMillis())
+                        .setCommand(command)
+                        .build();
+                observer.onNext(msg);
+                log.info("Sent command {} to node {}", command.getCommandType(), nodeId);
+                return true;
+            } catch (Exception e) {
+                log.error("Failed to send command to node {}", nodeId, e);
+            }
+        }
+        return false;
+    }
 }

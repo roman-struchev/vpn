@@ -81,6 +81,9 @@ export class AgentGrpcClient {
     });
   }
 
+  private reconnectAttempt: number = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+
   private startStreaming(): void {
     if (this.isShuttingDown) return;
 
@@ -93,22 +96,21 @@ export class AgentGrpcClient {
     this.activeStream = this.streamClient.syncStream();
 
     this.activeStream.on('data', (message: any) => {
+      this.reconnectAttempt = 0; // successfully receiving data, reset backoff
       this.handleServerMessage(message);
     });
 
     this.activeStream.on('error', (err: any) => {
       if (!this.isShuttingDown) {
-        logger.warn(`Sync stream error: ${err.message}. Reconnecting in 5 seconds...`);
-        this.cleanupStream();
-        setTimeout(() => this.startStreaming(), 5000);
+        logger.warn(`Sync stream error: ${err.message}.`);
+        this.scheduleReconnect();
       }
     });
 
     this.activeStream.on('end', () => {
       if (!this.isShuttingDown) {
-        logger.warn('Sync stream closed by server. Reconnecting in 5 seconds...');
-        this.cleanupStream();
-        setTimeout(() => this.startStreaming(), 5000);
+        logger.warn('Sync stream closed by server.');
+        this.scheduleReconnect();
       }
     });
 
@@ -118,6 +120,23 @@ export class AgentGrpcClient {
 
     // Start periodic traffic stats reporting
     this.statsTimer = setInterval(() => this.sendTrafficStats(), this.config.statsIntervalMs);
+  }
+
+  private scheduleReconnect(): void {
+    this.cleanupStream();
+    if (this.isShuttingDown || this.reconnectTimer) return;
+
+    // Exponential backoff with jitter: min 1s, factor 2, max 60s
+    const baseDelay = Math.min(60000, 1000 * Math.pow(2, this.reconnectAttempt));
+    const jitter = Math.floor(Math.random() * 1000);
+    const delay = baseDelay + jitter;
+    this.reconnectAttempt++;
+
+    logger.info(`Reconnecting gRPC stream in ${delay}ms (attempt ${this.reconnectAttempt})...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.startStreaming();
+    }, delay);
   }
 
   private sendHeartbeat(): void {
@@ -225,6 +244,10 @@ export class AgentGrpcClient {
     if (this.statsTimer) {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
+    }
+    if (this.reconnectTimer && this.isShuttingDown) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
     if (this.activeStream) {
       try {

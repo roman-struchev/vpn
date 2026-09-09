@@ -71,20 +71,20 @@ public class BillingService {
     }
 
     @Transactional
-    public void creditInvoicePayment(Long invoiceId, Long actualAmountMicro, String txHash) {
+    public CryptoInvoice creditInvoicePayment(Long invoiceId, Long actualAmountMicro, String txHash) {
         CryptoInvoice invoice = cryptoInvoiceRepository.findById(invoiceId)
                 .orElseThrow(() -> new IllegalArgumentException("Invoice not found: " + invoiceId));
 
         if (!"PENDING".equals(invoice.getStatus())) {
             log.warn("Invoice {} is not pending (status: {}), skipping", invoiceId, invoice.getStatus());
-            return;
+            return invoice;
         }
 
         invoice.setStatus("PAID");
         invoice.setPaidAt(Instant.now());
         invoice.setTxHash(txHash);
         invoice.setActualAmountUsdtMicro(actualAmountMicro);
-        cryptoInvoiceRepository.save(invoice);
+        CryptoInvoice saved = cryptoInvoiceRepository.save(invoice);
 
         // Credit actual received amount to user balance
         User user = invoice.getUser();
@@ -102,6 +102,7 @@ public class BillingService {
         balanceEntryRepository.save(entry);
 
         log.info("Successfully credited {} micro-USDT to user {} (new balance: {})", actualAmountMicro, user.getId(), newBalance);
+        return saved;
     }
 
     @Transactional

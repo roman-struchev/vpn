@@ -1,0 +1,120 @@
+package com.vpn.server;
+
+import com.vpn.server.entity.CryptoInvoice;
+import com.vpn.server.entity.Subscription;
+import com.vpn.server.entity.User;
+import com.vpn.server.grpc.AgentStreamServiceImpl;
+import com.vpn.server.repository.CryptoInvoiceRepository;
+import com.vpn.server.repository.SubscriptionRepository;
+import com.vpn.server.task.QuotaEnforcementTask;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Collections;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class QuotaEnforcementTaskTest {
+
+    @Mock
+    private SubscriptionRepository subscriptionRepository;
+
+    @Mock
+    private CryptoInvoiceRepository cryptoInvoiceRepository;
+
+    @Mock
+    private AgentStreamServiceImpl agentStreamService;
+
+    private QuotaEnforcementTask quotaEnforcementTask;
+
+    @BeforeEach
+    void setUp() {
+        quotaEnforcementTask = new QuotaEnforcementTask(
+                subscriptionRepository,
+                cryptoInvoiceRepository,
+                agentStreamService
+        );
+    }
+
+    @Test
+    void testRunEnforcementWithExpiredSubscription() {
+        User user = new User();
+        user.setId(10L);
+
+        Subscription expired = new Subscription();
+        expired.setId(1L);
+        expired.setUser(user);
+        expired.setStatus("ACTIVE");
+        expired.setCurrentPeriodEnd(Instant.now().minus(1, ChronoUnit.HOURS));
+
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class)))
+                .thenReturn(List.of(expired));
+        when(subscriptionRepository.findQuotaExceededSubscriptions())
+                .thenReturn(Collections.emptyList());
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        assertEquals("EXPIRED", expired.getStatus());
+        verify(subscriptionRepository).save(expired);
+        verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testRunEnforcementWithExceededQuota() {
+        User user = new User();
+        user.setId(20L);
+
+        Subscription exceeded = new Subscription();
+        exceeded.setId(2L);
+        exceeded.setUser(user);
+        exceeded.setStatus("ACTIVE");
+        exceeded.setTrafficLimitBytes(20_000_000_000L);
+        exceeded.setTrafficUsedBytes(21_000_000_000L);
+
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+        when(subscriptionRepository.findQuotaExceededSubscriptions())
+                .thenReturn(List.of(exceeded));
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        assertEquals("EXHAUSTED", exceeded.getStatus());
+        verify(subscriptionRepository).save(exceeded);
+        verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testRunEnforcementWithExpiredInvoice() {
+        CryptoInvoice invoice = new CryptoInvoice();
+        invoice.setId(100L);
+        invoice.setStatus("PENDING");
+        invoice.setExpiresAt(Instant.now().minus(5, ChronoUnit.MINUTES));
+
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+        when(subscriptionRepository.findQuotaExceededSubscriptions())
+                .thenReturn(Collections.emptyList());
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(List.of(invoice));
+
+        quotaEnforcementTask.runEnforcement();
+
+        assertEquals("EXPIRED", invoice.getStatus());
+        verify(cryptoInvoiceRepository).save(invoice);
+        // No subscription changed, so no push to nodes
+        verify(agentStreamService, never()).pushConfigSyncToAll();
+    }
+}
