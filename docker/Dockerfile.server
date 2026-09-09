@@ -4,10 +4,10 @@ FROM eclipse-temurin:25-jdk-alpine AS builder
 WORKDIR /workspace
 
 # Copy build configuration
-COPY settings.gradle.kts gradlew ./
+COPY settings.gradle gradlew ./
 COPY gradle ./gradle
 COPY proto ./proto
-COPY server/build.gradle.kts ./server/
+COPY server/build.gradle ./server/
 
 # Pre-fetch dependencies
 RUN ./gradlew :server:dependencies --no-daemon || true
