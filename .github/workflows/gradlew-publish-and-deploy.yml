@@ -1,0 +1,106 @@
+name: Build, Test & Deploy
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Build & Test (Server & Agent)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run Server Tests
+        run: ./gradlew :server:test
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'agent/package-lock.json'
+
+      - name: Run Agent Tests
+        working-directory: agent
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+  publish:
+    name: Build Jar & Publish Docker Image
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build BootJar
+        run: ./gradlew :server:bootJar -x test
+
+      - name: Publish to Docker Registry
+        if: env.DOCKER_USER != ''
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          name: ${{ secrets.DOCKER_IMAGE_NAME || 'romanew/vpn-server:latest' }}
+          username: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_PUBLISH_REGISTRY_PASSWORD }}
+
+  deploy:
+    name: Deploy to Server via SSH
+    needs: publish
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && secrets.SSH_HOST != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy docker-compose.yml
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME || 'root' }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: docker-compose.yml
+          target: ~/vpn/
+
+      - name: Start using docker compose
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME || 'root' }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/vpn
+            export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
+            export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
+            export JWT_SECRET="${{ secrets.JWT_SECRET }}"
+            docker compose down
+            docker compose pull
+            docker compose up -d
