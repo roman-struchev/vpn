@@ -111,7 +111,9 @@ export class VpnController extends EventEmitter {
     } catch (e) {
       console.warn('Failed to disable system proxy', e);
     }
-    this.transition('DISCONNECT_REQUESTED');
+    if (this.getState() !== 'DISCONNECTED') {
+      this.transition('DISCONNECT_REQUESTED');
+    }
     this.emit('region', null);
   }
 

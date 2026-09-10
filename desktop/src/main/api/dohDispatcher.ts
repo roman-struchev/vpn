@@ -1,4 +1,5 @@
 import dns from 'node:dns';
+import net from 'node:net';
 import { Agent, setGlobalDispatcher } from 'undici';
 
 /**
@@ -25,6 +26,11 @@ type LookupCallback = (
 ) => void;
 
 function dohLookup(hostname: string, options: dns.LookupOptions, callback: LookupCallback): void {
+  // Direct system lookup for localhost and literal IP addresses
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || net.isIP(hostname)) {
+    dns.lookup(hostname, options as never, callback as never);
+    return;
+  }
   queryDoh(hostname)
     .then((addresses) => {
       if (!addresses.length) throw new Error('empty DoH answer');
