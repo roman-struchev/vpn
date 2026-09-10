@@ -30,7 +30,7 @@ public class SubscriptionExportService {
     }
 
     @Transactional
-    public String exportVlessSubscription(Long userId) {
+    public List<String> exportVlessLinks(Long userId) {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
 
@@ -72,6 +72,12 @@ public class SubscriptionExportService {
             links.add(vlessLink);
         }
 
+        return links;
+    }
+
+    @Transactional
+    public String exportVlessSubscription(Long userId) {
+        List<String> links = exportVlessLinks(userId);
         String rawContent = String.join("\n", links);
         return Base64.getEncoder().encodeToString(rawContent.getBytes(StandardCharsets.UTF_8));
     }

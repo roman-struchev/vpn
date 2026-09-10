@@ -4,6 +4,7 @@ import com.vpn.server.entity.*;
 import com.vpn.server.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +36,14 @@ public class BillingService {
         this.subscriptionRepository = subscriptionRepository;
         this.balanceEntryRepository = balanceEntryRepository;
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
+    }
+
+    @Value("${vpn.crypto.tron-deposit-address:TXxxDefaultDepositAddressTRC20}")
+    private String defaultTronDepositAddress;
+
+    @Transactional
+    public CryptoInvoice createInvoice(Long userId, String chain, Long baseAmountUsdtMicro) {
+        return createInvoice(userId, chain, baseAmountUsdtMicro, defaultTronDepositAddress);
     }
 
     @Transactional
