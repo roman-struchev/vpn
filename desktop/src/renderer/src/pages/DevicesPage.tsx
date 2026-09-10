@@ -45,6 +45,7 @@ export default function DevicesPage() {
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
       <h1 className="text-lg font-semibold">{t.devicesTitle}</h1>
+      <p className="text-xs text-white/50 -mt-2">{t.thisDeviceAutoAdded}</p>
 
       <div className="flex flex-col gap-2">
         {devices.map((d) => (
@@ -69,7 +70,7 @@ export default function DevicesPage() {
           onKeyDown={(e) => e.key === 'Enter' && add()}
         />
         <button className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold hover:bg-brand-700" onClick={add}>
-          {t.addDevice}
+          {t.addAnotherDevice}
         </button>
       </div>
 

@@ -32,7 +32,8 @@ const translations = {
     navProfile: 'Профиль',
 
     devicesTitle: 'Устройства',
-    addDevice: 'Добавить устройство',
+    thisDeviceAutoAdded: 'Это приложение само появится в списке при первом успешном подключении — добавлять его вручную не нужно.',
+    addAnotherDevice: 'Добавить другое устройство',
     deviceName: 'Название устройства',
     revoke: 'Отозвать',
 
@@ -71,7 +72,8 @@ const translations = {
     navProfile: 'Profile',
 
     devicesTitle: 'Devices',
-    addDevice: 'Add device',
+    thisDeviceAutoAdded: 'This app registers itself the first time it connects successfully — no need to add it manually.',
+    addAnotherDevice: 'Add another device',
     deviceName: 'Device name',
     revoke: 'Revoke',
 
