@@ -1,4 +1,4 @@
-import { UserProfile, Tariff, Device, CryptoInvoice } from './types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry } from './types';
 
 const TOKEN_KEY = 'vpn_auth_token';
 
@@ -103,6 +103,14 @@ export const api = {
       body: JSON.stringify({ chain, baseAmountUsdtMicro: baseAmountMicro }),
     });
     if (!res.ok) throw new Error('Failed to create crypto invoice');
+    return res.json();
+  },
+
+  async getInvoiceHistory(): Promise<InvoiceHistoryEntry[]> {
+    const res = await fetch('/api/v1/user/invoices', {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to load invoice history');
     return res.json();
   },
 

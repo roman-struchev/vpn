@@ -45,3 +45,13 @@ export interface CryptoInvoice {
   status: string;
   expiresAt: string;
 }
+
+export interface InvoiceHistoryEntry {
+  id: number;
+  chain: string;
+  status: string;
+  expectedAmountUsdtMicro: number;
+  actualAmountUsdtMicro: number | null;
+  createdAt: string;
+  paidAt: string | null;
+}

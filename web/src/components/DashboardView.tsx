@@ -11,10 +11,11 @@ import {
   Share2,
   QrCode,
   Sparkles,
+  Receipt,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Lang, translations } from '../i18n';
-import { UserProfile, Tariff, Device, CryptoInvoice } from '../types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry } from '../types';
 import { api } from '../api';
 
 interface DashboardViewProps {
@@ -24,6 +25,21 @@ interface DashboardViewProps {
   onRefreshUser: () => void;
   openTopUp: boolean;
   setOpenTopUp: (open: boolean) => void;
+}
+
+/**
+ * Best-effort guess so the "add device" form doesn't force a decision the
+ * platform value is never actually used for functionally (see
+ * server/.../UserController — it's stored and displayed only, never read
+ * for config generation). Native Android/Desktop clients don't ask at all —
+ * they hardcode their own platform when they self-register a device.
+ */
+function detectDefaultPlatform(): string {
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return 'ANDROID';
+  if (/Windows/i.test(ua)) return 'WINDOWS';
+  if (/Macintosh|Mac OS X/i.test(ua)) return 'MACOS';
+  return 'THIRD_PARTY';
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -44,8 +60,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Add device form
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [newDeviceName, setNewDeviceName] = useState('');
-  const [newDevicePlatform, setNewDevicePlatform] = useState('ANDROID');
+  const [newDevicePlatform, setNewDevicePlatform] = useState(detectDefaultPlatform());
   const [deviceError, setDeviceError] = useState('');
+
+  const [invoiceHistory, setInvoiceHistory] = useState<InvoiceHistoryEntry[]>([]);
 
   // Top-up modal states
   const [invoice, setInvoice] = useState<CryptoInvoice | null>(null);
@@ -66,12 +84,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const loadData = async () => {
     try {
-      const [devs, vlessLinks] = await Promise.all([
+      const [devs, vlessLinks, invoices] = await Promise.all([
         api.getDevices(),
         api.getSubscriptionLinks(),
+        api.getInvoiceHistory(),
       ]);
       setDevices(devs);
       setLinks(vlessLinks);
+      setInvoiceHistory(invoices);
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     }
@@ -214,6 +234,94 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
 
+      {/* Tariffs Selection / Change — kept right under the subscription banner
+          (was much further down, past the entire Devices section): this is
+          the natural next question right after "what's my plan status". */}
+      <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-brand-500" />
+            <span>{t.tariffs}</span>
+          </h2>
+          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-dark-800 border border-dark-700 text-xs">
+            <button
+              onClick={() => setIsAnnual(false)}
+              className={`px-3 py-1 rounded-md transition-all ${
+                !isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
+              }`}
+            >
+              {t.monthly}
+            </button>
+            <button
+              onClick={() => setIsAnnual(true)}
+              className={`px-3 py-1 rounded-md transition-all ${
+                isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
+              }`}
+            >
+              {t.annual}
+            </button>
+          </div>
+        </div>
+
+        {purchaseError && (
+          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{purchaseError}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {tariffs.map((tariff) => {
+            const priceMicro = isAnnual
+              ? tariff.annualPriceUsdtMicro
+              : tariff.monthlyPriceUsdtMicro;
+            const price = priceMicro / 1_000_000;
+            const isCurrent = sub?.tariffId === tariff.id;
+
+            return (
+              <div
+                key={tariff.id}
+                className={`p-4 rounded-xl bg-dark-900 border flex flex-col justify-between ${
+                  isCurrent ? 'border-emerald-500/40' : 'border-dark-800'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-sm">{tariff.name}</h4>
+                    {isCurrent && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold">
+                        Current
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 text-xl font-extrabold">
+                    ${price.toFixed(price % 1 === 0 ? 0 : 2)}
+                    <span className="text-xs font-normal text-slate-400">
+                      {isAnnual ? '/yr' : '/mo'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB · {tariff.maxDevices} devices
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => handlePurchase(tariff.id)}
+                  disabled={purchasingTariffId === tariff.id}
+                  className="mt-4 w-full py-2 rounded-lg bg-dark-800 hover:bg-brand-500 hover:text-dark-950 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
+                >
+                  {purchasingTariffId === tariff.id
+                    ? 'Processing...'
+                    : isCurrent
+                      ? t.renewPlan
+                      : t.buyWithBalance}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Devices Section */}
       <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
         <div className="flex items-center justify-between mb-6">
@@ -260,84 +368,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
 
-      {/* Tariffs Selection / Change */}
+      {/* Billing History — makes the dashboard show something actually
+          happened, not just static plan/device management chrome. */}
       <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-brand-500" />
-            <span>{t.tariffs}</span>
-          </h2>
-          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-dark-800 border border-dark-700 text-xs">
-            <button
-              onClick={() => setIsAnnual(false)}
-              className={`px-3 py-1 rounded-md transition-all ${
-                !isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
-              }`}
-            >
-              {t.monthly}
-            </button>
-            <button
-              onClick={() => setIsAnnual(true)}
-              className={`px-3 py-1 rounded-md transition-all ${
-                isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
-              }`}
-            >
-              {t.annual}
-            </button>
-          </div>
-        </div>
-
-        {purchaseError && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{purchaseError}</span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {tariffs.map((tariff) => {
-            const priceMicro = isAnnual
-              ? tariff.annualPriceUsdtMicro
-              : tariff.monthlyPriceUsdtMicro;
-            const price = priceMicro / 1_000_000;
-            const isCurrent = sub?.tariffId === tariff.id;
-
-            return (
-              <div
-                key={tariff.id}
-                className="p-4 rounded-xl bg-dark-900 border border-dark-800 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-sm">{tariff.name}</h4>
-                    {isCurrent && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold">
-                        Current
-                      </span>
-                    )}
+        <h3 className="font-bold text-base mb-4 flex items-center gap-2">
+          <Receipt className="w-4 h-4 text-brand-500" />
+          <span>{t.billingHistory}</span>
+        </h3>
+        {invoiceHistory.length === 0 ? (
+          <p className="text-xs text-slate-500 text-center py-4">{t.noInvoicesYet}</p>
+        ) : (
+          <div className="divide-y divide-dark-800">
+            {invoiceHistory.slice(0, 5).map((inv) => {
+              const amount = (inv.actualAmountUsdtMicro ?? inv.expectedAmountUsdtMicro) / 1_000_000;
+              const statusKey = `invoiceStatus_${inv.status}` as keyof typeof t;
+              const statusLabel = t[statusKey] ?? inv.status;
+              const statusClass =
+                inv.status === 'PAID'
+                  ? 'bg-emerald-500/10 text-emerald-400'
+                  : inv.status === 'PENDING'
+                    ? 'bg-amber-500/10 text-amber-400'
+                    : 'bg-dark-800 text-slate-500';
+              return (
+                <div key={inv.id} className="py-2.5 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-200">${amount.toFixed(2)}</span>
+                    <span className="text-slate-500 ml-2">{inv.chain}</span>
                   </div>
-                  <div className="mt-2 text-xl font-extrabold">
-                    ${price.toFixed(price % 1 === 0 ? 0 : 2)}
-                    <span className="text-xs font-normal text-slate-400">
-                      {isAnnual ? '/yr' : '/mo'}
+                  <div className="flex items-center gap-3">
+                    <span className="text-slate-500">{new Date(inv.createdAt).toLocaleDateString()}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusClass}`}>
+                      {statusLabel}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB · {tariff.maxDevices} devices
-                  </p>
                 </div>
-
-                <button
-                  onClick={() => handlePurchase(tariff.id)}
-                  disabled={purchasingTariffId === tariff.id}
-                  className="mt-4 w-full py-2 rounded-lg bg-dark-800 hover:bg-brand-500 hover:text-dark-950 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
-                >
-                  {purchasingTariffId === tariff.id ? 'Processing...' : t.buyWithBalance}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Referral & Diagnostics Row */}
@@ -427,7 +495,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">{t.platform}</label>
+                <label className="block text-xs text-slate-400 mb-1">
+                  {t.deviceType}
+                  <span className="text-slate-600 font-normal"> · {t.deviceTypeHint}</span>
+                </label>
                 <select
                   value={newDevicePlatform}
                   onChange={(e) => setNewDevicePlatform(e.target.value)}
