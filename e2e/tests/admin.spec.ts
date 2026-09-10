@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
+import { promoteToAdmin, registerAndLogin, loginExistingUser, uniqueEmail } from './adminHelpers';
 
 // Admin panel (web/src/admin/) — item #1 from docs/ROADMAP_PROGRESS.md §6
 // "Возможные дальнейшие улучшения": previously there was no web UI at all,
@@ -7,51 +7,8 @@ import { execFileSync } from 'node:child_process';
 //
 // No ADMIN user is seeded (see README.md "Первый администратор") — promote
 // a freshly-registered user directly in Postgres via the same docker exec
-// pattern the README documents for manual use.
-function promoteToAdmin(email: string) {
-  execFileSync('docker', [
-    'exec',
-    'vpn-postgres',
-    'psql',
-    '-U',
-    'vpn_user',
-    '-d',
-    'vpn_db',
-    '-c',
-    `UPDATE users SET role='ADMIN' WHERE email='${email}';`,
-  ]);
-}
-
-const uniqueEmail = (label: string) => `e2e-admin-${label}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-const PASSWORD = 'Test-Passw0rd!';
-
-async function registerAndLogin(page: import('@playwright/test').Page, email: string) {
-  await page.goto('/');
-  await page.getByRole('button', { name: 'Войти' }).click();
-  await page.getByRole('button', { name: 'Нет аккаунта? Зарегистрироваться' }).click();
-  await page.getByPlaceholder('you@example.com').fill(email);
-  await page.getByPlaceholder('••••••••').fill(PASSWORD);
-  await page.getByRole('button', { name: 'Создать аккаунт' }).click();
-  await expect(page.getByText('Нет активной подписки').first()).toBeVisible();
-}
-
-/** Re-login as an already-registered user — e.g. after promoting them to
- * ADMIN in the DB, to pick up ROLE_ADMIN in a freshly-issued JWT. */
-async function loginExistingUser(page: import('@playwright/test').Page, email: string) {
-  await page.getByRole('button', { name: 'Войти' }).click();
-  // AuthModal is always mounted (isOpen just toggles a null render), so its
-  // isRegister state survived from the earlier registration step — force it
-  // back to login mode rather than assuming which one it's in (see
-  // full-user-flow.spec.ts for the same pattern).
-  const switchToLogin = page.getByRole('button', { name: 'Уже есть аккаунт? Войти' });
-  if (await switchToLogin.isVisible().catch(() => false)) {
-    await switchToLogin.click();
-  }
-  await page.getByPlaceholder('you@example.com').fill(email);
-  await page.getByPlaceholder('••••••••').fill(PASSWORD);
-  await page.locator('form').getByRole('button', { name: 'Войти', exact: true }).click();
-  await expect(page.getByText('Нет активной подписки').first()).toBeVisible();
-}
+// pattern the README documents for manual use. See adminHelpers.ts (shared
+// with nodes.spec.ts) for promoteToAdmin/registerAndLogin/loginExistingUser.
 
 test.describe('Admin panel', () => {
   test('a non-admin user does not see the admin entry point', async ({ page }) => {
