@@ -8,7 +8,7 @@
 
 1. **Gradle DSL**: Только **Groovy DSL** (`build.gradle`, `settings.gradle`). Kotlin DSL (`.kts`) **запрещен**.
 2. **Java & Spring Boot**: Использовать **Java 25** и **Spring Boot 4.1.1+**.
-3. **База данных**: Только **PostgreSQL 17** с миграциями через **Flyway 11**. Никакого Redis (устранен как избыточный).
+3. **База данных**: Только **PostgreSQL 17** с миграциями через **Flyway** (версия управляется BOM `spring-boot-dependencies` — на Spring Boot 4.1.1 это 12.4.0; зависимость — `org.springframework.boot:spring-boot-starter-flyway`, **не** голый `org.flywaydb:flyway-core`, см. Фазу 10 §«критические баги» — без стартера Spring-автоконфигурация Flyway не подключается и миграции молча не выполняются). Никакого Redis (устранен как избыточный).
 4. **Финансы и баланс**: Баланс пользователя и расчеты ведутся **только в целочисленных микро-USDT** (`1 USDT = 1,000,000 micro-USDT`, тип `Long/int64`). `Float` и `Double` для денежных сумм категорически запрещены.
 5. **Протокол и обход блокировок ТСПУ**:
    - Основной транспорт: **VLESS + XHTTP + Reality** с браузерным fingerprint (`firefox` или `edge`, никогда не random).
@@ -39,7 +39,9 @@
 | **Фаза 7** | Android MVP: Java + `libXray` (.aar), Material 3, логика подключения, конформанс | **ВЫПОЛНЕНО** | 100% `[x]` |
 | **Фаза 8** | Desktop Windows/macOS: Electron + React, системный прокси, автообновление | **ВЫПОЛНЕНО** | 100% `[x]` |
 | **Фаза 9** | Транспортная гибкость: CDN-ноды, gRPC fallback, резервные пулы | **ВЫПОЛНЕНО** | 100% `[x]` |
-| **Фаза 10** | Закалка: резервные домены API, DoH, защита от перечисления РКН, релиз | **ТЕКУЩАЯ** | 0% `[ ]` |
+| **Фаза 10** | Закалка: резервные домены API, DoH, защита от перечисления РКН, релиз | **ВЫПОЛНЕНО** | 100% `[x]` |
+
+Все 10 фаз из этой дорожной карты выполнены. Оставшаяся работа — не код, а операционные шаги (провижининг доменов/серверов, верификация Google Play аккаунта, юрлицо для iOS) и обычное сопровождение. См. §4 «Что сейчас в работе» — там нет открытых `[ ]` пунктов внутри фаз 0–10, только внешние по отношению к коду шаги, перечисленные в записях о Фазе 10.
 
 ---
 
@@ -148,11 +150,20 @@
 - [x] **Тесты**: agent (+2, gRPC-инбаунд и CDN-TLS ветка в `config-builder.test.ts`), server (+4: `NodeManagementServiceTest` gRPC/CDN, `DynamicRoutingServiceTest` grpc-поля/reserve-promotion), Android (+7: `TransportFallbackPolicyTest` + `XrayConfigFactoryTest` grpc-кейсы, итого 36 unit-тестов), Desktop (+7: `transportFallbackPolicy.test.ts` + grpc-кейсы в `xrayConfigFactory.test.ts`, итого 35). Все зелёные, `./gradlew :server:test`, `npm test` (agent/desktop), `:app:testDebugUnitTest`+`:app:lintDebug`+`:app:assembleDebug` (android) прогнаны локально.
 - **Не сделано**: gRPC-фолбэк не предлагается CDN-нодам (у них своя транспортная маскировка через CDN); нет автоматического подбора CDN-провайдера/домена; `reserve`-пул нужно наполнять вручную через существующий admin API (`POST /admin/nodes/{id}/pool`), автоматического «выращивания» резерва нет.
 
-### [ ] Фаза 10: Закалка перед запуском
-- [ ] Пул резервных доменов для API сервера и DoH-резолвинг.
-- [ ] Алгоритм детекта перечисления нод (anti-scraping): карантин аккаунтов, запрашивающих подписку со множества подозрительных IP.
-- [ ] Ограничение скорости на уровне пробных нод (`fq_codel` / `tc`).
-- [ ] Подготовка к верификации Google Play Developer.
+### [x] Фаза 10: Закалка перед запуском
+- [x] **Пул резервных доменов для API сервера и DoH-резолвинг**: новый класс `ApiHostRotation` (чистая логика, есть и в Android — `api/ApiHostRotation.java`, и в Desktop — `src/shared/apiHostRotation.ts`) перебирает бэкап-домены при сетевой ошибке (не при обычном HTTP-ответе 4xx/5xx — это не проблема связности). Android уже имел DoH для своих REST-запросов с Фазы 7 (`DohDns.java`); Desktop получил его только сейчас — [`src/main/api/dohDispatcher.ts`](file:///Users/roman.struchev/git/vpn/vpn/desktop/src/main/api/dohDispatcher.ts) ставит глобальный `undici`-диспетчер, резолвящий хосты через DoH JSON API Cloudflare (не бинарный RFC 8484 — проще и без парсинга DNS-пакетов), с фолбэком на системный резолвер при сбое DoH.
+- [x] **Защита от перечисления нод (anti-scraping)**: два независимых, но связанных изменения:
+  1. **Исправлен реальный IDOR**: `GET /api/v1/subscription/export/{userId}` принимал сырой последовательный ID пользователя **без какой-либо аутентификации** — кто угодно мог перебирать `userId=1,2,3...` и вытаскивать VLESS-ключи любого пользователя на всех нодах. Теперь путь — непредсказуемый `UUID` (`users.subscription_token`, миграция [`V2__anti_enumeration.sql`](file:///Users/roman.struchev/git/vpn/vpn/server/src/main/resources/db/migration/V2__anti_enumeration.sql)); эндпоинт остаётся публичным намеренно (это подписочная ссылка для сторонних клиентов вроде v2rayNG, которые не умеют логиниться), но по непредсказуемому токену, а не по ID.
+  2. **`AntiEnumerationService`**: фиксирует IP каждого запроса за ссылками подписки (и публичного `/export/{token}`, и авторизованного `/api/v1/user/subscription/links`) в новой таблице `subscription_access_log`; если один аккаунт тянут более чем с `vpn.anti-enum.max-distinct-ips` (по умолчанию 5) различных IP за `vpn.anti-enum.window-minutes` (по умолчанию 60) минут — паттерн из PLAN.md §6 («аккаунт тянет ссылку с многих IP»), — все VLESS-ключи этого аккаунта немедленно ротируются (`DeviceNodeKeyRepository.findByDeviceUserId` + новый UUID на каждый ключ), так что уже скачанный список нод протухает. Жёсткая блокировка аккаунта сознательно не используется — ложное срабатывание на мобильном интернете с частой сменой IP не должно банить платящего пользователя.
+- [x] **Ограничение скорости на уровне пробных нод**: [`scripts/install-node.sh`](file:///Users/roman.struchev/git/vpn/vpn/scripts/install-node.sh) получил необязательный 4-й аргумент `trial_cap_mbps` — генерирует `/usr/local/bin/vpn-apply-trial-cap.sh` (автоопределение интерфейса через `ip route get`, `tc qdisc htb` с потолком + `fq_codel` внутри для честного разделения между потоками — ровно как в PLAN.md §4) и systemd-юнит `vpn-trial-cap.service`, применяющий его при каждой загрузке.
+- [x] **Подготовка к верификации Google Play Developer**: новый [`docs/google-play-readiness.md`](file:///Users/roman.struchev/git/vpn/vpn/docs/google-play-readiness.md) — маппинг чеклиста из `stores-and-liability.md` на фактическое состояние кода, готовый (нуждающийся в заполнении плейсхолдеров) черновик политики конфиденциальности и построчный ответ для формы Data Safety, основанный на реальной модели данных, а не на шаблоне. Юрлицо/верификация личности — не код, см. `stores-and-liability.md`.
+- [x] **Два критических инфраструктурных бага, найденных и исправленных по пути** (не входили в исходный чеклист Фазы 10, но напрямую относятся к «закалке перед запуском» — без них сервер не запускался бы на чистой БД в проде):
+  1. **Flyway-миграции никогда реально не выполнялись.** `server/build.gradle` зависел от `org.flywaydb:flyway-core` напрямую, но Spring Boot 4.x вынес Flyway-автоконфигурацию из монолитного `spring-boot-autoconfigure` в отдельный модуль `org.springframework.boot:spring-boot-flyway` (тот же паттерн, что и `HibernateJpaConfiguration`, переехавший в `org.springframework.boot.hibernate.autoconfigure`). Без этого модуля Hibernate валидировал схему **до** того, как Flyway успевал её создать — падение на «missing table» при любом первом запуске на чистой БД. Юнит-тесты этого не ловили: тестовый профиль использует H2 с `ddl-auto=create-drop` и `flyway.enabled=false`. Обнаружено и исправлено только реальным запуском `./gradlew :server:bootRun` против настоящего Postgres 17 в Docker.
+  2. **gRPC-сервер падал при старте** с `AbstractMethodError` — `grpc-netty-shaded` был явно закреплён на `1.71.0` в build.gradle, а `grpc-core`/`grpc-api` резолвились в `1.83.1` через BOM `io.grpc:grpc-bom`, который Spring Boot 4.1.1 подключает как часть `spring-boot-dependencies`. Разные релизы grpc в одном classpath — несовместимый ABI. Исправлено удалением локального закрепления версии для рантайм-зависимостей `io.grpc:*` (теперь полностью управляются BOM); версия для protoc-плагина `protoc-gen-grpc-java` остаётся явной (это отдельный, не управляемый Gradle-плагином-зависимостей артефакт) с комментарием держать её в синхроне.
+  3. **Попутно найден и исправлен баг доступа**: `NodeManagementService.buildNodeConfigSync` не проверял `user.status` — пользователь, заблокированный админом (`BLOCKED`), сохранял рабочий VPN-доступ до истечения подписки. Теперь `hasActiveSub` дополнительно требует `"ACTIVE".equalsIgnoreCase(user.getStatus())`.
+- [x] **Тесты**: server +5 (`NodeManagementServiceTest` blocked-user, `UserControllerTest` обновлён под новую сигнатуру, миграция и полный старт сервера реально проверены против Postgres 17 в Docker — 66 тестов всего), Android +4 (`ApiHostRotationTest`, 40 тестов всего), Desktop +4 (`apiHostRotation.test.ts`, 39 тестов всего). Все зелёные.
+- [x] **Сквозная проверка на реальной инфраструктуре**: `docker compose up -d postgres` + `./gradlew :server:bootRun` — сервер стартовал целиком (HTTP на 8080, gRPC на 9090), регистрация пользователя через `POST /api/v1/auth/register` и получение `subscription_token`, `GET /api/v1/subscription/export/{старый numeric id}` корректно отклоняется, `GET /api/v1/subscription/export/{настоящий token}` доходит до бизнес-логики (400 «нет подписки» — ожидаемо для нового пользователя, не 403/404).
+- **Не сделано**: провижининг реальных резервных доменов (нужны настоящие домены/DNS, это не код); листинг Google Play и хостинг политики конфиденциальности по реальному URL (плейсхолдеры в `docs/google-play-readiness.md`); верификация личности разработчика и юрлицо для iOS — организационные шаги вне кода.
 
 ---
 
@@ -183,4 +194,10 @@ cd desktop && npm install && npm run typecheck && npm test
 ```bash
 # Запуск PostgreSQL 17
 docker compose up -d postgres
+
+# Полный запуск сервера против реальной БД (не H2/test-профиль!) — так
+# нашлись оба критических бага Фазы 10 (Flyway, gRPC). Юнит-тесты используют
+# H2 с flyway.enabled=false и НЕ проверяют ни миграции, ни старт gRPC-сервера.
+./gradlew :server:bootRun
+# Ожидать в логе: "Successfully applied N migrations" и "gRPC Server started on port 9090"
 ```
