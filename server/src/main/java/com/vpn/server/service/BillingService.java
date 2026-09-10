@@ -41,9 +41,47 @@ public class BillingService {
     @Value("${vpn.crypto.tron-deposit-address:TXxxDefaultDepositAddressTRC20}")
     private String defaultTronDepositAddress;
 
+    // Ethereum/Base/Arbitrum/Polygon all use the same 0x address space for a given
+    // key (docs/PLAN.md §7: "один адрес приёма на сеть" — one EVM address covers
+    // every EVM-compatible chain the scanner is pointed at, only rpc-url/chain-id
+    // differ per network in vpn.blockchain.evm.*).
+    @Value("${vpn.crypto.evm-deposit-address:}")
+    private String defaultEvmDepositAddress;
+
     @Transactional
     public CryptoInvoice createInvoice(Long userId, String chain, Long baseAmountUsdtMicro) {
-        return createInvoice(userId, chain, baseAmountUsdtMicro, defaultTronDepositAddress);
+        String recipientAddress = resolveDefaultDepositAddress(chain);
+        if (recipientAddress == null || recipientAddress.isBlank()) {
+            throw new IllegalStateException(
+                    "No deposit address configured for chain " + chain
+                            + " (set vpn.crypto." + (isEvmChain(chain) ? "evm" : "tron") + "-deposit-address)");
+        }
+        return createInvoice(userId, chain, baseAmountUsdtMicro, recipientAddress);
+    }
+
+    /**
+     * Picks the right default deposit address for the invoice's chain. Previously this
+     * always returned the TRON address regardless of {@code chain} — an invoice created
+     * with chain=ETHEREUM/BASE/ARBITRUM/POLYGON silently got a Tron (base58) address as
+     * its recipient, which no EVM wallet can send USDT to. See docs/ROADMAP_PROGRESS.md
+     * "Пост-Фаза-10" for the write-up.
+     */
+    private String resolveDefaultDepositAddress(String chain) {
+        return isEvmChain(chain) ? defaultEvmDepositAddress : defaultTronDepositAddress;
+    }
+
+    private static boolean isEvmChain(String chain) {
+        if (chain == null) return false;
+        switch (chain.toUpperCase()) {
+            case "ETHEREUM":
+            case "ERC20":
+            case "BASE":
+            case "ARBITRUM":
+            case "POLYGON":
+                return true;
+            default:
+                return false;
+        }
     }
 
     @Transactional

@@ -58,3 +58,28 @@ vpn:
   anti-enum:
     window-minutes: ${VPN_ANTI_ENUM_WINDOW_MINUTES:60}
     max-distinct-ips: ${VPN_ANTI_ENUM_MAX_DISTINCT_IPS:5}
+  crypto:
+    tron-deposit-address: ${VPN_TRON_DEPOSIT_ADDRESS:TXxxDefaultDepositAddressTRC20}
+    # Ethereum/Base/Arbitrum/Polygon all use the same 0x address for a given key
+    # (docs/PLAN.md §7) — one address covers whichever EVM chain vpn.blockchain.evm
+    # below is pointed at.
+    evm-deposit-address: ${VPN_EVM_DEPOSIT_ADDRESS:}
+  blockchain:
+    scanner:
+      enabled: ${VPN_BLOCKCHAIN_SCANNER_ENABLED:false}
+    trongrid-url: ${VPN_TRONGRID_URL:https://api.trongrid.io}
+    trongrid-api-key: ${VPN_TRONGRID_API_KEY:}
+    usdt-contract: ${VPN_TRON_USDT_CONTRACT:TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t}
+    # ERC-20 watcher (docs/PLAN.md §7: "EvmChainWatcher(rpcUrl, chainId, token,
+    # decimals, confirmations)... Base/Arbitrum/Polygon включаются конфигом без
+    # нового кода" — point rpc-url/chain-id/usdt-contract at whichever EVM chain
+    # is live; chain-name must match the "chain" value used when creating invoices
+    # (UserController POST /api/v1/user/billing/invoice, default "TRON").
+    evm:
+      enabled: ${VPN_EVM_SCANNER_ENABLED:false}
+      chain-name: ${VPN_EVM_CHAIN_NAME:ETHEREUM}
+      rpc-url: ${VPN_EVM_RPC_URL:}
+      chain-id: ${VPN_EVM_CHAIN_ID:1}
+      usdt-contract: ${VPN_EVM_USDT_CONTRACT:0xdAC17F958D2ee523a2206206994597C13D831ec7}
+      usdt-decimals: ${VPN_EVM_USDT_DECIMALS:6}
+      confirmations: ${VPN_EVM_CONFIRMATIONS:12}

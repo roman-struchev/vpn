@@ -22,6 +22,9 @@ public class BlockchainPaymentService {
     @Value("${vpn.crypto.tron-deposit-address:TXxxDefaultDepositAddressTRC20}")
     private String defaultTronDepositAddress;
 
+    @Value("${vpn.crypto.evm-deposit-address:}")
+    private String defaultEvmDepositAddress;
+
     public BlockchainPaymentService(
             CryptoInvoiceRepository cryptoInvoiceRepository,
             BillingService billingService
@@ -63,5 +66,9 @@ public class BlockchainPaymentService {
 
     public String getDefaultTronDepositAddress() {
         return defaultTronDepositAddress;
+    }
+
+    public String getDefaultEvmDepositAddress() {
+        return defaultEvmDepositAddress;
     }
 }

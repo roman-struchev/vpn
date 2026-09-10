@@ -5,6 +5,7 @@ import com.vpn.server.repository.*;
 import com.vpn.server.service.BillingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -154,5 +155,46 @@ class BillingServiceTest {
 
         assertThrows(IllegalStateException.class, () ->
                 billingService.claimTransaction(5L, "TRON", "tx_dup", 5_000_000L));
+    }
+
+    @Test
+    void testCreateInvoiceUsesTronAddressForTronChain() {
+        ReflectionTestUtils.setField(billingService, "defaultTronDepositAddress", "TRealTronAddress");
+        ReflectionTestUtils.setField(billingService, "defaultEvmDepositAddress", "0xRealEvmAddress");
+
+        User user = new User();
+        user.setId(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(cryptoInvoiceRepository.save(any(CryptoInvoice.class))).thenAnswer(i -> i.getArgument(0));
+
+        CryptoInvoice invoice = billingService.createInvoice(1L, "TRON", 10_000_000L);
+
+        assertEquals("TRealTronAddress", invoice.getRecipientAddress());
+    }
+
+    @Test
+    void testCreateInvoiceUsesEvmAddressForEthereumChain() {
+        // Regression test: this overload used to always fall back to the TRON
+        // (base58) address regardless of chain, producing an invoice no EVM
+        // wallet could actually pay — see docs/ROADMAP_PROGRESS.md "Пост-Фаза-10".
+        ReflectionTestUtils.setField(billingService, "defaultTronDepositAddress", "TRealTronAddress");
+        ReflectionTestUtils.setField(billingService, "defaultEvmDepositAddress", "0xRealEvmAddress");
+
+        User user = new User();
+        user.setId(1L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(cryptoInvoiceRepository.save(any(CryptoInvoice.class))).thenAnswer(i -> i.getArgument(0));
+
+        CryptoInvoice invoice = billingService.createInvoice(1L, "ETHEREUM", 10_000_000L);
+
+        assertEquals("0xRealEvmAddress", invoice.getRecipientAddress());
+    }
+
+    @Test
+    void testCreateInvoiceRejectsUnconfiguredEvmDepositAddress() {
+        ReflectionTestUtils.setField(billingService, "defaultEvmDepositAddress", "");
+
+        assertThrows(IllegalStateException.class, () ->
+                billingService.createInvoice(1L, "BASE", 10_000_000L));
     }
 }
