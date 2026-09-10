@@ -9,6 +9,10 @@ const baseURL = process.env.E2E_BASE_URL || 'http://localhost:3000';
 
 export default defineConfig({
   testDir: './tests',
+  // Deletes the throwaway users every test run registers (see the file for
+  // why this is safe/sufficient) so the local Postgres doesn't accumulate
+  // one row per run forever.
+  globalTeardown: './global-teardown.mjs',
   // The full-flow spec is one continuous user journey (register -> dashboard
   // -> device -> top-up -> logout -> login), so tests run serially, not
   // workers-in-parallel, to keep output easy to follow and avoid two runs
