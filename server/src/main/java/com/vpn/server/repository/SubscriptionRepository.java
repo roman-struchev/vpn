@@ -14,6 +14,7 @@ import java.util.Optional;
 public interface SubscriptionRepository extends JpaRepository<Subscription, Long> {
     Optional<Subscription> findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(Long userId, String status);
     List<Subscription> findByUserId(Long userId);
+    boolean existsByUserIdAndTariffId(Long userId, String tariffId);
     
     @Query("SELECT s FROM Subscription s WHERE s.status = 'ACTIVE' AND s.currentPeriodEnd < :now")
     List<Subscription> findExpiredSubscriptions(@Param("now") Instant now);

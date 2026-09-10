@@ -88,13 +88,13 @@ class BillingServiceTest {
     void testPurchaseSubscriptionDeductsBalanceAndCreatesSub() {
         User user = new User();
         user.setId(3L);
-        user.setBalanceUsdtMicro(20_000_000L); // 20 USDT
+        user.setBalanceUsdtMicro(25_000_000L); // 25 USDT
 
         Tariff pro = new Tariff();
         pro.setId("pro");
         pro.setName("Pro");
         pro.setMonthlyPriceUsdtMicro(2_000_000L); // $2
-        pro.setAnnualPriceUsdtMicro(19_200_000L); // $19.2 (-20%)
+        pro.setAnnualPriceUsdtMicro(20_000_000L); // $20, rounded (~-17%, see docs/PLAN.md §2)
         pro.setTrafficQuotaBytes(107374182400L); // 100 GB
 
         when(userRepository.findById(3L)).thenReturn(Optional.of(user));
@@ -107,9 +107,57 @@ class BillingServiceTest {
         assertNotNull(sub);
         assertTrue(sub.getIsAnnual());
         assertEquals(107374182400L, sub.getTrafficLimitBytes());
-        // Balance after 19.2 USDT deduction from 20 USDT: 0.8 USDT (800,000 micro)
-        assertEquals(800_000L, user.getBalanceUsdtMicro());
+        // Balance after 20 USDT deduction from 25 USDT: 5 USDT (5,000,000 micro)
+        assertEquals(5_000_000L, user.getBalanceUsdtMicro());
         verify(balanceEntryRepository, times(1)).save(any(BalanceEntry.class));
+    }
+
+    @Test
+    void testFirstTrialActivationSucceeds() {
+        User user = new User();
+        user.setId(9L);
+
+        Tariff trial = new Tariff();
+        trial.setId("trial");
+        trial.setName("Пробный");
+        trial.setMonthlyPriceUsdtMicro(0L);
+        trial.setAnnualPriceUsdtMicro(0L);
+        trial.setTrafficQuotaBytes(1_073_741_824L);
+
+        when(userRepository.findById(9L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("trial")).thenReturn(Optional.of(trial));
+        when(subscriptionRepository.existsByUserIdAndTariffId(9L, "trial")).thenReturn(false);
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+
+        Subscription sub = billingService.purchaseOrRenewSubscription(9L, "trial", false);
+
+        assertNotNull(sub);
+        assertEquals(1_073_741_824L, sub.getTrafficLimitBytes());
+    }
+
+    @Test
+    void testTrialCannotBeActivatedTwiceOnSameAccount() {
+        // Regression: price=0 used to skip straight to creating/extending the
+        // subscription with no other check, so a user could click "renew" on
+        // the trial tariff forever — see docs/PLAN.md §2 and
+        // docs/ROADMAP_PROGRESS.md "Пост-Фаза-10". Any prior subscription row
+        // for this tariff (active, expired, or cancelled) must block reuse.
+        User user = new User();
+        user.setId(9L);
+
+        Tariff trial = new Tariff();
+        trial.setId("trial");
+        trial.setMonthlyPriceUsdtMicro(0L);
+        trial.setAnnualPriceUsdtMicro(0L);
+
+        when(userRepository.findById(9L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("trial")).thenReturn(Optional.of(trial));
+        when(subscriptionRepository.existsByUserIdAndTariffId(9L, "trial")).thenReturn(true);
+
+        assertThrows(IllegalStateException.class, () ->
+                billingService.purchaseOrRenewSubscription(9L, "trial", false));
+
+        verify(subscriptionRepository, never()).save(any());
     }
 
     @Test

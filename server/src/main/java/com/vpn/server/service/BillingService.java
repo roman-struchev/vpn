@@ -160,6 +160,17 @@ public class BillingService {
         Tariff tariff = tariffRepository.findById(tariffId)
                 .orElseThrow(() -> new IllegalArgumentException("Tariff not found: " + tariffId));
 
+        // The trial is a one-time onboarding taste, not a permanently renewable
+        // free tier (docs/PLAN.md §2: "1 ГБ — это пробный период, а не бесплатный
+        // тариф"). Without this check, price=0 skips the balance check below
+        // entirely and a user could click "renew" on trial forever — any prior
+        // subscription row for this tariff (active, expired, or cancelled) means
+        // the trial was already used.
+        if ("trial".equalsIgnoreCase(tariff.getId())
+                && subscriptionRepository.existsByUserIdAndTariffId(userId, tariff.getId())) {
+            throw new IllegalStateException("Trial has already been used on this account. Choose a paid plan to continue.");
+        }
+
         long price = isAnnual ? tariff.getAnnualPriceUsdtMicro() : tariff.getMonthlyPriceUsdtMicro();
 
         if (price > 0) {
