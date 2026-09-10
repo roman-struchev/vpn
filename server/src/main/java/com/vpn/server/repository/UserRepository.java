@@ -16,6 +16,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findBySubscriptionToken(UUID subscriptionToken);
     boolean existsByEmail(String email);
     boolean existsByReferralCode(String referralCode);
+    long countByReferredBy_Id(Long userId);
 
     @Query("SELECT COALESCE(SUM(u.balanceUsdtMicro), 0) FROM User u")
     long sumBalanceUsdtMicro();

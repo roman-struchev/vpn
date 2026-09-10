@@ -58,6 +58,9 @@ class AdminControllerTest {
     @Mock
     private ConnTelemetryRepository connTelemetryRepository;
 
+    @Mock
+    private DeviceRepository deviceRepository;
+
     private AdminController adminController;
 
     @BeforeEach
@@ -72,7 +75,8 @@ class AdminControllerTest {
                 subscriptionRepository,
                 balanceEntryRepository,
                 transportPolicyRepository,
-                connTelemetryRepository
+                connTelemetryRepository,
+                deviceRepository
         );
     }
 
@@ -161,11 +165,15 @@ class AdminControllerTest {
         when(userRepository.findAll()).thenReturn(List.of(user));
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
                 .thenReturn(Optional.empty());
+        when(deviceRepository.countByUserIdAndIsActiveTrue(10L)).thenReturn(2L);
+        when(userRepository.countByReferredBy_Id(10L)).thenReturn(3L);
 
         ResponseEntity<List<Map<String, Object>>> response = adminController.listUsers();
         assertEquals(200, response.getStatusCode().value());
         assertEquals(1, response.getBody().size());
         assertEquals("user10@vpn.test", response.getBody().get(0).get("email"));
+        assertEquals(2L, response.getBody().get(0).get("deviceCount"));
+        assertEquals(3L, response.getBody().get(0).get("referralCount"));
     }
 
     @Test

@@ -79,6 +79,19 @@ export function UsersSection({ t }: { t: AdminT }) {
             body={(u: AdminUser) => u.activeSubscription?.tariffId.toUpperCase() ?? t.noActiveSub}
           />
           <Column
+            header={t.traffic}
+            style={{ width: '9rem' }}
+            body={(u: AdminUser) =>
+              u.activeSubscription
+                ? `${(u.activeSubscription.trafficUsedBytes / 1024 ** 3).toFixed(2)} / ${(
+                    u.activeSubscription.trafficLimitBytes /
+                    1024 ** 3
+                  ).toFixed(0)} GB`
+                : t.noActiveSub
+            }
+          />
+          <Column field="deviceCount" header={t.devices} style={{ width: '6rem' }} sortable />
+          <Column
             header={t.registered}
             body={(u: AdminUser) => new Date(u.createdAt).toLocaleDateString()}
           />
@@ -155,7 +168,32 @@ function UserDetailDialog({
                 : t.noActiveSub}
             </span>
           </div>
+          <div>{t.devices}: <span className="font-semibold">{user.deviceCount}</span></div>
+          <div>{t.referrals}: <span className="font-semibold">{user.referralCount}</span></div>
         </div>
+
+        {user.activeSubscription && (
+          <div>
+            <div className="flex items-center justify-between text-slate-400 mb-1">
+              <span>{t.traffic}</span>
+              <span>
+                {(user.activeSubscription.trafficUsedBytes / 1024 ** 3).toFixed(2)} /{' '}
+                {(user.activeSubscription.trafficLimitBytes / 1024 ** 3).toFixed(0)} GB
+              </span>
+            </div>
+            <div className="w-full h-1.5 rounded-full bg-dark-900 overflow-hidden">
+              <div
+                className="h-full bg-brand-500 rounded-full"
+                style={{
+                  width: `${Math.min(
+                    100,
+                    (user.activeSubscription.trafficUsedBytes / Math.max(1, user.activeSubscription.trafficLimitBytes)) * 100
+                  )}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="pt-3 border-t border-dark-800 space-y-2">
           <label className="block text-slate-400">{t.adjustBalance}</label>

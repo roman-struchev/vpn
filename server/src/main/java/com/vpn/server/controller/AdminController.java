@@ -30,6 +30,7 @@ public class AdminController {
     private final BalanceEntryRepository balanceEntryRepository;
     private final TransportPolicyRepository transportPolicyRepository;
     private final ConnTelemetryRepository connTelemetryRepository;
+    private final DeviceRepository deviceRepository;
 
     public AdminController(
             NodeManagementService nodeManagementService,
@@ -41,7 +42,8 @@ public class AdminController {
             SubscriptionRepository subscriptionRepository,
             BalanceEntryRepository balanceEntryRepository,
             TransportPolicyRepository transportPolicyRepository,
-            ConnTelemetryRepository connTelemetryRepository
+            ConnTelemetryRepository connTelemetryRepository,
+            DeviceRepository deviceRepository
     ) {
         this.nodeManagementService = nodeManagementService;
         this.nodeRepository = nodeRepository;
@@ -53,6 +55,7 @@ public class AdminController {
         this.balanceEntryRepository = balanceEntryRepository;
         this.transportPolicyRepository = transportPolicyRepository;
         this.connTelemetryRepository = connTelemetryRepository;
+        this.deviceRepository = deviceRepository;
     }
 
     // ==========================================
@@ -124,6 +127,8 @@ public class AdminController {
             map.put("referralCode", u.getReferralCode());
             map.put("referredByUserId", u.getReferredBy() != null ? u.getReferredBy().getId() : null);
             map.put("createdAt", u.getCreatedAt());
+            map.put("deviceCount", deviceRepository.countByUserIdAndIsActiveTrue(u.getId()));
+            map.put("referralCount", userRepository.countByReferredBy_Id(u.getId()));
 
             subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(u.getId(), "ACTIVE")
                     .ifPresent(s -> map.put("activeSubscription", Map.of(

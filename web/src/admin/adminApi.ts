@@ -45,6 +45,8 @@ export interface AdminUser {
   referralCode: string;
   referredByUserId: number | null;
   createdAt: string;
+  deviceCount: number;
+  referralCount: number;
   activeSubscription?: {
     id: number;
     tariffId: string;
