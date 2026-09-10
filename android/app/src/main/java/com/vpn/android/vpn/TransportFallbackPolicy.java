@@ -25,12 +25,22 @@ public class TransportFallbackPolicy {
 
     private final int nodeCount;
     private final boolean grpcAvailable;
-    private Transport current = Transport.XHTTP;
+    private Transport current;
     private int switchesSinceTransportStart = 0;
 
     public TransportFallbackPolicy(int nodeCount, boolean grpcAvailable) {
+        this(nodeCount, grpcAvailable, Transport.XHTTP);
+    }
+
+    /**
+     * @param initialTransport server-advertised {@code transport_policy.primaryTransport}
+     *                         (docs/PLAN.md §6/§10). Only honored when {@code grpcAvailable} —
+     *                         otherwise starting on GRPC would have nowhere to fall back to.
+     */
+    public TransportFallbackPolicy(int nodeCount, boolean grpcAvailable, Transport initialTransport) {
         this.nodeCount = Math.max(1, nodeCount);
         this.grpcAvailable = grpcAvailable;
+        this.current = (initialTransport == Transport.GRPC && grpcAvailable) ? Transport.GRPC : Transport.XHTTP;
     }
 
     public Transport getCurrentTransport() {

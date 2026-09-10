@@ -15,12 +15,18 @@ export interface TransportSwitchOutcome {
 export class TransportFallbackPolicy {
   private readonly nodeCount: number;
   private readonly grpcAvailable: boolean;
-  private current: Transport = 'XHTTP';
+  private current: Transport;
   private switchesSinceTransportStart = 0;
 
-  constructor(nodeCount: number, grpcAvailable: boolean) {
+  /**
+   * @param initialTransport server-advertised `transport_policy.primaryTransport`
+   *   (docs/PLAN.md §6/§10). Only honored when `grpcAvailable` — otherwise starting
+   *   on GRPC would have nowhere to fall back to.
+   */
+  constructor(nodeCount: number, grpcAvailable: boolean, initialTransport: Transport = 'XHTTP') {
     this.nodeCount = Math.max(1, nodeCount);
     this.grpcAvailable = grpcAvailable;
+    this.current = initialTransport === 'GRPC' && grpcAvailable ? 'GRPC' : 'XHTTP';
   }
 
   getCurrentTransport(): Transport {

@@ -39,4 +39,14 @@ describe('TransportFallbackPolicy', () => {
     const policy = new TransportFallbackPolicy(0, true);
     expect(policy.onNodeSwitch().transportChanged).toBe(true);
   });
+
+  it('honors server-advertised initial GRPC transport', () => {
+    const policy = new TransportFallbackPolicy(3, true, 'GRPC');
+    expect(policy.getCurrentTransport()).toBe('GRPC');
+  });
+
+  it('ignores server-advertised GRPC initial transport when GRPC is unavailable', () => {
+    const policy = new TransportFallbackPolicy(3, false, 'GRPC');
+    expect(policy.getCurrentTransport()).toBe('XHTTP');
+  });
 });

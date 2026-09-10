@@ -90,12 +90,14 @@ Same server contract as `web/src/api.ts` and the Android client:
   `rundll32` refresh call, Linux via GNOME's `gsettings` (other desktop
   environments: the local proxy still runs, just isn't auto-applied).
 - `src/shared/transportFallbackPolicy.ts` (Phase 9) — once every node has
-  been tried on XHTTP without success, switches to the gRPC+Reality fallback
-  inbound the server advertises per node
+  been tried on the starting transport without success, switches to the
+  gRPC+Reality fallback inbound the server advertises per node
   (`RoutingConfigResponse.nodes[].grpcFallbackPort`), same Reality keys and
   client UUID, before falling through to the honest operator-blocked screen.
-  Always starts on XHTTP — doesn't yet honor a server-side
-  `primaryTransport=GRPC` override (same simplification on the Android client).
+  The starting transport itself honors the server's
+  `transport_policy.primaryTransport` (`RoutingConfigResponse.primaryTransport`)
+  — a `GRPC` override only takes effect if at least one node actually
+  advertises a gRPC fallback port, otherwise it stays on XHTTP defensively.
 - `src/main/vpn/vpnController.ts` — orchestrates all of the above, mirrors
   `android/.../vpn/XrayVpnService.java` one-for-one in responsibility.
 - `src/shared/apiHostRotation.ts` + `src/main/api/dohDispatcher.ts` (Phase
@@ -124,5 +126,10 @@ Same server contract as `web/src/api.ts` and the Android client:
   renders, IPC round-trips to a real — if unreachable — API host).
 - Auto-update is wired but unverified against a real GitHub Releases feed
   (no release has been published yet).
-- Telemetry reports (`submitTelemetry`) are sent with `nodeId=null`: same gap
-  as the Android client — see android/README.md.
+- Telemetry reports (`submitTelemetry`) carry a real `nodeId`, resolved by
+  matching the currently-active node's host against
+  `RoutingConfigResponse.nodes[].publicIp` (same host-keyed correlation
+  already used for the gRPC fallback map) — feeds both the admin degradation
+  dashboard and `DynamicRoutingService`'s auto-quarantine. `connectTimeMs` is
+  still always sent as `0` (never measured) since telemetry is only reported
+  on failure, not on a successful connect.

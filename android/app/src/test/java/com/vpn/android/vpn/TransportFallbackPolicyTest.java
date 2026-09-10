@@ -57,4 +57,20 @@ public class TransportFallbackPolicyTest {
         // count as having exhausted the (degenerate, empty) node list.
         assertTrue(policy.onNodeSwitch().transportChanged);
     }
+
+    @Test
+    public void honorsServerAdvertisedInitialGrpcTransport() {
+        TransportFallbackPolicy policy = new TransportFallbackPolicy(
+                3, true, TransportFallbackPolicy.Transport.GRPC);
+        assertEquals(TransportFallbackPolicy.Transport.GRPC, policy.getCurrentTransport());
+    }
+
+    @Test
+    public void ignoresServerAdvertisedGrpcInitialTransportWhenGrpcUnavailable() {
+        // Defensive: a stale/misconfigured transport_policy shouldn't strand the
+        // client on a transport with no fallback inbound advertised for any node.
+        TransportFallbackPolicy policy = new TransportFallbackPolicy(
+                3, false, TransportFallbackPolicy.Transport.GRPC);
+        assertEquals(TransportFallbackPolicy.Transport.XHTTP, policy.getCurrentTransport());
+    }
 }

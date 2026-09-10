@@ -7,7 +7,7 @@ import { waitForPortOpen } from './portReady';
 import type { ConnectionEvent, ConnectionState } from '../../shared/connectionState';
 import { ConnectionStateMachine } from '../../shared/connectionState';
 import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnectBackoffPolicy';
-import { TransportFallbackPolicy } from '../../shared/transportFallbackPolicy';
+import { TransportFallbackPolicy, type Transport } from '../../shared/transportFallbackPolicy';
 import { parseVlessUri, type ParsedVlessUri } from '../../shared/vlessUri';
 import { buildXrayConfig, HTTP_PORT, type GrpcFallback } from '../../shared/xrayConfigFactory';
 
@@ -32,6 +32,7 @@ export class VpnController extends EventEmitter {
   private backoff: ReconnectBackoffPolicy | null = null;
   private transportFallback: TransportFallbackPolicy | null = null;
   private grpcByHost = new Map<string, GrpcFallback>();
+  private nodeIdByHost = new Map<string, number>();
   private stopping = false;
   private retryTimer: NodeJS.Timeout | null = null;
 
@@ -81,12 +82,15 @@ export class VpnController extends EventEmitter {
       );
 
       this.grpcByHost = new Map();
+      this.nodeIdByHost = new Map();
       for (const n of policy.nodes) {
         if (n.grpcFallbackPort) {
           this.grpcByHost.set(n.publicIp, { port: n.grpcFallbackPort, serviceName: n.grpcFallbackServiceName ?? undefined });
         }
+        this.nodeIdByHost.set(n.publicIp, n.id);
       }
-      this.transportFallback = new TransportFallbackPolicy(parsed.length, this.grpcByHost.size > 0);
+      const initialTransport: Transport = policy.primaryTransport?.toUpperCase() === 'GRPC' ? 'GRPC' : 'XHTTP';
+      this.transportFallback = new TransportFallbackPolicy(parsed.length, this.grpcByHost.size > 0, initialTransport);
 
       await this.attemptStart();
     } catch (e) {
@@ -148,6 +152,11 @@ export class VpnController extends EventEmitter {
   private async handleFailure(): Promise<void> {
     if (this.stopping || !this.backoff || !this.transportFallback) return;
 
+    // Capture which node this failure is actually about before nodeIndex
+    // potentially advances below — telemetry must be attributed to the node
+    // that just failed, not to whichever node we're about to try next.
+    const failedNodeId = this.nodeIdByHost.get(this.nodes[this.nodeIndex % this.nodes.length].host) ?? null;
+
     const decision = this.backoff.onFailure();
     let whitelistSuspected = false;
 
@@ -159,7 +168,7 @@ export class VpnController extends EventEmitter {
         const verdict = await probeCensorship();
         whitelistSuspected = verdict === 'OPERATOR_RESTRICTION';
         if (whitelistSuspected) {
-          this.reportTelemetry(whitelistSuspected);
+          this.reportTelemetry(whitelistSuspected, failedNodeId);
           this.transition('OPERATOR_BLOCK_DETECTED');
           return;
         }
@@ -168,17 +177,18 @@ export class VpnController extends EventEmitter {
       }
     }
 
-    this.reportTelemetry(whitelistSuspected);
+    this.reportTelemetry(whitelistSuspected, failedNodeId);
     this.transition('TUNNEL_DOWN');
     this.retryTimer = setTimeout(() => {
       if (!this.stopping) void this.attemptStart();
     }, decision.delaySeconds * 1000);
   }
 
-  private reportTelemetry(whitelistSuspected: boolean): void {
-    // Best-effort, feeds the admin degradation dashboard (docs/PLAN.md §8).
+  private reportTelemetry(whitelistSuspected: boolean, nodeId: number | null): void {
+    // Best-effort, feeds the admin degradation dashboard and
+    // DynamicRoutingService's auto-quarantine (docs/PLAN.md §8), which is keyed off nodeId.
     void this.apiClient.submitTelemetry(
-      null,
+      nodeId,
       null,
       null,
       this.transportFallback?.getCurrentTransport() ?? 'XHTTP',

@@ -72,12 +72,15 @@ backup domains, tried in order on a network-level (not HTTP-error) failure —
   network-level failure ("Пул резервных доменов для API сервера"); DoH for
   the API client itself was already in place from Phase 7 (`api/DohDns`).
 - `vpn/TransportFallbackPolicy` (Phase 9) — once every node has been tried on
-  XHTTP without success, switches to the gRPC+Reality fallback inbound the
-  server advertises per node (`RoutingConfigResponse.NodeInfo.grpcFallbackPort`),
-  same Reality keys and client UUID, before falling through to the honest
-  operator-blocked screen. Always starts on XHTTP — doesn't yet honor a
-  server-side `primaryTransport=GRPC` override (see desktop/README.md's
-  matching note; same simplification on both clients).
+  the starting transport without success, switches to the gRPC+Reality
+  fallback inbound the server advertises per node
+  (`RoutingConfigResponse.NodeInfo.grpcFallbackPort`), same Reality keys and
+  client UUID, before falling through to the honest operator-blocked screen.
+  The starting transport itself honors the server's
+  `transport_policy.primaryTransport` (`RoutingConfigResponse.primaryTransport`,
+  region/operator/global scoped) — a `GRPC` override only takes effect if at
+  least one node actually advertises a gRPC fallback port, otherwise it stays
+  on XHTTP defensively.
 
 ## Known gaps / not yet done
 
@@ -89,9 +92,12 @@ backup domains, tried in order on a network-level (not HTTP-error) failure —
 - No Telegram-native login (the Mini App's `initData` HMAC flow is
   Telegram-WebView-specific); the app uses the same email/password
   `POST /api/v1/auth/{register,login}` the web client uses.
-- Telemetry reports (`POST /api/v1/client/telemetry`) are sent with `nodeId=null`:
-  subscription links don't carry the server-side node id today, only
-  `/api/v1/client/config` does. Feeds the admin degradation dashboard, not
-  yet `DynamicRoutingService`'s auto-quarantine (which keys off `nodeId`).
+- Telemetry reports (`POST /api/v1/client/telemetry`) carry a real `nodeId`,
+  resolved by matching the currently-active `VlessUri` host against
+  `RoutingConfigResponse.NodeInfo.publicIp` (same host-keyed correlation
+  already used for the gRPC fallback port/service-name maps) — feeds both the
+  admin degradation dashboard and `DynamicRoutingService`'s auto-quarantine.
+  `connectTimeMs` is still always sent as `0` (never measured) since
+  telemetry is only reported on failure, not on a successful connect.
 - Release signing / Play Store listing (docs/stores-and-liability.md) is out
   of scope for this MVP pass.

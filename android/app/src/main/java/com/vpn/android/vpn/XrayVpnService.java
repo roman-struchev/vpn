@@ -66,6 +66,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private List<VlessUri> nodes = new ArrayList<>();
     private final Map<String, Integer> grpcPortsByHost = new HashMap<>();
     private final Map<String, String> grpcServiceNamesByHost = new HashMap<>();
+    private final Map<String, Long> nodeIdsByHost = new HashMap<>();
     private int currentNodeIndex = 0;
     private volatile boolean stopping = false;
 
@@ -124,13 +125,19 @@ public class XrayVpnService extends VpnService implements DialerController {
 
             grpcPortsByHost.clear();
             grpcServiceNamesByHost.clear();
+            nodeIdsByHost.clear();
             if (policy.nodes != null) {
                 for (RoutingConfigResponse.NodeInfo n : policy.nodes) {
                     if (n.grpcFallbackPort != null) grpcPortsByHost.put(n.publicIp, n.grpcFallbackPort);
                     if (n.grpcFallbackServiceName != null) grpcServiceNamesByHost.put(n.publicIp, n.grpcFallbackServiceName);
+                    nodeIdsByHost.put(n.publicIp, n.id);
                 }
             }
-            this.transportFallbackPolicy = new TransportFallbackPolicy(parsed.size(), !grpcPortsByHost.isEmpty());
+            boolean grpcAvailable = !grpcPortsByHost.isEmpty();
+            TransportFallbackPolicy.Transport initialTransport = "GRPC".equalsIgnoreCase(policy.primaryTransport)
+                    ? TransportFallbackPolicy.Transport.GRPC
+                    : TransportFallbackPolicy.Transport.XHTTP;
+            this.transportFallbackPolicy = new TransportFallbackPolicy(parsed.size(), grpcAvailable, initialTransport);
 
             attemptTunnelStart();
         } catch (Exception e) {
@@ -176,6 +183,11 @@ public class XrayVpnService extends VpnService implements DialerController {
     private void handleFailure() {
         if (stopping) return;
 
+        // Capture which node this failure is actually about before currentNodeIndex
+        // potentially advances below — telemetry must be attributed to the node that
+        // just failed, not to whichever node we're about to try next.
+        Long failedNodeId = nodeIdsByHost.get(nodes.get(currentNodeIndex % nodes.size()).getHost());
+
         ReconnectBackoffPolicy.Decision decision = backoffPolicy.onFailure();
         boolean whitelistSuspected = false;
         if (decision.switchNode) {
@@ -185,7 +197,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                 CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
                 whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
                 if (whitelistSuspected) {
-                    reportTelemetry(decision, true);
+                    reportTelemetry(decision, true, failedNodeId);
                     transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
                     updateNotification();
                     return;
@@ -194,7 +206,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                 Log.i(TAG, "XHTTP exhausted across all nodes, falling back to gRPC+Reality (Phase 9)");
             }
         }
-        reportTelemetry(decision, whitelistSuspected);
+        reportTelemetry(decision, whitelistSuspected, failedNodeId);
         transition(ConnectionEvent.TUNNEL_DOWN);
         updateNotification();
         worker.execute(() -> {
@@ -210,16 +222,14 @@ public class XrayVpnService extends VpnService implements DialerController {
     }
 
     /**
-     * Best-effort — feeds the admin degradation dashboard and (once nodeId
-     * correlation is added) DynamicRoutingService's auto-quarantine (see
-     * docs/ROADMAP_PROGRESS.md §3). nodeId is left null here: subscription
-     * links (used to build {@link #nodes}) don't currently carry the
-     * server-side node id, only {@code /api/v1/client/config} does.
+     * Best-effort — feeds the admin degradation dashboard and
+     * DynamicRoutingService's auto-quarantine (docs/ROADMAP_PROGRESS.md §3),
+     * which is keyed off nodeId.
      */
-    private void reportTelemetry(ReconnectBackoffPolicy.Decision decision, boolean whitelistSuspected) {
+    private void reportTelemetry(ReconnectBackoffPolicy.Decision decision, boolean whitelistSuspected, Long nodeId) {
         String transport = transportFallbackPolicy.getCurrentTransport().name();
         worker.execute(() -> apiClient.submitTelemetry(
-                null, null, null, transport, 0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected));
+                nodeId, null, null, transport, 0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected));
     }
 
     private void checkHealth() {
