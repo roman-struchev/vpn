@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Shared brand tokens, kept in sync with web/tailwind.config.js (brand/dark scales). -->
+    <!-- Shared brand tokens — canonical values live in design-tokens/tokens.mjs
+         (brand/dark/state), consumed directly by web/tailwind.config.js and
+         desktop/tailwind.config.js. Kept in sync here manually: Android's Gradle/AGP
+         build has no XML-codegen step from that file, which would be disproportionate
+         tooling for ~15 color constants — if you change a value in tokens.mjs, update
+         the matching color below in the same change (uppercase hex, no alpha). -->
     <color name="brand_50">#F0FDF4</color>
     <color name="brand_100">#DCFCE7</color>
     <color name="brand_500">#22C55E</color>

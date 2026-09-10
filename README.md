@@ -19,6 +19,7 @@
 | `android/` | Нативный Android-клиент (Java, Material 3, `libXray`) | отдельный Gradle-проект (Groovy DSL) |
 | `desktop/` | Electron + React клиент для Windows/macOS (системный прокси) | отдельный npm-проект |
 | `e2e/` | Playwright — интеграционные тесты поверх реального сервера+веба (не моки), полный пользовательский флоу | отдельный npm-проект, см. [`e2e/README.md`](e2e/README.md) |
+| `design-tokens/` | Общие значения дизайн-токенов (цвета бренда/тёмной темы) — единый источник для `web/` и `desktop/`; Android синхронизируется вручную, см. [`tokens.mjs`](design-tokens/tokens.mjs) | не собирается, импортируется напрямую (`export default {...}`) |
 | `proto/` | Protobuf-контракт `server ↔ agent` | генерируется в `server/` и `agent/` при сборке |
 | `scripts/install-node.sh` | Установщик агента на VPS-ноду (systemd, sysctl, опционально TLS-сертификат для CDN-нод и `tc`-каппинг для пробного пула) | см. §5 ниже |
 | `docs/` | План, статус фаз, исследование блокировок РФ, чеклист магазинов приложений, Google Play readiness | — |

@@ -130,13 +130,13 @@
 ### [x] Фаза 8: Desktop-клиент для Windows и macOS
 *Требования по PLAN.md §5*. Отдельный npm-проект [`desktop/`](file:///Users/roman.struchev/git/vpn/vpn/desktop) (как `agent/` и `web/`), см. [`desktop/README.md`](file:///Users/roman.struchev/git/vpn/vpn/desktop/README.md).
 - [x] **Стек**: Electron-vite 5 + React 18 + TypeScript, electron-builder + electron-updater.
-- [x] **Дизайн**: тот же брендовый набор цветов, что в `web/tailwind.config.js` и Android `colors.xml` (значения продублированы в `desktop/tailwind.config.js` — общий пакет `ui/` из PLAN.md §9 сознательно не заводился в этом MVP, см. «Не сделано» ниже).
+- [x] **Дизайн**: тот же брендовый набор цветов, что в `web/tailwind.config.js` и Android `colors.xml` — значения вынесены в единый источник [`design-tokens/tokens.mjs`](file:///Users/roman.struchev/git/vpn/vpn/design-tokens/tokens.mjs) (Пост-Фаза-10, см. ниже); полноценного общего пакета `ui/` из PLAN.md §9 по-прежнему нет — web/desktop на React+Tailwind, Android нативный на Java/Material3, общего компонентного рантайма между ними и не может быть, только общие значения токенов.
 - [x] **Режим MVP — системный прокси, не TUN**: локальный дочерний процесс `xray-core` (`Xray-core` releases, бинарь `xray`, подтягивается [`scripts/fetch-xray-core.mjs`](file:///Users/roman.struchev/git/vpn/vpn/desktop/scripts/fetch-xray-core.mjs), не коммитится в git) слушает SOCKS5+HTTP на `127.0.0.1`; ОС-прокси переключается через [`systemProxy.ts`](file:///Users/roman.struchev/git/vpn/vpn/desktop/src/main/proxy/systemProxy.ts) (`networksetup` на macOS, реестр `Internet Settings` + `rundll32`-рефреш на Windows, `gsettings` для GNOME на Linux).
 - [x] **Логика подключения**: [`vpnController.ts`](file:///Users/roman.struchev/git/vpn/vpn/desktop/src/main/vpn/vpnController.ts) — тот же контракт, что и в Android-клиенте: `connectionState.ts` (стейт-машина + `OperatorBlocked`), `reconnectBackoffPolicy.ts` (15–20с, смена ноды после 2–3 неудач, фиксированный fingerprint на сессию), `censorshipVerdict.ts`/`censorshipProbe.ts` (честный экран блокировки), `xrayConfigFactory.ts` (VLESS+XHTTP+Reality, XMUX всегда включён, `dns`-блок с DoH для трафика через прокси).
 - [x] **Автообновление без сертификата**: `electron-updater` + `publish: provider: github` в `package.json`, `mac.notarize: false`, NSIS для Windows — схема идентична `aurapad`.
 - [x] **CI / Тесты**: unit-тесты (Vitest, framework-free `src/shared/`) — `desktop/test/`. Jobs `web` и `desktop` добавлены в [`.github/workflows/gradlew-publish-and-deploy.yml`](file:///Users/roman.struchev/git/vpn/vpn/.github/workflows/gradlew-publish-and-deploy.yml).
 - [x] Реально собран и вручную проверен на этой машине: `npm run dev` (Electron-окно, вход, DevTools-логи IPC) и `npx electron-builder --mac --dir` (несигнированный `.app`, запущен как отдельный процесс, меню/иконка Dock показывают правильное имя `NextGen VPN`).
-- **Не сделано в этом MVP**: нет общего пакета `ui/` (см. выше — вместо этого продублированы значения токенов); нет TUN-режима (сознательно, см. `desktop/README.md`); нет DoH для собственных REST-запросов приложения (только для трафика внутри туннеля); Linux-прокси автоматизирован только для GNOME; автообновление не проверялось против реального GitHub Releases (релизов ещё не было).
+- **Не сделано в этом MVP**: нет TUN-режима (сознательно, см. `desktop/README.md`); нет DoH для собственных REST-запросов приложения (только для трафика внутри туннеля); Linux-прокси автоматизирован только для GNOME; автообновление не проверялось против реального GitHub Releases (релизов ещё не было). (Дедупликация значений дизайн-токенов между web/desktop/Android закрыта в Пост-Фазе-10.)
 
 ### [x] Фаза 9: Транспортная гибкость и стрессоустойчивость
 - [x] **Резервный транспорт gRPC + Reality при деградации XHTTP** (не gRPC+голый TLS — см. [`docs/research/ru-blocking.md`](file:///Users/roman.struchev/git/vpn/vpn/docs/research/ru-blocking.md), где gRPC+Reality уже описан как «⚠️ запасной»; голая TLS ломает механику Reality). Прямые ноды (`type=direct`) теперь всегда слушают **два** inbound'а одновременно — XHTTP на 443 и gRPC на 8443 (`vpn.grpc-fallback.port`), с одними и теми же Reality-ключами и client UUID:
@@ -270,7 +270,13 @@ docker compose up -d postgres
    долетают до клиента как generic 500 без структурированного тела ошибки, а
    не как явный 400 с понятным сообщением. Затрагивает все контроллеры,
    поэтому это отдельная, преднамеренно не начатая в этой сессии правка.
-5. **Общий пакет `ui/`** для дизайн-токенов между `web/`, `desktop/` и Android
-   (`docs/PLAN.md` §9) не заведён — токены продублированы вручную в трёх
-   местах. Осознанное упрощение MVP (см. `desktop/README.md`), но риск
-   визуального расхождения растёт с каждым отдельным изменением темы.
+5. ~~**Общий пакет `ui/`** для дизайн-токенов~~ — **сделано**: значения (`brand`,
+   `dark`, `state`) вынесены в [`design-tokens/tokens.mjs`](file:///Users/roman.struchev/git/vpn/vpn/design-tokens/tokens.mjs),
+   `web/tailwind.config.js` и `desktop/tailwind.config.js` импортируют его
+   напрямую (значения подтверждены идентичными до консолидации — дрейфа
+   между платформами не было). Android (`colors.xml`) синхронизируется
+   вручную — автогенерация XML из JS-модуля на этапе сборки Gradle/AGP была
+   бы непропорционально сложной ради полутора десятков цветовых констант;
+   вместо этого `colors.xml` комментарием указывает на канонический файл.
+   Полноценного общего пакета компонентов по-прежнему нет и не может быть в
+   этой архитектуре — web/desktop на React, Android нативный на Java/Material3.

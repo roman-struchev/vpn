@@ -1,3 +1,5 @@
+import tokens from '../design-tokens/tokens.mjs';
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -8,19 +10,8 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: {
-          50: '#f0fdf4',
-          100: '#dcfce7',
-          500: '#22c55e',
-          600: '#16a34a',
-          700: '#15803d',
-        },
-        dark: {
-          800: '#181b20',
-          850: '#131519',
-          900: '#0c0e12',
-          950: '#060709',
-        }
+        brand: tokens.brand,
+        dark: tokens.dark,
       }
     },
   },
