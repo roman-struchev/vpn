@@ -57,6 +57,12 @@ public class Node {
     @Column(name = "active_connections")
     private Integer activeConnections = 0;
 
+    @Column(name = "cpu_count")
+    private Integer cpuCount;
+
+    @Column(name = "total_bytes_served", nullable = false)
+    private Long totalBytesServed = 0L;
+
     @Column(name = "last_heartbeat_at")
     private Instant lastHeartbeatAt;
 
@@ -115,6 +121,12 @@ public class Node {
 
     public Integer getActiveConnections() { return activeConnections; }
     public void setActiveConnections(Integer activeConnections) { this.activeConnections = activeConnections; }
+
+    public Integer getCpuCount() { return cpuCount; }
+    public void setCpuCount(Integer cpuCount) { this.cpuCount = cpuCount; }
+
+    public Long getTotalBytesServed() { return totalBytesServed; }
+    public void setTotalBytesServed(Long totalBytesServed) { this.totalBytesServed = totalBytesServed; }
 
     public Instant getLastHeartbeatAt() { return lastHeartbeatAt; }
     public void setLastHeartbeatAt(Instant lastHeartbeatAt) { this.lastHeartbeatAt = lastHeartbeatAt; }

@@ -14,6 +14,7 @@ export function NodesSection({ t }: { t: AdminT }) {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [showBootstrap, setShowBootstrap] = useState(false);
+  const [showLegend, setShowLegend] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -42,12 +43,44 @@ export function NodesSection({ t }: { t: AdminT }) {
     <div className="space-y-4">
       {error && <p className="text-xs text-red-400">{t.error}: {error}</p>}
 
-      <button
-        onClick={() => setShowBootstrap(true)}
-        className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-xs font-semibold"
-      >
-        {t.createBootstrapToken}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowBootstrap(true)}
+          className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-xs font-semibold"
+        >
+          {t.createBootstrapToken}
+        </button>
+        <button
+          onClick={() => setShowLegend((v) => !v)}
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-brand-400 hover:text-brand-300"
+        >
+          {showLegend ? t.nodeLegendToggleHide : t.nodeLegendToggleShow}
+        </button>
+      </div>
+
+      {showLegend && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-5 rounded-2xl bg-dark-900 border border-dark-800 text-xs text-slate-300 max-w-4xl">
+          <div>
+            <h4 className="font-bold text-slate-100 mb-2">{t.poolLegendTitle}</h4>
+            <ul className="space-y-1.5 text-slate-400 leading-relaxed">
+              <li>{t.poolTrialDesc}</li>
+              <li>{t.poolPaidDesc}</li>
+              <li>{t.poolQuarantineDesc}</li>
+              <li>{t.poolReserveDesc}</li>
+            </ul>
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-100 mb-2">{t.statusLegendTitle}</h4>
+            <ul className="space-y-1.5 text-slate-400 leading-relaxed">
+              <li>{t.statusOnlineDesc}</li>
+              <li>{t.statusOfflineDesc}</li>
+              <li>{t.statusDrainingDesc}</li>
+              <li>{t.statusMaintenanceDesc}</li>
+            </ul>
+          </div>
+          <p className="md:col-span-2 text-[11px] text-slate-500 pt-2 border-t border-dark-800">{t.poolSharingNote}</p>
+        </div>
+      )}
 
       <div className="admin-table rounded-2xl overflow-hidden border border-dark-800">
         <DataTable value={nodes} loading={loading} paginator rows={15} dataKey="id" size="small" emptyMessage={t.loading}>
@@ -84,7 +117,11 @@ export function NodesSection({ t }: { t: AdminT }) {
           />
           <Column
             header={t.cpu}
-            body={(n: AdminNode) => (n.cpuPercent != null ? `${n.cpuPercent}%` : '—')}
+            body={(n: AdminNode) =>
+              n.cpuPercent != null
+                ? `${n.cpuPercent}%${n.cpuCount ? ` (×${n.cpuCount})` : ''}`
+                : '—'
+            }
           />
           <Column
             header={t.memory}
@@ -94,7 +131,14 @@ export function NodesSection({ t }: { t: AdminT }) {
                 : '—'
             }
           />
-          <Column field="activeConnections" header={t.connections} />
+          <Column
+            header={<span title={t.connectionsHint} className="cursor-help border-b border-dotted border-slate-600">{t.connections}</span>}
+            body={(n: AdminNode) => n.activeConnections ?? 0}
+          />
+          <Column
+            header={t.trafficServed}
+            body={(n: AdminNode) => `${(n.totalBytesServed / 1024 ** 3).toFixed(2)} GB`}
+          />
           <Column
             header={t.lastHeartbeat}
             body={(n: AdminNode) => (n.lastHeartbeatAt ? new Date(n.lastHeartbeatAt).toLocaleString() : '—')}

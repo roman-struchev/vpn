@@ -62,12 +62,20 @@ message AgentMessage {
 }
 
 message Heartbeat {
+  // Already normalized per core (loadavg / cpu_count * 100) — cpu_count is
+  // sent alongside it purely so the admin UI can show "23% (4 cores)"
+  // instead of leaving the viewer to wonder what the percentage is relative to.
   double cpu_percent = 1;
   int64 memory_used_bytes = 2;
   int64 memory_total_bytes = 3;
   bool xray_running = 4;
   int64 uptime_seconds = 5;
+  // Distinct users with traffic in the last stats interval (see
+  // TrafficStatsReport) — a recency-based proxy for "active now", not a
+  // literal live TCP connection count (xray's Stats API doesn't expose that
+  // directly per-user without also tracking connection open/close events).
   int32 active_connections = 6;
+  int32 cpu_count = 7;
 }
 
 enum AckStatus {

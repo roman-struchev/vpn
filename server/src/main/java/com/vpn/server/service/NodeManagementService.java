@@ -137,6 +137,7 @@ public class NodeManagementService {
     public void processHeartbeat(Long nodeId, Heartbeat heartbeat) {
         nodeRepository.findById(nodeId).ifPresent(node -> {
             node.setCpuPercent(BigDecimal.valueOf(heartbeat.getCpuPercent()));
+            node.setCpuCount(heartbeat.getCpuCount());
             node.setMemoryUsedBytes(heartbeat.getMemoryUsedBytes());
             node.setMemoryTotalBytes(heartbeat.getMemoryTotalBytes());
             node.setActiveConnections(heartbeat.getActiveConnections());
@@ -162,9 +163,11 @@ public class NodeManagementService {
 
     @Transactional
     public void processTrafficStats(Long nodeId, TrafficStatsReport report) {
+        long nodeTotalBytes = 0;
         for (ClientTrafficDelta delta : report.getDeltasList()) {
             long totalBytes = delta.getUplinkBytes() + delta.getDownlinkBytes();
             if (totalBytes <= 0) continue;
+            nodeTotalBytes += totalBytes;
 
             subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(delta.getUserId(), "ACTIVE")
                     .ifPresent(sub -> {
@@ -176,6 +179,14 @@ public class NodeManagementService {
                         }
                         subscriptionRepository.save(sub);
                     });
+        }
+
+        if (nodeTotalBytes > 0) {
+            long finalNodeTotalBytes = nodeTotalBytes;
+            nodeRepository.findById(nodeId).ifPresent(node -> {
+                node.setTotalBytesServed(node.getTotalBytesServed() + finalNodeTotalBytes);
+                nodeRepository.save(node);
+            });
         }
     }
 

@@ -67,9 +67,11 @@ export interface AdminNode {
   asn: string | null;
   configVersion: number;
   cpuPercent: number | null;
+  cpuCount: number | null;
   memoryUsedBytes: number | null;
   memoryTotalBytes: number | null;
   activeConnections: number | null;
+  totalBytesServed: number;
   lastHeartbeatAt: string | null;
   createdAt: string;
 }

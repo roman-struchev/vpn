@@ -18,6 +18,10 @@ export class AgentGrpcClient {
   private isShuttingDown: boolean = false;
   private currentConfigVersion: number = 0;
   private currentConfigHash: string = '';
+  // Distinct users with traffic in the last sendTrafficStats() poll — read by
+  // the next sendHeartbeat() as a "recently active" proxy (see Heartbeat.
+  // active_connections in agent.proto for why this isn't a literal live count).
+  private lastActiveUserCount: number = 0;
 
   constructor(config: AgentConfig, xraySupervisor: XraySupervisor, statsCollector: StatsCollector) {
     this.config = config;
@@ -156,11 +160,12 @@ export class AgentGrpcClient {
       timestampEpochMs: Date.now(),
       heartbeat: {
         cpuPercent,
+        cpuCount,
         memoryUsedBytes: usedMem,
         memoryTotalBytes: totalMem,
         xrayRunning: xrayStatus.isRunning,
         uptimeSeconds: Math.round(os.uptime()),
-        activeConnections: 0,
+        activeConnections: this.lastActiveUserCount,
       },
     };
 
@@ -177,6 +182,7 @@ export class AgentGrpcClient {
 
     try {
       const deltas = await this.statsCollector.collectDeltas();
+      this.lastActiveUserCount = deltas.length;
       if (deltas.length === 0) return;
 
       const msg = {
