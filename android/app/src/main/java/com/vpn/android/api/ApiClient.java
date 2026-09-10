@@ -10,6 +10,7 @@ import com.vpn.android.api.model.SubscriptionLinksResponse;
 import com.vpn.android.api.model.UserProfile;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -30,17 +31,26 @@ public class ApiClient {
 
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
-    private final String baseUrl;
+    private final ApiHostRotation hostRotation;
     private final OkHttpClient http;
     private final Gson gson = new Gson();
     private final TokenStore tokenStore;
 
     public ApiClient(TokenStore tokenStore) {
-        this(BuildConfig.API_BASE_URL, tokenStore);
+        this(hostsFromBuildConfig(), tokenStore);
     }
 
     public ApiClient(String baseUrl, TokenStore tokenStore) {
-        this.baseUrl = baseUrl.endsWith("/") ? baseUrl : baseUrl + "/";
+        this(List.of(baseUrl), tokenStore);
+    }
+
+    /** @param baseUrls primary host first, then backup domains (Phase 10: "резервные домены API"). */
+    public ApiClient(List<String> baseUrls, TokenStore tokenStore) {
+        List<String> normalized = new ArrayList<>();
+        for (String url : baseUrls) {
+            normalized.add(url.endsWith("/") ? url : url + "/");
+        }
+        this.hostRotation = new ApiHostRotation(normalized);
         this.tokenStore = tokenStore;
 
         OkHttpClient bootstrap = new OkHttpClient.Builder()
@@ -51,6 +61,17 @@ public class ApiClient {
                 .connectTimeout(10, TimeUnit.SECONDS)
                 .readTimeout(15, TimeUnit.SECONDS)
                 .build();
+    }
+
+    private static List<String> hostsFromBuildConfig() {
+        List<String> hosts = new ArrayList<>();
+        hosts.add(BuildConfig.API_BASE_URL);
+        if (BuildConfig.API_BASE_URLS_BACKUP != null && !BuildConfig.API_BASE_URLS_BACKUP.isBlank()) {
+            for (String backup : BuildConfig.API_BASE_URLS_BACKUP.split(",")) {
+                if (!backup.isBlank()) hosts.add(backup.trim());
+            }
+        }
+        return hosts;
     }
 
     public AuthResponse login(String email, String password) throws ApiException, IOException {
@@ -103,10 +124,14 @@ public class ApiClient {
     }
 
     public RoutingConfigResponse getRoutingConfig(String operator, String region) throws ApiException, IOException {
-        HttpUrl.Builder url = HttpUrl.parse(baseUrl + "api/v1/client/config").newBuilder();
-        if (operator != null) url.addQueryParameter("operator", operator);
-        if (region != null) url.addQueryParameter("region", region);
-        return executeGet(url.build(), RoutingConfigResponse.class);
+        return executeWithHostRotation(host -> {
+            HttpUrl.Builder url = HttpUrl.parse(host + "api/v1/client/config").newBuilder();
+            if (operator != null) url.addQueryParameter("operator", operator);
+            if (region != null) url.addQueryParameter("region", region);
+            Request.Builder builder = new Request.Builder().url(url.build()).get();
+            applyAuth(builder);
+            return builder.build();
+        }, RoutingConfigResponse.class);
     }
 
     public void submitTelemetry(Long nodeId, String operator, String region, String transport,
@@ -132,28 +157,36 @@ public class ApiClient {
 
     // --- internal HTTP helpers -------------------------------------------------
 
-    private <T> T get(String path, Class<T> type) throws ApiException, IOException {
-        return executeGet(HttpUrl.parse(baseUrl + path), type);
+    /** Builds a Request against a given (already-normalized, trailing-slash) host. */
+    private interface RequestFactory {
+        Request build(String host);
     }
 
-    private <T> T executeGet(HttpUrl url, Class<T> type) throws ApiException, IOException {
-        Request.Builder builder = new Request.Builder().url(url).get();
-        applyAuth(builder);
-        return execute(builder.build(), type);
+    private <T> T get(String path, Class<T> type) throws ApiException, IOException {
+        return executeWithHostRotation(host -> {
+            Request.Builder builder = new Request.Builder().url(host + path).get();
+            applyAuth(builder);
+            return builder.build();
+        }, type);
     }
 
     private <T> T post(String path, JsonObject body, Class<T> type, boolean auth) throws ApiException, IOException {
-        Request.Builder builder = new Request.Builder()
-                .url(baseUrl + path)
-                .post(RequestBody.create(gson.toJson(body), JSON));
-        if (auth) applyAuth(builder);
-        return execute(builder.build(), type);
+        String json = gson.toJson(body);
+        return executeWithHostRotation(host -> {
+            Request.Builder builder = new Request.Builder()
+                    .url(host + path)
+                    .post(RequestBody.create(json, JSON));
+            if (auth) applyAuth(builder);
+            return builder.build();
+        }, type);
     }
 
     private void delete(String path) throws ApiException, IOException {
-        Request.Builder builder = new Request.Builder().url(baseUrl + path).delete();
-        applyAuth(builder);
-        execute(builder.build(), JsonObject.class);
+        executeWithHostRotation(host -> {
+            Request.Builder builder = new Request.Builder().url(host + path).delete();
+            applyAuth(builder);
+            return builder.build();
+        }, JsonObject.class);
     }
 
     private void applyAuth(Request.Builder builder) {
@@ -161,6 +194,27 @@ public class ApiClient {
         if (token != null) {
             builder.header("Authorization", "Bearer " + token);
         }
+    }
+
+    /**
+     * Phase 10 hardening: on a network-level failure (DNS/connect/timeout —
+     * consistent with the primary API domain being blocked or poisoned),
+     * retries against the next configured backup domain (see ApiHostRotation)
+     * before giving up. A successful HTTP response, even an error one (4xx/5xx),
+     * is never retried against another host — that's a real answer from the
+     * real server, not a connectivity problem.
+     */
+    private <T> T executeWithHostRotation(RequestFactory factory, Class<T> type) throws ApiException, IOException {
+        IOException lastError = null;
+        for (int attempt = 0; attempt < hostRotation.size(); attempt++) {
+            String host = attempt == 0 ? hostRotation.current() : hostRotation.advance();
+            try {
+                return execute(factory.build(host), type);
+            } catch (IOException e) {
+                lastError = e;
+            }
+        }
+        throw lastError;
     }
 
     private <T> T execute(Request request, Class<T> type) throws ApiException, IOException {

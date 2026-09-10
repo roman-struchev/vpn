@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initAutoUpdater } from './autoUpdater';
 import { ApiClient } from './api/apiClient';
+import { installDohDispatcher } from './api/dohDispatcher';
 import { TokenStore } from './api/tokenStore';
 import { registerIpcHandlers } from './ipc';
 import { createSystemProxyManager } from './proxy/systemProxy';
@@ -47,6 +48,8 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  installDohDispatcher();
+
   mainWindow = createWindow();
 
   const tokenStore = new TokenStore();

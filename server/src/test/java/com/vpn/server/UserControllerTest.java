@@ -11,9 +11,11 @@ import com.vpn.server.repository.CryptoInvoiceRepository;
 import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
 import com.vpn.server.repository.UserRepository;
+import com.vpn.server.service.AntiEnumerationService;
 import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,7 +58,13 @@ class UserControllerTest {
     private DeviceManagementService deviceManagementService;
 
     @Mock
+    private AntiEnumerationService antiEnumerationService;
+
+    @Mock
     private Authentication auth;
+
+    @Mock
+    private HttpServletRequest request;
 
     private UserController userController;
 
@@ -69,7 +77,8 @@ class UserControllerTest {
                 billingService,
                 cryptoInvoiceRepository,
                 exportService,
-                deviceManagementService
+                deviceManagementService,
+                antiEnumerationService
         );
         when(auth.getPrincipal()).thenReturn(10L);
     }
@@ -147,7 +156,7 @@ class UserControllerTest {
                 "vless://uuid2@5.6.7.8:443?..."
         ));
 
-        ResponseEntity<?> res = userController.getSubscriptionLinks(auth);
+        ResponseEntity<?> res = userController.getSubscriptionLinks(auth, request);
         assertEquals(200, res.getStatusCode().value());
         Map<?, ?> body = (Map<?, ?>) res.getBody();
         assertEquals(2, body.get("count"));

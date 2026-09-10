@@ -39,7 +39,10 @@ Server endpoints consumed (see `server/src/main/java/com/vpn/server/controller`)
 node list), `POST /api/v1/client/telemetry` (best-effort).
 
 `BuildConfig.API_BASE_URL` is a placeholder (`https://api.nextgenvpn.app/`);
-override per environment with `-PapiBaseUrl=https://...`.
+override per environment with `-PapiBaseUrl=https://...`. Phase 10: comma-separated
+backup domains, tried in order on a network-level (not HTTP-error) failure —
+`-PapiBaseUrlsBackup=https://api-backup1.example/,https://api-backup2.example/`
+(see `api/ApiHostRotation.java`).
 
 ## Architecture notes
 
@@ -65,6 +68,9 @@ override per environment with `-PapiBaseUrl=https://...`.
 - `vpn/XrayVpnService` — owns the TUN fd, the Xray lifecycle, and implements
   libXray's `DialerController` (`VpnService.protect()`) so every Go-initiated
   socket bypasses the tunnel.
+- `api/ApiHostRotation` (Phase 10) — rotates through backup API domains on a
+  network-level failure ("Пул резервных доменов для API сервера"); DoH for
+  the API client itself was already in place from Phase 7 (`api/DohDns`).
 - `vpn/TransportFallbackPolicy` (Phase 9) — once every node has been tried on
   XHTTP without success, switches to the gRPC+Reality fallback inbound the
   server advertises per node (`RoutingConfigResponse.NodeInfo.grpcFallbackPort`),

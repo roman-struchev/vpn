@@ -5,9 +5,11 @@ import com.vpn.server.repository.CryptoInvoiceRepository;
 import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
 import com.vpn.server.repository.UserRepository;
+import com.vpn.server.service.AntiEnumerationService;
 import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +29,7 @@ public class UserController {
     private final CryptoInvoiceRepository cryptoInvoiceRepository;
     private final SubscriptionExportService exportService;
     private final DeviceManagementService deviceManagementService;
+    private final AntiEnumerationService antiEnumerationService;
 
     public UserController(
             UserRepository userRepository,
@@ -35,7 +38,8 @@ public class UserController {
             BillingService billingService,
             CryptoInvoiceRepository cryptoInvoiceRepository,
             SubscriptionExportService exportService,
-            DeviceManagementService deviceManagementService
+            DeviceManagementService deviceManagementService,
+            AntiEnumerationService antiEnumerationService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -44,6 +48,7 @@ public class UserController {
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
         this.exportService = exportService;
         this.deviceManagementService = deviceManagementService;
+        this.antiEnumerationService = antiEnumerationService;
     }
 
     @GetMapping("/profile")
@@ -148,8 +153,9 @@ public class UserController {
     }
 
     @GetMapping("/subscription/links")
-    public ResponseEntity<?> getSubscriptionLinks(Authentication auth) {
+    public ResponseEntity<?> getSubscriptionLinks(Authentication auth, HttpServletRequest request) {
         Long userId = (Long) auth.getPrincipal();
+        antiEnumerationService.recordAccessAndEnforce(userId, request.getRemoteAddr());
         try {
             List<String> links = exportService.exportVlessLinks(userId);
             return ResponseEntity.ok(Map.of(

@@ -15,12 +15,20 @@ SERVER_GRPC="${1:-}"
 BOOTSTRAP_TOKEN="${2:-}"
 # Optional: only for CDN-fronted nodes (registered with type=cdn). A direct
 # Reality node needs none of this — Reality doesn't use a real certificate.
+# Pass "" to skip this and still set trial_cap_mbps below.
 CDN_HOSTNAME="${3:-}"
+# Optional (Phase 10): shared egress bandwidth ceiling in Mbit/s for a node
+# registered in the "trial" pool — see PLAN.md §4 ("тарификация без
+# ограничения скорости"): trial and paid nodes differ by pool capacity, not
+# a per-user limiter. fq_codel under the cap gives fair per-flow sharing so
+# one heavy trial user doesn't starve the rest of that pool.
+TRIAL_CAP_MBPS="${4:-}"
 
 if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
-    echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname]"
-    echo "Example (direct Reality node): $0 vpn.example.com:9090 bst_abc12345"
-    echo "Example (CDN node, Phase 9):   $0 vpn.example.com:9090 bst_abc12345 edge.example.com"
+    echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname] [trial_cap_mbps]"
+    echo "Example (direct Reality node):     $0 vpn.example.com:9090 bst_abc12345"
+    echo "Example (CDN node, Phase 9):       $0 vpn.example.com:9090 bst_abc12345 edge.example.com"
+    echo "Example (trial node, Phase 10):    $0 vpn.example.com:9090 bst_abc12345 \"\" 50"
     echo "  cdn_hostname must already resolve (via the CDN) to this host's IP on port 80/443"
     echo "  before running this script, so certbot's HTTP-01 challenge can complete."
     exit 1
@@ -28,7 +36,7 @@ fi
 
 echo "==> [1/6] Installing dependencies..."
 apt-get update -qq
-apt-get install -y -qq curl wget jq tar unzip ca-certificates iptables
+apt-get install -y -qq curl wget jq tar unzip ca-certificates iptables iproute2
 
 echo "==> [2/6] Optimizing sysctl (BBR, TCP buffer tuning)..."
 cat <<EOF > /etc/sysctl.d/99-vpn-tuning.conf
@@ -125,9 +133,51 @@ if [ -n "$CDN_HOSTNAME" ]; then
     fi
 fi
 
+if [ -n "$TRIAL_CAP_MBPS" ]; then
+    echo "==> [8/8] Capping egress bandwidth at ${TRIAL_CAP_MBPS}mbit (trial pool, fq_codel underneath)..."
+    IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
+    if [ -z "$IFACE" ]; then
+        echo "WARNING: could not auto-detect the primary network interface; skipping tc setup."
+        echo "         Run scripts/apply-trial-cap.sh <iface> ${TRIAL_CAP_MBPS} manually once you know it."
+    else
+        cat <<EOF > /usr/local/bin/vpn-apply-trial-cap.sh
+#!/usr/bin/env bash
+set -euo pipefail
+IFACE="\$1"
+CAP_MBPS="\$2"
+tc qdisc del dev "\$IFACE" root 2>/dev/null || true
+tc qdisc add dev "\$IFACE" root handle 1: htb default 10
+tc class add dev "\$IFACE" parent 1: classid 1:10 htb rate "\${CAP_MBPS}mbit" ceil "\${CAP_MBPS}mbit"
+tc qdisc add dev "\$IFACE" parent 1:10 handle 10: fq_codel
+EOF
+        chmod +x /usr/local/bin/vpn-apply-trial-cap.sh
+
+        cat <<EOF > /etc/systemd/system/vpn-trial-cap.service
+[Unit]
+Description=Apply trial-pool egress bandwidth cap (tc/fq_codel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vpn-apply-trial-cap.sh ${IFACE} ${TRIAL_CAP_MBPS}
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable --now vpn-trial-cap.service
+        echo "==> Applied: interface ${IFACE} capped at ${TRIAL_CAP_MBPS}mbit, persisted via vpn-trial-cap.service"
+    fi
+fi
+
 echo "==> Installation complete!"
 echo "To start the agent: systemctl enable --now vpn-node-agent"
 if [ -n "$CDN_HOSTNAME" ]; then
     echo "This node was provisioned as a CDN edge for $CDN_HOSTNAME — register it via the admin API"
     echo "with type=cdn (see docs/ROADMAP_PROGRESS.md Phase 9 / AdminController's bootstrap-token endpoint)."
+fi
+if [ -n "$TRIAL_CAP_MBPS" ]; then
+    echo "Register this node in the 'trial' pool via the admin API to match the bandwidth cap applied above."
 fi

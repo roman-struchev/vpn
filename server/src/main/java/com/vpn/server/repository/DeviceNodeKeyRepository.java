@@ -21,4 +21,7 @@ public interface DeviceNodeKeyRepository extends JpaRepository<DeviceNodeKey, Lo
 
     @Query("SELECT dnk FROM DeviceNodeKey dnk JOIN FETCH dnk.device d JOIN FETCH d.user WHERE dnk.node.id = :nodeId AND d.isActive = true")
     List<DeviceNodeKey> findActiveKeysByNodeId(@Param("nodeId") Long nodeId);
+
+    @Query("SELECT dnk FROM DeviceNodeKey dnk JOIN dnk.device d WHERE d.user.id = :userId")
+    List<DeviceNodeKey> findByDeviceUserId(@Param("userId") Long userId);
 }

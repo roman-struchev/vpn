@@ -1,3 +1,4 @@
+import { ApiHostRotation } from '../../shared/apiHostRotation';
 import type { TokenStore } from './tokenStore';
 
 const DEFAULT_BASE_URL = 'https://api.nextgenvpn.app/';
@@ -70,10 +71,15 @@ export class ApiError extends Error {
  * contract as web/src/api.ts and the Android ApiClient.
  */
 export class ApiClient {
-  private readonly baseUrl: string;
+  private readonly hostRotation: ApiHostRotation;
 
-  constructor(private readonly tokenStore: TokenStore, baseUrl: string = process.env.VPN_API_BASE_URL || DEFAULT_BASE_URL) {
-    this.baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  /**
+   * @param baseUrls primary host first, then backup domains (Phase 10:
+   *   "резервные домены API"). Defaults to VPN_API_BASE_URL plus
+   *   VPN_API_BASE_URLS_BACKUP (comma-separated), or the placeholder host.
+   */
+  constructor(private readonly tokenStore: TokenStore, baseUrls: string[] = hostsFromEnv()) {
+    this.hostRotation = new ApiHostRotation(baseUrls.map((url) => (url.endsWith('/') ? url : `${url}/`)));
   }
 
   async login(email: string, password: string): Promise<AuthResponse> {
@@ -149,6 +155,13 @@ export class ApiClient {
     return this.request<T>(path, { method: 'POST', body: JSON.stringify(body) }, auth);
   }
 
+  /**
+   * On a network-level failure (DNS/connect/timeout — consistent with the
+   * primary API domain being blocked or poisoned), retries against the next
+   * configured backup domain before giving up. A real HTTP response, even an
+   * error one (4xx/5xx), is never retried against another host — that's an
+   * actual answer from the actual server, not a connectivity problem.
+   */
   private async request<T>(path: string, init: RequestInit, auth: boolean): Promise<T> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (auth) {
@@ -156,14 +169,32 @@ export class ApiClient {
       if (token) headers.Authorization = `Bearer ${token}`;
     }
 
-    const response = await fetch(this.baseUrl + path, { ...init, headers });
-    const text = await response.text();
-
-    if (!response.ok) {
-      throw new ApiError(response.status, extractError(text));
+    let lastError: unknown;
+    for (let attempt = 0; attempt < this.hostRotation.size(); attempt++) {
+      const host = attempt === 0 ? this.hostRotation.current() : this.hostRotation.advance();
+      try {
+        const response = await fetch(host + path, { ...init, headers });
+        const text = await response.text();
+        if (!response.ok) {
+          throw new ApiError(response.status, extractError(text));
+        }
+        return text ? (JSON.parse(text) as T) : (undefined as T);
+      } catch (e) {
+        if (e instanceof ApiError) throw e; // real server response — don't rotate hosts
+        lastError = e;
+      }
     }
-    return text ? (JSON.parse(text) as T) : (undefined as T);
+    throw lastError;
   }
+}
+
+function hostsFromEnv(): string[] {
+  const hosts = [process.env.VPN_API_BASE_URL || DEFAULT_BASE_URL];
+  const backups = process.env.VPN_API_BASE_URLS_BACKUP;
+  if (backups) {
+    hosts.push(...backups.split(',').map((h) => h.trim()).filter(Boolean));
+  }
+  return hosts;
 }
 
 function extractError(body: string): string {

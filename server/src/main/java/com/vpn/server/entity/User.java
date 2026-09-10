@@ -2,6 +2,7 @@ package com.vpn.server.entity;
 
 import jakarta.persistence.*;
 import java.time.Instant;
+import java.util.UUID;
 
 @Entity
 @Table(name = "users")
@@ -34,6 +35,16 @@ public class User {
 
     @Column(name = "referral_code", nullable = false, unique = true, length = 32)
     private String referralCode;
+
+    // Opaque identifier for the public, unauthenticated subscription export URL
+    // (GET /api/v1/subscription/export/{token}) — never the raw sequential id,
+    // see V2__anti_enumeration.sql. The DB column also defaults to
+    // gen_random_uuid() (backfills rows from before this migration); the Java
+    // default below covers new rows explicitly, since Hibernate sends every
+    // mapped column on INSERT and would otherwise override the DB default
+    // with NULL.
+    @Column(name = "subscription_token", nullable = false, unique = true)
+    private UUID subscriptionToken = UUID.randomUUID();
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "referred_by_user_id")
@@ -73,6 +84,9 @@ public class User {
 
     public String getReferralCode() { return referralCode; }
     public void setReferralCode(String referralCode) { this.referralCode = referralCode; }
+
+    public UUID getSubscriptionToken() { return subscriptionToken; }
+    public void setSubscriptionToken(UUID subscriptionToken) { this.subscriptionToken = subscriptionToken; }
 
     public User getReferredBy() { return referredBy; }
     public void setReferredBy(User referredBy) { this.referredBy = referredBy; }

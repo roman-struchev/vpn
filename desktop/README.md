@@ -28,10 +28,14 @@ Xray-core release with `XRAY_CORE_VERSION=v26.x.y npm run fetch:xray`.
 
 `src/main/api/apiClient.ts` defaults to the placeholder
 `https://api.nextgenvpn.app/`. Point it at a real backend with the
-`VPN_API_BASE_URL` environment variable:
+`VPN_API_BASE_URL` environment variable, and (Phase 10) optionally list
+backup domains tried in order on a network-level failure with
+`VPN_API_BASE_URLS_BACKUP` (comma-separated):
 
 ```bash
-VPN_API_BASE_URL=https://your-server.example.com/ npm run dev
+VPN_API_BASE_URL=https://your-server.example.com/ \
+VPN_API_BASE_URLS_BACKUP=https://backup1.example.com/,https://backup2.example.com/ \
+npm run dev
 ```
 
 For a packaged release build, set it at build time the same way (or edit
@@ -94,6 +98,12 @@ Same server contract as `web/src/api.ts` and the Android client:
   `primaryTransport=GRPC` override (same simplification on the Android client).
 - `src/main/vpn/vpnController.ts` — orchestrates all of the above, mirrors
   `android/.../vpn/XrayVpnService.java` one-for-one in responsibility.
+- `src/shared/apiHostRotation.ts` + `src/main/api/dohDispatcher.ts` (Phase
+  10) — backup API domains tried in order on a network-level failure, and a
+  global `undici` dispatcher that resolves hostnames over DoH (Cloudflare's
+  JSON API, not the binary RFC 8484 wire format — no DNS-packet parsing
+  needed) instead of the OS/ISP resolver, falling back to the system
+  resolver if the DoH query itself fails.
 - `src/preload/index.ts` exposes a typed `window.vpnApi` via
   `contextBridge`; the renderer (`src/renderer/src/`) never touches Node or
   Electron APIs directly (`contextIsolation: true`, `nodeIntegration: false`).
@@ -105,11 +115,6 @@ Same server contract as `web/src/api.ts` and the Android client:
   scheme was chosen to avoid).
 - No custom app icon yet (`build.directories.buildResources` = `build/`, but
   it's empty — electron-builder falls back to its default Electron icon).
-- The desktop API client doesn't use DNS-over-HTTPS for its own requests
-  (unlike the Xray tunnel's own `dns` block, which does) — Node's `fetch`
-  doesn't support a custom DoH resolver without a fair amount of extra
-  plumbing (a hand-rolled RFC 8484 client over `undici`'s `Agent.connect.lookup`).
-  Not done for this MVP pass.
 - Linux system-proxy support only covers GNOME (`gsettings`); KDE and others
   need manual proxy configuration pointed at `127.0.0.1:10809` (HTTP) /
   `127.0.0.1:10808` (SOCKS5).

@@ -43,3 +43,18 @@ vpn:
     bot-username: ${TELEGRAM_BOT_USERNAME:MyVpnBot}
     webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
     mini-app-url: ${TELEGRAM_MINI_APP_URL:https://vpn.example.com}
+  # Phase 9: gRPC+Reality fallback inbound, offered alongside XHTTP on every
+  # "direct" node (see NodeManagementService#buildNodeConfigSync).
+  grpc-fallback:
+    port: ${VPN_GRPC_FALLBACK_PORT:8443}
+    service-name: ${VPN_GRPC_FALLBACK_SERVICE_NAME:vless-grpc}
+  # Phase 9: cert directory convention for CDN-type nodes (real TLS, no
+  # Reality) — see scripts/install-node.sh's optional certbot step.
+  cdn:
+    cert-dir: ${VPN_CDN_CERT_DIR:/etc/xray/certs}
+  # Phase 10: anti-enumeration — rotate a user's VLESS keys after their
+  # subscription/export endpoint is pulled from more than max-distinct-ips
+  # distinct IPs within window-minutes (see AntiEnumerationService).
+  anti-enum:
+    window-minutes: ${VPN_ANTI_ENUM_WINDOW_MINUTES:60}
+    max-distinct-ips: ${VPN_ANTI_ENUM_MAX_DISTINCT_IPS:5}
