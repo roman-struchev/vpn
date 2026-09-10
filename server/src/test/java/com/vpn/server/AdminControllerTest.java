@@ -1,14 +1,11 @@
 package com.vpn.server;
 
 import com.vpn.server.controller.AdminController;
-import com.vpn.server.entity.CryptoInvoice;
-import com.vpn.server.entity.Node;
-import com.vpn.server.entity.NodeBootstrapToken;
-import com.vpn.server.entity.User;
+import com.vpn.server.entity.*;
 import com.vpn.server.grpc.AgentStreamServiceImpl;
 import com.vpn.server.grpc.agent.v1.CommandType;
 import com.vpn.server.grpc.agent.v1.ServerCommand;
-import com.vpn.server.repository.NodeRepository;
+import com.vpn.server.repository.*;
 import com.vpn.server.service.BlockchainPaymentService;
 import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.task.QuotaEnforcementTask;
@@ -22,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -45,6 +43,21 @@ class AdminControllerTest {
     @Mock
     private BlockchainPaymentService blockchainPaymentService;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private SubscriptionRepository subscriptionRepository;
+
+    @Mock
+    private BalanceEntryRepository balanceEntryRepository;
+
+    @Mock
+    private TransportPolicyRepository transportPolicyRepository;
+
+    @Mock
+    private ConnTelemetryRepository connTelemetryRepository;
+
     private AdminController adminController;
 
     @BeforeEach
@@ -54,8 +67,113 @@ class AdminControllerTest {
                 nodeRepository,
                 agentStreamService,
                 quotaEnforcementTask,
-                blockchainPaymentService
+                blockchainPaymentService,
+                userRepository,
+                subscriptionRepository,
+                balanceEntryRepository,
+                transportPolicyRepository,
+                connTelemetryRepository
         );
+    }
+
+    @Test
+    void testGetDashboardMetrics() {
+        when(userRepository.count()).thenReturn(150L);
+        when(subscriptionRepository.countByStatus("ACTIVE")).thenReturn(120L);
+        when(userRepository.sumBalanceUsdtMicro()).thenReturn(450_000_000L);
+        when(subscriptionRepository.sumTrafficUsedBytes()).thenReturn(10_737_418_240L);
+        when(nodeRepository.countByStatus("ONLINE")).thenReturn(5L);
+        when(nodeRepository.count()).thenReturn(6L);
+        when(connTelemetryRepository.aggregateByOperatorAndRegion(any(Instant.class))).thenReturn(List.of());
+
+        ResponseEntity<Map<String, Object>> response = adminController.getDashboardMetrics();
+        assertEquals(200, response.getStatusCode().value());
+        Map<String, Object> body = response.getBody();
+        assertNotNull(body);
+        assertEquals(150L, body.get("totalUsers"));
+        assertEquals(120L, body.get("activeSubscriptions"));
+        assertEquals(450.0, body.get("totalBalanceUsdt"));
+        assertEquals(5L, body.get("onlineNodes"));
+    }
+
+    @Test
+    void testListUsers() {
+        User user = new User();
+        user.setId(10L);
+        user.setEmail("user10@vpn.test");
+        user.setRole("USER");
+        user.setStatus("ACTIVE");
+        user.setBalanceUsdtMicro(5_000_000L);
+
+        when(userRepository.findAll()).thenReturn(List.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+
+        ResponseEntity<List<Map<String, Object>>> response = adminController.listUsers();
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(1, response.getBody().size());
+        assertEquals("user10@vpn.test", response.getBody().get(0).get("email"));
+    }
+
+    @Test
+    void testAdjustUserBalance() {
+        User user = new User();
+        user.setId(12L);
+        user.setBalanceUsdtMicro(2_000_000L);
+
+        when(userRepository.findById(12L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class))).thenReturn(user);
+
+        Map<String, Object> req = Map.of("amountMicro", 3_000_000L, "description", "Admin credit");
+        ResponseEntity<?> response = adminController.adjustUserBalance(12L, req);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(5_000_000L, user.getBalanceUsdtMicro());
+        verify(balanceEntryRepository).save(any(BalanceEntry.class));
+    }
+
+    @Test
+    void testUpdateUserStatusBlocked() {
+        User user = new User();
+        user.setId(15L);
+        user.setStatus("ACTIVE");
+
+        when(userRepository.findById(15L)).thenReturn(Optional.of(user));
+        when(userRepository.save(any(User.class))).thenReturn(user);
+
+        ResponseEntity<?> response = adminController.updateUserStatus(15L, Map.of("status", "BLOCKED"));
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("BLOCKED", user.getStatus());
+        verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testUpdateNodePool() {
+        Node node = new Node();
+        node.setId(3L);
+        node.setPool("paid");
+
+        when(nodeRepository.findById(3L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenReturn(node);
+
+        ResponseEntity<?> response = adminController.updateNodePool(3L, "quarantine");
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("quarantine", node.getPool());
+        verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testSaveTransportPolicy() {
+        TransportPolicy policy = new TransportPolicy();
+        policy.setScope("region");
+        policy.setScopeValue("RU-MOW");
+        policy.setPrimaryTransport("XHTTP");
+
+        when(transportPolicyRepository.save(any(TransportPolicy.class))).thenReturn(policy);
+
+        ResponseEntity<?> response = adminController.saveTransportPolicy(policy);
+        assertEquals(200, response.getStatusCode().value());
+        verify(agentStreamService).pushConfigSyncToAll();
     }
 
     @Test

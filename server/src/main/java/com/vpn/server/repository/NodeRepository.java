@@ -12,4 +12,5 @@ public interface NodeRepository extends JpaRepository<Node, Long> {
     Optional<Node> findByHostname(String hostname);
     List<Node> findByPoolAndStatus(String pool, String status);
     List<Node> findByStatus(String status);
+    long countByStatus(String status);
 }
