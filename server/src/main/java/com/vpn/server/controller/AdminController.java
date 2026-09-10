@@ -72,13 +72,24 @@ public class AdminController {
         List<Object[]> rawAgg = connTelemetryRepository.aggregateByOperatorAndRegion(past24Hours);
         List<Map<String, Object>> telemetryStats = new ArrayList<>();
         for (Object[] row : rawAgg) {
-            telemetryStats.add(Map.of(
-                    "operator", row[0] != null ? row[0] : "Unknown",
-                    "region", row[1] != null ? row[1] : "Unknown",
-                    "transport", row[2] != null ? row[2] : "Unknown",
-                    "totalReports", row[3],
-                    "whitelistSuspected", row[4]
-            ));
+            long totalReports = (Long) row[3];
+            long successCount = (Long) row[4];
+            long failureReportCount = (Long) row[5];
+            Double avgConnectTimeMs = (Double) row[7];
+
+            Map<String, Object> stat = new LinkedHashMap<>();
+            stat.put("operator", row[0] != null ? row[0] : "Unknown");
+            stat.put("region", row[1] != null ? row[1] : "Unknown");
+            stat.put("transport", row[2] != null ? row[2] : "Unknown");
+            stat.put("totalReports", totalReports);
+            stat.put("successCount", successCount);
+            stat.put("failureReportCount", failureReportCount);
+            // Real denominator now that success is reported too, not just failure —
+            // previously this bucket only ever showed an absolute failure count.
+            stat.put("failureRatePercent", totalReports > 0 ? (failureReportCount * 100.0 / totalReports) : 0.0);
+            stat.put("avgConnectTimeMs", avgConnectTimeMs != null ? Math.round(avgConnectTimeMs) : null);
+            stat.put("whitelistSuspected", row[6]);
+            telemetryStats.add(stat);
         }
 
         Map<String, Object> response = new HashMap<>();

@@ -119,6 +119,7 @@ export class VpnController extends EventEmitter {
     if (this.stopping || !this.backoff || !this.transportFallback) return;
     const vless = this.nodes[this.nodeIndex % this.nodes.length];
     const transport = this.transportFallback.getCurrentTransport();
+    const attemptStartedAt = Date.now();
 
     try {
       const config = buildXrayConfig(vless, this.backoff.getFingerprint(), transport, this.grpcByHost.get(vless.host));
@@ -134,6 +135,10 @@ export class VpnController extends EventEmitter {
       this.backoff.onSuccess();
       this.transition('TUNNEL_UP');
       this.emit('region', vless.remark || vless.host);
+
+      const connectTimeMs = Date.now() - attemptStartedAt;
+      const connectedNodeId = this.nodeIdByHost.get(vless.host) ?? null;
+      this.reportTelemetry(false, connectedNodeId, connectTimeMs, 0);
     } catch (e) {
       console.warn(`Tunnel start failed on node ${this.nodeIndex} (transport=${transport})`, e);
       await this.handleFailure();
@@ -168,7 +173,7 @@ export class VpnController extends EventEmitter {
         const verdict = await probeCensorship();
         whitelistSuspected = verdict === 'OPERATOR_RESTRICTION';
         if (whitelistSuspected) {
-          this.reportTelemetry(whitelistSuspected, failedNodeId);
+          this.reportTelemetry(true, failedNodeId, 0, this.backoff.getConsecutiveFailuresOnNode());
           this.transition('OPERATOR_BLOCK_DETECTED');
           return;
         }
@@ -177,23 +182,34 @@ export class VpnController extends EventEmitter {
       }
     }
 
-    this.reportTelemetry(whitelistSuspected, failedNodeId);
+    this.reportTelemetry(whitelistSuspected, failedNodeId, 0, this.backoff.getConsecutiveFailuresOnNode());
     this.transition('TUNNEL_DOWN');
     this.retryTimer = setTimeout(() => {
       if (!this.stopping) void this.attemptStart();
     }, decision.delaySeconds * 1000);
   }
 
-  private reportTelemetry(whitelistSuspected: boolean, nodeId: number | null): void {
-    // Best-effort, feeds the admin degradation dashboard and
-    // DynamicRoutingService's auto-quarantine (docs/PLAN.md §8), which is keyed off nodeId.
+  /**
+   * Best-effort, feeds the admin degradation dashboard and
+   * DynamicRoutingService's auto-quarantine (docs/PLAN.md §8), which is keyed
+   * off nodeId. Called on both success (connectTimeMs measured, failureCount=0)
+   * and failure (connectTimeMs=0, failureCount from the backoff policy) — the
+   * dashboard needs the success reports as the denominator for a real failure
+   * rate, not just an absolute failure count.
+   */
+  private reportTelemetry(
+    whitelistSuspected: boolean,
+    nodeId: number | null,
+    connectTimeMs: number,
+    failureCount: number
+  ): void {
     void this.apiClient.submitTelemetry(
       nodeId,
       null,
       null,
       this.transportFallback?.getCurrentTransport() ?? 'XHTTP',
-      0,
-      this.backoff?.getConsecutiveFailuresOnNode() ?? 0,
+      connectTimeMs,
+      failureCount,
       whitelistSuspected
     );
   }

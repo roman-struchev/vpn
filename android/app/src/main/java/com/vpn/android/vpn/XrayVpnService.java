@@ -155,6 +155,7 @@ public class XrayVpnService extends VpnService implements DialerController {
         if (stopping) return;
         VlessUri vless = nodes.get(currentNodeIndex % nodes.size());
         boolean useGrpc = transportFallbackPolicy.getCurrentTransport() == TransportFallbackPolicy.Transport.GRPC;
+        long attemptStartUptimeMs = android.os.SystemClock.elapsedRealtime();
         try {
             ensureTunEstablished();
             int tunFd = tunInterface.getFd();
@@ -173,6 +174,10 @@ public class XrayVpnService extends VpnService implements DialerController {
             VpnStatusBus.activeRegion.postValue(vless.getRemark());
             updateNotification();
             mainHandler.postDelayed(healthCheck, 30_000);
+
+            int connectTimeMs = (int) (android.os.SystemClock.elapsedRealtime() - attemptStartUptimeMs);
+            Long connectedNodeId = nodeIdsByHost.get(vless.getHost());
+            reportTelemetry(connectTimeMs, 0, false, connectedNodeId);
         } catch (Exception e) {
             Log.w(TAG, "Tunnel start failed on node " + currentNodeIndex
                     + " (transport=" + transportFallbackPolicy.getCurrentTransport() + ")", e);
@@ -197,7 +202,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                 CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
                 whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
                 if (whitelistSuspected) {
-                    reportTelemetry(decision, true, failedNodeId);
+                    reportTelemetry(0, backoffPolicy.getConsecutiveFailuresOnNode(), true, failedNodeId);
                     transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
                     updateNotification();
                     return;
@@ -206,7 +211,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                 Log.i(TAG, "XHTTP exhausted across all nodes, falling back to gRPC+Reality (Phase 9)");
             }
         }
-        reportTelemetry(decision, whitelistSuspected, failedNodeId);
+        reportTelemetry(0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected, failedNodeId);
         transition(ConnectionEvent.TUNNEL_DOWN);
         updateNotification();
         worker.execute(() -> {
@@ -224,12 +229,15 @@ public class XrayVpnService extends VpnService implements DialerController {
     /**
      * Best-effort — feeds the admin degradation dashboard and
      * DynamicRoutingService's auto-quarantine (docs/ROADMAP_PROGRESS.md §3),
-     * which is keyed off nodeId.
+     * which is keyed off nodeId. Called on both success (connectTimeMs measured,
+     * failureCount=0) and failure (connectTimeMs=0, failureCount from the backoff
+     * policy) — the dashboard needs the success reports as the denominator for a
+     * real failure rate, not just an absolute failure count.
      */
-    private void reportTelemetry(ReconnectBackoffPolicy.Decision decision, boolean whitelistSuspected, Long nodeId) {
+    private void reportTelemetry(int connectTimeMs, int failureCount, boolean whitelistSuspected, Long nodeId) {
         String transport = transportFallbackPolicy.getCurrentTransport().name();
         worker.execute(() -> apiClient.submitTelemetry(
-                nodeId, null, null, transport, 0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected));
+                nodeId, null, null, transport, connectTimeMs, failureCount, whitelistSuspected));
     }
 
     private void checkHealth() {

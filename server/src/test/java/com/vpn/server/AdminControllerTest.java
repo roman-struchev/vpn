@@ -97,6 +97,59 @@ class AdminControllerTest {
     }
 
     @Test
+    @SuppressWarnings("unchecked")
+    void testGetDashboardMetricsSplitsSuccessAndFailureTelemetry() {
+        // Regression: clients now report telemetry on a successful connect too
+        // (failureCount=0), not just on failure — see docs/ROADMAP_PROGRESS.md
+        // §6 item #2. ConnTelemetryRepository.aggregateByOperatorAndRegion's row
+        // shape gained successCount/failureReportCount/avgConnectTimeMs columns;
+        // this asserts the controller actually surfaces a real failure rate
+        // instead of just the old absolute "totalReports" (which used to only
+        // ever count failures, since nothing reported on success).
+        when(userRepository.count()).thenReturn(1L);
+        when(subscriptionRepository.countByStatus("ACTIVE")).thenReturn(1L);
+        when(userRepository.sumBalanceUsdtMicro()).thenReturn(0L);
+        when(subscriptionRepository.sumTrafficUsedBytes()).thenReturn(0L);
+        when(nodeRepository.countByStatus("ONLINE")).thenReturn(1L);
+        when(nodeRepository.count()).thenReturn(1L);
+
+        // operator, region, transport, totalReports, successCount, failureReportCount, whitelistSuspected, avgConnectTimeMs
+        Object[] row = new Object[]{"MTS", "RU-MOW", "XHTTP", 10L, 7L, 3L, 1L, 842.5};
+        when(connTelemetryRepository.aggregateByOperatorAndRegion(any(Instant.class)))
+                .thenReturn(List.<Object[]>of(row));
+
+        ResponseEntity<Map<String, Object>> response = adminController.getDashboardMetrics();
+        Map<String, Object> body = response.getBody();
+        assertNotNull(body);
+        List<Map<String, Object>> degradation = (List<Map<String, Object>>) body.get("telemetryDegradation");
+        assertEquals(1, degradation.size());
+        Map<String, Object> stat = degradation.get(0);
+        assertEquals("MTS", stat.get("operator"));
+        assertEquals(10L, stat.get("totalReports"));
+        assertEquals(7L, stat.get("successCount"));
+        assertEquals(3L, stat.get("failureReportCount"));
+        assertEquals(30.0, (Double) stat.get("failureRatePercent"), 0.001);
+        assertEquals(843L, stat.get("avgConnectTimeMs")); // rounded from 842.5
+        assertEquals(1L, stat.get("whitelistSuspected"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void testGetDashboardMetricsHandlesZeroTelemetryReports() {
+        when(userRepository.count()).thenReturn(1L);
+        when(subscriptionRepository.countByStatus("ACTIVE")).thenReturn(1L);
+        when(userRepository.sumBalanceUsdtMicro()).thenReturn(0L);
+        when(subscriptionRepository.sumTrafficUsedBytes()).thenReturn(0L);
+        when(nodeRepository.countByStatus("ONLINE")).thenReturn(1L);
+        when(nodeRepository.count()).thenReturn(1L);
+        when(connTelemetryRepository.aggregateByOperatorAndRegion(any(Instant.class))).thenReturn(List.of());
+
+        ResponseEntity<Map<String, Object>> response = adminController.getDashboardMetrics();
+        List<Map<String, Object>> degradation = (List<Map<String, Object>>) response.getBody().get("telemetryDegradation");
+        assertTrue(degradation.isEmpty());
+    }
+
+    @Test
     void testListUsers() {
         User user = new User();
         user.setId(10L);
