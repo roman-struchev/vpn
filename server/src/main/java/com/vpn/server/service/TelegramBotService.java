@@ -1,0 +1,496 @@
+package com.vpn.server.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vpn.server.entity.*;
+import com.vpn.server.repository.BalanceEntryRepository;
+import com.vpn.server.repository.SubscriptionRepository;
+import com.vpn.server.repository.TariffRepository;
+import com.vpn.server.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
+
+@Service
+public class TelegramBotService {
+
+    private static final Logger log = LoggerFactory.getLogger(TelegramBotService.class);
+    private static final long STARS_TO_MICRO_USDT_RATE = 20_000L; // 1 Star = 0.02 USDT = 20,000 micro-USDT
+
+    private final UserRepository userRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final TariffRepository tariffRepository;
+    private final BalanceEntryRepository balanceEntryRepository;
+    private final SubscriptionExportService exportService;
+    private final DeviceManagementService deviceManagementService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final SecureRandom random = new SecureRandom();
+    private final HttpClient httpClient;
+
+    @Value("${vpn.telegram.bot-token:}")
+    private String botToken;
+
+    @Value("${vpn.telegram.bot-username:MyVpnBot}")
+    private String botUsername = "MyVpnBot";
+
+    @Value("${vpn.telegram.mini-app-url:https://vpn.example.com}")
+    private String miniAppUrl = "https://vpn.example.com";
+
+    public TelegramBotService(
+            UserRepository userRepository,
+            SubscriptionRepository subscriptionRepository,
+            TariffRepository tariffRepository,
+            BalanceEntryRepository balanceEntryRepository,
+            SubscriptionExportService exportService,
+            DeviceManagementService deviceManagementService
+    ) {
+        this.userRepository = userRepository;
+        this.subscriptionRepository = subscriptionRepository;
+        this.tariffRepository = tariffRepository;
+        this.balanceEntryRepository = balanceEntryRepository;
+        this.exportService = exportService;
+        this.deviceManagementService = deviceManagementService;
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    public void setBotToken(String botToken) {
+        this.botToken = botToken;
+    }
+
+    public void setBotUsername(String botUsername) {
+        this.botUsername = botUsername;
+    }
+
+    public void setMiniAppUrl(String miniAppUrl) {
+        this.miniAppUrl = miniAppUrl;
+    }
+
+    @Transactional
+    public void processUpdate(JsonNode update) {
+        if (update.has("message")) {
+            handleMessage(update.path("message"));
+        } else if (update.has("callback_query")) {
+            handleCallbackQuery(update.path("callback_query"));
+        } else if (update.has("pre_checkout_query")) {
+            handlePreCheckoutQuery(update.path("pre_checkout_query"));
+        }
+    }
+
+    private void handleMessage(JsonNode message) {
+        if (message.has("successful_payment")) {
+            handleSuccessfulPayment(message, message.path("successful_payment"));
+            return;
+        }
+
+        long chatId = message.path("chat").path("id").asLong();
+        JsonNode from = message.path("from");
+        long telegramId = from.path("id").asLong();
+        String text = message.path("text").asText("").trim();
+
+        User user = getOrCreateUser(telegramId, from);
+
+        if (text.startsWith("/start")) {
+            String[] parts = text.split("\\s+");
+            if (parts.length > 1 && user.getReferredBy() == null) {
+                applyReferralCode(user, parts[1]);
+            }
+            sendWelcomeMessage(chatId, user);
+        } else if (text.equalsIgnoreCase("/vpn") || text.equalsIgnoreCase("/status")) {
+            sendVpnStatus(chatId, user);
+        } else if (text.equalsIgnoreCase("/balance")) {
+            sendBalanceMenu(chatId, user);
+        } else if (text.equalsIgnoreCase("/ref") || text.equalsIgnoreCase("/referral")) {
+            sendReferralInfo(chatId, user);
+        } else if (text.equalsIgnoreCase("/diag")) {
+            sendDiagnosticInfo(chatId);
+        } else {
+            sendWelcomeMessage(chatId, user);
+        }
+    }
+
+    private void handleCallbackQuery(JsonNode callbackQuery) {
+        String callbackId = callbackQuery.path("id").asText();
+        String data = callbackQuery.path("data").asText();
+        JsonNode message = callbackQuery.path("message");
+        long chatId = message.path("chat").path("id").asLong();
+        long telegramId = callbackQuery.path("from").path("id").asLong();
+
+        answerCallback(callbackId, "");
+
+        User user = userRepository.findByTelegramId(telegramId).orElse(null);
+        if (user == null) {
+            return;
+        }
+
+        if (data.startsWith("stars:")) {
+            int stars = Integer.parseInt(data.substring("stars:".length()));
+            sendStarsInvoice(chatId, user, stars);
+        } else if ("cmd_vpn".equals(data)) {
+            sendVpnStatus(chatId, user);
+        } else if ("cmd_balance".equals(data)) {
+            sendBalanceMenu(chatId, user);
+        } else if ("cmd_ref".equals(data)) {
+            sendReferralInfo(chatId, user);
+        } else if ("cmd_diag".equals(data)) {
+            sendDiagnosticInfo(chatId);
+        }
+    }
+
+    private void handlePreCheckoutQuery(JsonNode preCheckoutQuery) {
+        String queryId = preCheckoutQuery.path("id").asText();
+        answerPreCheckout(queryId, true, null);
+    }
+
+    @Transactional
+    public void handleSuccessfulPayment(JsonNode message, JsonNode payment) {
+        long chatId = message.path("chat").path("id").asLong();
+        long telegramId = message.path("from").path("id").asLong();
+        long totalAmountStars = payment.path("total_amount").asLong();
+        String chargeId = payment.path("telegram_payment_charge_id").asText();
+
+        if (chargeId.isBlank() || balanceEntryRepository.existsByReferenceId(chargeId)) {
+            log.warn("Payment charge ID {} already credited or invalid, skipping", chargeId);
+            return;
+        }
+
+        User user = userRepository.findByTelegramId(telegramId).orElse(null);
+        if (user == null) {
+            log.error("User not found for Telegram payment: telegramId={}", telegramId);
+            return;
+        }
+
+        long creditedMicro = totalAmountStars * STARS_TO_MICRO_USDT_RATE;
+        long newBalance = user.getBalanceUsdtMicro() + creditedMicro;
+        user.setBalanceUsdtMicro(newBalance);
+        userRepository.save(user);
+
+        BalanceEntry entry = new BalanceEntry();
+        entry.setUser(user);
+        entry.setAmountUsdtMicro(creditedMicro);
+        entry.setBalanceAfterMicro(newBalance);
+        entry.setType("DEPOSIT");
+        entry.setDescription("Telegram Stars deposit (" + totalAmountStars + " Stars)");
+        entry.setReferenceId(chargeId);
+        balanceEntryRepository.save(entry);
+
+        log.info("Credited {} Stars ({} micro-USDT) to user #{}", totalAmountStars, creditedMicro, user.getId());
+
+        // Process referral bonus (15%)
+        if (user.getReferredBy() != null) {
+            User referrer = user.getReferredBy();
+            long bonusMicro = creditedMicro * 15 / 100;
+            if (bonusMicro > 0) {
+                long refNewBalance = referrer.getBalanceUsdtMicro() + bonusMicro;
+                referrer.setBalanceUsdtMicro(refNewBalance);
+                userRepository.save(referrer);
+
+                BalanceEntry bonusEntry = new BalanceEntry();
+                bonusEntry.setUser(referrer);
+                bonusEntry.setAmountUsdtMicro(bonusMicro);
+                bonusEntry.setBalanceAfterMicro(refNewBalance);
+                bonusEntry.setType("REFERRAL_BONUS");
+                bonusEntry.setDescription("Referral bonus 15% from user #" + user.getId());
+                bonusEntry.setReferenceId("ref_bonus:" + chargeId);
+                balanceEntryRepository.save(bonusEntry);
+
+                if (referrer.getTelegramId() != null) {
+                    sendTextMessage(referrer.getTelegramId(),
+                            String.format("🎉 <b>Реферальный бонус!</b>\nВаш приглашённый друг пополнил баланс. Вам начислено <b>+$%.2f</b> USDT!",
+                                    bonusMicro / 1_000_000.0), null);
+                }
+            }
+        }
+
+        String confirmation = String.format(
+                "✅ <b>Оплата прошла успешно!</b>\n\n" +
+                "Начислено: <b>%d Stars</b> (+$%.2f USDT)\n" +
+                "Текущий баланс: <b>$%.2f USDT</b>\n\n" +
+                "Баланс используется для автоматического продления вашей подписки.",
+                totalAmountStars, creditedMicro / 1_000_000.0, newBalance / 1_000_000.0
+        );
+        sendTextMessage(chatId, confirmation, null);
+    }
+
+    private User getOrCreateUser(long telegramId, JsonNode from) {
+        return userRepository.findByTelegramId(telegramId).orElseGet(() -> {
+            User newUser = new User();
+            newUser.setTelegramId(telegramId);
+            newUser.setRole("USER");
+            newUser.setStatus("ACTIVE");
+            newUser.setBalanceUsdtMicro(0L);
+            newUser.setReferralCode(generateUniqueReferralCode());
+            newUser = userRepository.save(newUser);
+
+            // Grant 3-day trial subscription
+            Tariff trialTariff = tariffRepository.findById("trial").orElse(null);
+            if (trialTariff != null) {
+                Subscription trialSub = new Subscription();
+                trialSub.setUser(newUser);
+                trialSub.setTariff(trialTariff);
+                trialSub.setStatus("ACTIVE");
+                trialSub.setIsAnnual(false);
+                trialSub.setAutoRenew(false);
+                trialSub.setCurrentPeriodStart(Instant.now());
+                trialSub.setCurrentPeriodEnd(Instant.now().plus(3, ChronoUnit.DAYS));
+                trialSub.setTrafficUsedBytes(0L);
+                trialSub.setTrafficLimitBytes(trialTariff.getTrafficQuotaBytes());
+                subscriptionRepository.save(trialSub);
+
+                try {
+                    deviceManagementService.addDevice(newUser.getId(), "Telegram Bot", "THIRD_PARTY");
+                } catch (Exception e) {
+                    log.warn("Failed to create initial device for new user #{}: {}", newUser.getId(), e.getMessage());
+                }
+            }
+
+            return newUser;
+        });
+    }
+
+    private void applyReferralCode(User user, String code) {
+        if (code == null || code.isBlank() || code.equalsIgnoreCase(user.getReferralCode())) {
+            return;
+        }
+        userRepository.findByReferralCode(code).ifPresent(ref -> {
+            if (!ref.getId().equals(user.getId())) {
+                user.setReferredBy(ref);
+                userRepository.save(user);
+                log.info("User #{} linked to referrer #{}", user.getId(), ref.getId());
+            }
+        });
+    }
+
+    private void sendWelcomeMessage(long chatId, User user) {
+        String text = "👋 <b>Добро пожаловать в быстрый и приватный VPN!</b>\n\n" +
+                "🛡 Мы используем протоколы нового поколения (<b>XHTTP + Reality</b>) со встроенной устойчивостью к блокировкам.\n\n" +
+                "Вам доступен <b>бесплатный пробный период</b> на 3 дня!\n\n" +
+                "Выберите действие в меню ниже:";
+
+        Map<String, Object> keyboard = Map.of(
+                "inline_keyboard", List.of(
+                        List.of(
+                                Map.of("text", "🚀 Подключить VPN", "callback_data", "cmd_vpn"),
+                                Map.of("text", "💳 Баланс & Stars", "callback_data", "cmd_balance")
+                        ),
+                        List.of(
+                                Map.of("text", "👥 Рефералка (15%)", "callback_data", "cmd_ref"),
+                                Map.of("text", "🔍 Диагностика", "callback_data", "cmd_diag")
+                        ),
+                        List.of(
+                                Map.of("text", "🌐 Открыть веб-кабинет", "web_app", Map.of("url", miniAppUrl))
+                        )
+                )
+        );
+
+        sendTextMessage(chatId, text, keyboard);
+    }
+
+    private void sendVpnStatus(long chatId, User user) {
+        Optional<Subscription> subOpt = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE");
+
+        if (subOpt.isEmpty() || subOpt.get().getCurrentPeriodEnd().isBefore(Instant.now())) {
+            String text = "⚠️ <b>У вас нет активной подписки</b>\n\n" +
+                    "Пополните баланс в меню /balance или перейдите в веб-кабинет для выбора тарифа.";
+            sendTextMessage(chatId, text, null);
+            return;
+        }
+
+        Subscription sub = subOpt.get();
+        double usedGb = sub.getTrafficUsedBytes() / (1024.0 * 1024 * 1024);
+        double limitGb = sub.getTrafficLimitBytes() / (1024.0 * 1024 * 1024);
+
+        List<String> links;
+        try {
+            links = exportService.exportVlessLinks(user.getId());
+        } catch (Exception e) {
+            links = List.of();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("🛡 <b>Ваша подписка: ").append(sub.getTariff().getName()).append("</b>\n\n");
+        sb.append("⏳ Действует до: <b>").append(sub.getCurrentPeriodEnd()).append("</b>\n");
+        sb.append(String.format("📊 Трафик: <b>%.2f / %.0f GB</b>\n\n", usedGb, limitGb));
+
+        if (!links.isEmpty()) {
+            sb.append("🔑 <b>Ваша ссылка для подключения (VLESS):</b>\n\n");
+            sb.append("<code>").append(links.get(0)).append("</code>\n\n");
+            sb.append("<i>Скопируйте ссылку и импортируйте в v2rayTun, Hiddify, Happ или v2rayNG.</i>");
+        } else {
+            sb.append("<i>Для генерации ключей добавьте устройство в кабинете.</i>");
+        }
+
+        sendTextMessage(chatId, sb.toString(), null);
+    }
+
+    private void sendBalanceMenu(long chatId, User user) {
+        double balanceUsdt = user.getBalanceUsdtMicro() / 1_000_000.0;
+
+        String text = String.format(
+                "💳 <b>Ваш баланс: $%.2f USDT</b>\n\n" +
+                "Баланс используется для автопродления подписки без привязки карт.\n\n" +
+                "Пополнить баланс с помощью <b>Telegram Stars</b>:",
+                balanceUsdt
+        );
+
+        Map<String, Object> keyboard = Map.of(
+                "inline_keyboard", List.of(
+                        List.of(
+                                Map.of("text", "⭐️ 50 Stars ($1.00)", "callback_data", "stars:50"),
+                                Map.of("text", "⭐️ 250 Stars ($5.00)", "callback_data", "stars:250")
+                        ),
+                        List.of(
+                                Map.of("text", "⭐️ 500 Stars ($10.00)", "callback_data", "stars:500"),
+                                Map.of("text", "⭐️ 1000 Stars ($20.00)", "callback_data", "stars:1000")
+                        )
+                )
+        );
+
+        sendTextMessage(chatId, text, keyboard);
+    }
+
+    private void sendReferralInfo(long chatId, User user) {
+        String link = "https://t.me/" + botUsername + "?start=" + user.getReferralCode();
+
+        String text = "👥 <b>Реферальная программа</b>\n\n" +
+                "Приглашайте друзей и получайте <b>15% с каждого пополнения</b> их баланса навсегда!\n\n" +
+                "Ваша персональная ссылка для приглашений:\n" +
+                "<code>" + link + "</code>\n\n" +
+                "<i>Средства начисляются прямо на ваш VPN-баланс и продлевают сервис автоматически.</i>";
+
+        sendTextMessage(chatId, text, null);
+    }
+
+    private void sendDiagnosticInfo(long chatId) {
+        String text = "🔍 <b>Диагностика сети и блокировок</b>\n\n" +
+                "Если соединение прерывается или не устанавливается:\n\n" +
+                "1. <b>Проверка белых списков оператора</b>: откройте в браузере gosuslugi.ru или vk.com. " +
+                "Если российские сайты открываются, а VPN не соединяется — ваш провайдер временно блокирует внешний интернет.\n\n" +
+                "2. <b>Защита от бана</b>: наше приложение использует умный backoff (пауза 15-20 с при обрыве). Не нажимайте кнопку переподключения судорожно — частые попытки удлиняют блокировку с 2 до 10 минут!\n\n" +
+                "3. Через 15 секунд нода автоматически переключится на резервный транспорт.";
+
+        sendTextMessage(chatId, text, null);
+    }
+
+    public void sendStarsInvoice(long chatId, User user, int stars) {
+        if (botToken == null || botToken.isBlank() || "mock".equalsIgnoreCase(botToken)) {
+            log.info("Mock invoice created: chatId={}, stars={}", chatId, stars);
+            return;
+        }
+
+        try {
+            String uriStr = "https://api.telegram.org/bot" + botToken + "/sendInvoice";
+            Map<String, Object> req = Map.of(
+                    "chat_id", chatId,
+                    "title", "Пополнение баланса VPN",
+                    "description", "Пополнение баланса аккаунта на " + stars + " Stars",
+                    "payload", "stars_deposit:" + user.getId() + ":" + stars,
+                    "currency", "XTR",
+                    "prices", List.of(Map.of("label", stars + " Stars", "amount", stars))
+            );
+
+            postJson(uriStr, req);
+        } catch (Exception e) {
+            log.error("Failed to send Stars invoice: {}", e.getMessage(), e);
+        }
+    }
+
+    public void answerPreCheckout(String preCheckoutQueryId, boolean ok, String errorMessage) {
+        if (botToken == null || botToken.isBlank() || "mock".equalsIgnoreCase(botToken)) {
+            return;
+        }
+
+        try {
+            String uriStr = "https://api.telegram.org/bot" + botToken + "/answerPreCheckoutQuery";
+            Map<String, Object> req = new HashMap<>();
+            req.put("pre_checkout_query_id", preCheckoutQueryId);
+            req.put("ok", ok);
+            if (errorMessage != null) {
+                req.put("error_message", errorMessage);
+            }
+
+            postJson(uriStr, req);
+        } catch (Exception e) {
+            log.error("Failed to answer pre-checkout: {}", e.getMessage(), e);
+        }
+    }
+
+    public void answerCallback(String callbackQueryId, String text) {
+        if (botToken == null || botToken.isBlank() || "mock".equalsIgnoreCase(botToken)) {
+            return;
+        }
+
+        try {
+            String uriStr = "https://api.telegram.org/bot" + botToken + "/answerCallbackQuery";
+            Map<String, Object> req = Map.of(
+                    "callback_query_id", callbackQueryId,
+                    "text", text
+            );
+            postJson(uriStr, req);
+        } catch (Exception e) {
+            log.warn("Failed to answer callback: {}", e.getMessage());
+        }
+    }
+
+    public void sendTextMessage(long chatId, String text, Map<String, Object> replyMarkup) {
+        if (botToken == null || botToken.isBlank() || "mock".equalsIgnoreCase(botToken)) {
+            log.info("Mock message to chatId {}: {}", chatId, text);
+            return;
+        }
+
+        try {
+            String uriStr = "https://api.telegram.org/bot" + botToken + "/sendMessage";
+            Map<String, Object> req = new HashMap<>();
+            req.put("chat_id", chatId);
+            req.put("text", text);
+            req.put("parse_mode", "HTML");
+            if (replyMarkup != null) {
+                req.put("reply_markup", replyMarkup);
+            }
+
+            postJson(uriStr, req);
+        } catch (Exception e) {
+            log.error("Failed to send message: {}", e.getMessage(), e);
+        }
+    }
+
+    private void postJson(String uriStr, Object body) throws Exception {
+        String json = objectMapper.writeValueAsString(body);
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(uriStr))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build();
+
+        httpClient.send(req, HttpResponse.BodyHandlers.discarding());
+    }
+
+    private String generateUniqueReferralCode() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+        for (int i = 0; i < 10; i++) {
+            StringBuilder sb = new StringBuilder("ref_");
+            for (int j = 0; j < 8; j++) {
+                sb.append(chars.charAt(random.nextInt(chars.length())));
+            }
+            String code = sb.toString();
+            if (!userRepository.existsByReferralCode(code)) {
+                return code;
+            }
+        }
+        return "ref_" + System.currentTimeMillis();
+    }
+}

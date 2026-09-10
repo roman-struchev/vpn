@@ -40,3 +40,6 @@ vpn:
   stats-interval-sec: 30
   telegram:
     bot-token: ${TELEGRAM_BOT_TOKEN:}
+    bot-username: ${TELEGRAM_BOT_USERNAME:MyVpnBot}
+    webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
+    mini-app-url: ${TELEGRAM_MINI_APP_URL:https://vpn.example.com}
