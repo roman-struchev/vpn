@@ -20,8 +20,14 @@ repositories {
     mavenCentral()
 }
 
-def grpcVersion = '1.71.0'
 def protobufVersion = '4.29.3'
+// Only for the protoc-gen-grpc-java codegen plugin below — protobuf-gradle-plugin
+// resolves that as a standalone binary artifact, outside io.spring.dependency-management's
+// reach, so it can't inherit Spring Boot's BOM-managed io.grpc version the way the
+// runtime io.grpc:* dependencies do. Must match grpc-java.version in
+// spring-boot-dependencies (currently 1.83.1) or generated stubs can skew from the
+// runtime grpc-core/grpc-netty-shaded versions again.
+def grpcCodegenVersion = '1.83.1'
 
 dependencies {
     // Spring Boot
@@ -31,15 +37,32 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
 
-    // Database & Flyway
+    // Database & Flyway.
+    // Spring Boot 4.x moved Flyway's Spring autoconfiguration out of the
+    // monolithic spring-boot-autoconfigure jar into this dedicated starter
+    // (mirrors what happened to Hibernate's JPA autoconfiguration — see
+    // HibernateJpaConfiguration now living in org.springframework.boot.hibernate.autoconfigure).
+    // Depending on org.flywaydb:flyway-core directly (as this project did
+    // before) pulls in Flyway itself but NOT that autoconfiguration, so
+    // migrations silently never ran — Hibernate's schema validation then
+    // failed on every table against a fresh database. Confirmed by actually
+    // booting against a real Postgres 17 container, not just the H2
+    // ddl-auto=create-drop test profile which never exercises Flyway at all.
     implementation 'org.postgresql:postgresql:42.7.5'
-    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
 
-    // gRPC & Protobuf
-    implementation "io.grpc:grpc-netty-shaded:${grpcVersion}"
-    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
-    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    // gRPC & Protobuf.
+    // No explicit io.grpc version here: Spring Boot 4.1.1's BOM manages
+    // io.grpc:grpc-bom (currently 1.83.1). Pinning grpc-netty-shaded to an
+    // older version here while grpc-core/grpc-api/grpc-stub resolved to the
+    // BOM's newer one caused a runtime AbstractMethodError on server startup
+    // (ServerImplBuilder$ClientTransportServersBuilder — the netty transport
+    // and the core server-building API were from different grpc releases).
+    // Confirmed by booting the gRPC server against real infrastructure.
+    implementation "io.grpc:grpc-netty-shaded"
+    implementation "io.grpc:grpc-protobuf"
+    implementation "io.grpc:grpc-stub"
     implementation "com.google.protobuf:protobuf-java:${protobufVersion}"
     compileOnly 'jakarta.annotation:jakarta.annotation-api:3.0.0'
     compileOnly 'javax.annotation:javax.annotation-api:1.3.2'
@@ -74,7 +97,7 @@ protobuf {
     }
     plugins {
         grpc {
-            artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}"
+            artifact = "io.grpc:protoc-gen-grpc-java:${grpcCodegenVersion}"
         }
     }
     generateProtoTasks {
