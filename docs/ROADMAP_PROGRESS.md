@@ -144,7 +144,7 @@
   - [`NodeManagementService.buildNodeConfigSync`](file:///Users/roman.struchev/git/vpn/vpn/server/src/main/java/com/vpn/server/service/NodeManagementService.java) строит оба inbound'а для прямых нод.
   - [`agent/src/xray/config-builder.ts`](file:///Users/roman.struchev/git/vpn/vpn/agent/src/xray/config-builder.ts) добавляет второй `vless-inbound-fallback` при наличии `fallbackInbound` (раньше поле `inbound.transport` вообще игнорировалось — это было мёртвым кодом).
   - `GET /api/v1/client/config` теперь отдаёт `grpcFallbackPort`/`grpcFallbackServiceName` на ноду ([`DynamicRoutingService`](file:///Users/roman.struchev/git/vpn/vpn/server/src/main/java/com/vpn/server/service/DynamicRoutingService.java)).
-  - Оба клиента (Android, Desktop) реализуют переключение транспорта чистой логикой `TransportFallbackPolicy`: перебор всех нод на XHTTP → при исчерпании переключение на gRPC → при исчерпании обоих транспортов — проба цензуры и честный экран блокировки (как раньше). Начальный транспорт пока всегда XHTTP (не учитывает `transport_policy.primary_transport`, если админ вручную выставит его в GRPC для конкретного региона) — см. «Не сделано» в android/README.md и desktop/README.md.
+  - Оба клиента (Android, Desktop) реализуют переключение транспорта чистой логикой `TransportFallbackPolicy`: перебор всех нод на стартовом транспорте → при исчерпании переключение на второй → при исчерпании обоих — проба цензуры и честный экран блокировки (как раньше). Стартовый транспорт теперь учитывает `transport_policy.primaryTransport` (`RoutingConfigResponse.primaryTransport`, приходит с `GET /api/v1/client/config` с учётом region/operator/global-скоупа) — если админ выставит его в `GRPC` для конкретного региона/оператора, оба клиента стартуют сразу с gRPC+Reality (с защитой: если ни одна нода не отдаёт `grpcFallbackPort`, откат на XHTTP).
 - [x] **Поддержка CDN-нод**: поле `Node.type='cdn'` уже существовало с Фазы 2, но реально **не работало** — при отключённой Reality inbound получал `security: 'none'`, то есть CDN-ноды отдавали VLESS без какого-либо TLS. Исправлено: CDN-ноды теперь получают настоящий TLS (`InboundConfig.tls_settings`, домен = `node.hostname`, путь к сертификату по конвенции `/etc/xray/certs/<hostname>/{fullchain,privkey}.pem`, настраивается через `vpn.cdn.cert-dir`). [`scripts/install-node.sh`](file:///Users/roman.struchev/git/vpn/vpn/scripts/install-node.sh) получил необязательный шаг `[7/7]` — certbot в standalone-режиме с `--deploy-hook`, синхронизирующим сертификат с этим путём при каждом продлении. Автоматического подбора/провижининга самого CDN (домен, DNS, выбор провайдera) — сознательно нет, см. `docs/research/ru-blocking.md` про ненадёжность Cloudflare в РФ и необходимость выбора «по замерам, а не по популярности».
 - [x] **Автоматическая ротация резервных пулов**: новый пул `reserve` (просто значение `Node.pool`, без миграции схемы) — ноды-«дублёры», не отдаваемые клиентам (`DynamicRoutingService.getRoutingConfig` их фильтрует). При авто-карантине ноды (`checkAndQuarantineNode`, уже существовало с Фазы 3) сервис теперь ищет `reserve`-ноду в том же регионе (`NodeRepository.findByPoolAndRegionAndStatus`) и молча повышает её в пул, который освободила закарантиненная нода (`DynamicRoutingService.promoteReserveNode`). Новые client-ключи для повышенной ноды создаются лениво при следующем экспорте ссылок — тот же механизм, что уже используется для любой новой ноды.
 - [x] **Тесты**: agent (+2, gRPC-инбаунд и CDN-TLS ветка в `config-builder.test.ts`), server (+4: `NodeManagementServiceTest` gRPC/CDN, `DynamicRoutingServiceTest` grpc-поля/reserve-promotion), Android (+7: `TransportFallbackPolicyTest` + `XrayConfigFactoryTest` grpc-кейсы, итого 36 unit-тестов), Desktop (+7: `transportFallbackPolicy.test.ts` + grpc-кейсы в `xrayConfigFactory.test.ts`, итого 35). Все зелёные, `./gradlew :server:test`, `npm test` (agent/desktop), `:app:testDebugUnitTest`+`:app:lintDebug`+`:app:assembleDebug` (android) прогнаны локально.
@@ -164,6 +164,25 @@
 - [x] **Тесты**: server +5 (`NodeManagementServiceTest` blocked-user, `UserControllerTest` обновлён под новую сигнатуру, миграция и полный старт сервера реально проверены против Postgres 17 в Docker — 66 тестов всего), Android +4 (`ApiHostRotationTest`, 40 тестов всего), Desktop +4 (`apiHostRotation.test.ts`, 39 тестов всего). Все зелёные.
 - [x] **Сквозная проверка на реальной инфраструктуре**: `docker compose up -d postgres` + `./gradlew :server:bootRun` — сервер стартовал целиком (HTTP на 8080, gRPC на 9090), регистрация пользователя через `POST /api/v1/auth/register` и получение `subscription_token`, `GET /api/v1/subscription/export/{старый numeric id}` корректно отклоняется, `GET /api/v1/subscription/export/{настоящий token}` доходит до бизнес-логики (400 «нет подписки» — ожидаемо для нового пользователя, не 403/404).
 - **Не сделано**: провижининг реальных резервных доменов (нужны настоящие домены/DNS, это не код); листинг Google Play и хостинг политики конфиденциальности по реальному URL (плейсхолдеры в `docs/google-play-readiness.md`); верификация личности разработчика и юрлицо для iOS — организационные шаги вне кода.
+
+### [x] Пост-Фаза-10: закрытие двух пробелов, обнаруженных при аудите готовой кодовой базы
+
+Все 10 фаз уже были помечены выполненными; при сквозном ревью на предмет «а что по плану ещё не реализовано» нашлись два места, где сервер уже отдавал нужные данные (`RoutingConfigResponse.NodeInfo.id`, `RoutingConfigResponse.primaryTransport`), а оба клиента их игнорировали — не новая функциональность, а доведение уже описанного в Фазах 3/9 поведения до действительно рабочего состояния.
+
+1. **Телеметрия клиентов всегда уходила с `nodeId=null`.** `DynamicRoutingService.recordTelemetry`/`checkAndQuarantineNode` были полностью готовы с Фазы 3 и реально завязаны на `nodeId`, но ни Android (`XrayVpnService.reportTelemetry`), ни Desktop (`VpnController.reportTelemetry`) никогда не передавали его — значит, автокарантин по клиентской телеметрии ни разу не срабатывал в проде, только по прямым сигналам агента ноды. Исправлено на обеих платформах одинаково: карта `host → nodeId`, построенная из `RoutingConfigResponse.nodes[]` (тот же паттерн, что уже использовался для карт gRPC-фолбэка), плюс важная тонкость — id упавшей ноды теперь захватывается **до** инкремента индекса текущей ноды в `handleFailure()`, иначе телеметрия ошибочно приписывалась бы уже следующей (ещё не опробованной) ноде.
+2. **Клиенты игнорировали серверный `transport_policy.primaryTransport`.** Архитектурный инвариант §1.5 («смена параметров — через сервер, а не пересборку клиентов») не соблюдался для выбора стартового транспорта: `TransportFallbackPolicy` на обеих платформах была жёстко закодирована стартовать с XHTTP, хотя сервер уже резолвил и отдавал `primaryTransport` с учётом operator/region/global-скоупа (`DynamicRoutingService.resolvePolicy`). Исправлено: оба клиента передают в конструктор политики стартовый транспорт, взятый из ответа `/api/v1/client/config`, с защитой от вырожденного случая (`GRPC` без единой рекламируемой gRPC-ноды остаётся на XHTTP).
+3. **Тесты**: Android +2 (`TransportFallbackPolicyTest`, 42 теста всего), Desktop +2 (`transportFallbackPolicy.test.ts`, 41 тест всего). `:app:testDebugUnitTest`, `:app:lintDebug`, `npm run typecheck`, `npm test` — все зелёные.
+- **Всё ещё не сделано** (осознанно, не в рамках этой правки): `connectTimeMs` в телеметрии всегда `0` — она репортится только при неудаче подключения, а не при успешном коннекте, так что реального замера времени коннекта и базовой линии для доли обрывов пока нет; это отдельная, более инвазивная доработка (меняет семантику `totalReports` в `AdminController.getDashboardMetrics`), см. §6 «Возможные дальнейшие улучшения» в конце документа.
+
+### [x] Пост-Фаза-10: ERC-20/EVM — реализация недостающего рельса из `docs/PLAN.md` §1/§7
+
+`docs/PLAN.md` §1 («Пополнение: TRC-20 и ERC-20 на сайте») и §7 явно фиксируют ERC-20 как принятое решение, а не бэклог — но в коде был реализован только TronGrid-сканер для TRC-20; для EVM-сетей (Ethereum/Base/Arbitrum/Polygon) не было ни отдельного адреса приёма, ни сканера. Хуже того, при создании инвойса без явного `recipientAddress` (`BillingService.createInvoice(userId, chain, amount)`, единственная сигнатура, которую реально вызывает `UserController.createInvoice`) адрес получателя **всегда** брался из `vpn.crypto.tron-deposit-address`, независимо от `chain` — инвойс `chain=ETHEREUM` показал бы пользователю Tron-адрес (base58), на который ни один EVM-кошелёк отправить USDT не может.
+
+1. **Исправлен баг выбора адреса**: `BillingService.resolveDefaultDepositAddress(chain)` теперь возвращает `vpn.crypto.evm-deposit-address` для `ETHEREUM/ERC20/BASE/ARBITRUM/POLYGON` и `vpn.crypto.tron-deposit-address` только для `TRON`; если для запрошенной EVM-сети адрес не сконфигурирован — `createInvoice` бросает `IllegalStateException` вместо тихой генерации нерабочего инвойса.
+2. **Добавлен EVM-сканер** (`BlockchainScannerTask.scanEvmChain`) — тот же паттерн, что и `scanTronGrid`, но через голый JSON-RPC (`eth_getLogs` по стандартному топику `Transfer(address,address,uint256)`, без веб3-SDK): отслеживает блоки с учётом `confirmations`, декодирует сумму перевода из `data` лога и пересчитывает её в микро-USDT с учётом децимals токена (`scaleToMicroUsdt`), сверяет с открытыми инвойсами через уже существующий чейн-агностичный `BlockchainPaymentService.processIncomingDeposit`. Один сконфигурированный инстанс — одна EVM-сеть за раз; переключение на Base/Arbitrum/Polygon — это смена `rpc-url`/`chain-id` в конфиге, без нового кода (ровно то, что обещано в `docs/PLAN.md` §7).
+3. Новые проперти — `vpn.crypto.evm-deposit-address`, `vpn.blockchain.evm.*` (`enabled`, `chain-name`, `rpc-url`, `chain-id`, `usdt-contract`, `usdt-decimals`, `confirmations`) — задокументированы в новом корневом [`README.md`](file:///Users/roman.struchev/git/vpn/vpn/README.md) §2.
+4. **Тесты**: server +9 (`BillingServiceTest` — TRON/EVM выбор адреса + отказ при незаданном EVM-адресе; `BlockchainScannerTaskTest` — disabled/нет-адреса/нет-RPC-URL пропуски + чистые unit-тесты `scaleToMicroUsdt`/`addressToTopic`), 75 тестов всего. `./gradlew :server:test` зелёный.
+- **Не сделано** (осознанно): реальный RPC-провайдер и EVM-адрес приёма — это настоящие деньги и инфраструктура, не код, оператор должен сам выбрать провайдера (Infura/Alchemy/публичный RPC) и подставить его перед включением `VPN_EVM_SCANNER_ENABLED=true`; одновременный мониторинг нескольких EVM-сетей сразу (сейчас — один сконфигурированный инстанс).
 
 ---
 
@@ -201,3 +220,44 @@ docker compose up -d postgres
 ./gradlew :server:bootRun
 # Ожидать в логе: "Successfully applied N migrations" и "gRPC Server started on port 9090"
 ```
+
+Полная конфигурация (все переменные окружения по подсистемам, как поднять
+стек с нуля, как получить первого ADMIN'а и зарегистрировать первую ноду) —
+в корневом [`README.md`](file:///Users/roman.struchev/git/vpn/vpn/README.md), не дублируется здесь.
+
+---
+
+## 6. Возможные дальнейшие улучшения (не реализовано, кандидаты на следующую итерацию)
+
+Ничего из этого не блокирует запуск — все 10 фаз и оба пост-фазовых фикса
+выше самодостаточны. Список для следующего, кто продолжит работу над
+проектом, отсортирован примерно по ценности/усилиям:
+
+1. **У админки нет веб-интерфейса.** `docs/PLAN.md` §8 описывает полноценную
+   PrimeReact-панель (пользователи, ноды, дашборды, платежи, управление), но
+   по факту реализован только REST API (`AdminController`) — им пока можно
+   пользоваться только через `curl`/Postman. Это самый крупный оставшийся
+   разрыв между планом и кодом, отдельная задача масштаба исходной Фазы 6.
+2. **Телеметрия не репортится при успешном подключении**, только при
+   неудаче — `connectTimeMs` в БД всегда `0`, а `AdminController`'овская
+   «деградация оператор × регион × транспорт» фактически считает только
+   абсолютное число сбоев, без базовой линии успешных подключений для
+   расчёта настоящей доли отказов. Добавление success-репорта требует
+   аккуратно продумать семантику `totalReports` в дашборде, чтобы не
+   исказить уже используемую метрику.
+3. **Мониторинг нескольких EVM-сетей одновременно.** Сейчас
+   `vpn.blockchain.evm.*` — один сконфигурированный инстанс (одна сеть за
+   раз); чтобы одновременно принимать, скажем, и Ethereum, и Base, нужно
+   параметризовать `BlockchainScannerTask` списком чейнов вместо плоских
+   `@Value`-полей (список объектов через env vars неудобен — see текущий
+   плоский подход в README §2 — понадобится либо `@ConfigurationProperties`
+   с YAML-списком, либо compact-строковый формат).
+4. **Глобального обработчика ошибок нет** (`@ControllerAdvice`) — валидационные
+   исключения (`IllegalArgumentException`/`IllegalStateException`) сейчас
+   долетают до клиента как generic 500 без структурированного тела ошибки, а
+   не как явный 400 с понятным сообщением. Затрагивает все контроллеры,
+   поэтому это отдельная, преднамеренно не начатая в этой сессии правка.
+5. **Общий пакет `ui/`** для дизайн-токенов между `web/`, `desktop/` и Android
+   (`docs/PLAN.md` §9) не заведён — токены продублированы вручную в трёх
+   местах. Осознанное упрощение MVP (см. `desktop/README.md`), но риск
+   визуального расхождения растёт с каждым отдельным изменением темы.
