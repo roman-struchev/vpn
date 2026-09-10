@@ -29,10 +29,29 @@ export function App() {
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
+  // Backed by the URL hash (#admin), not just React state: a plain useState
+  // resets to false on every reload (F5 while in the admin panel bounced you
+  // back to the dashboard with no way to tell you'd been in admin at all).
+  const [showAdmin, setShowAdmin] = useState(() => window.location.hash === '#admin');
+
+  const openAdmin = () => {
+    window.location.hash = 'admin';
+    setShowAdmin(true);
+  };
+
+  const closeAdmin = () => {
+    if (window.location.hash === '#admin') {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    setShowAdmin(false);
+  };
 
   useEffect(() => {
     initApp();
+
+    const onHashChange = () => setShowAdmin(window.location.hash === '#admin');
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
 
   const initApp = async () => {
@@ -69,6 +88,9 @@ export function App() {
     try {
       const profile = await api.getProfile();
       setUser(profile);
+      // A stale #admin hash (e.g. bookmarked, or role changed server-side)
+      // shouldn't strand a non-admin viewer on a blank/guarded route.
+      if (showAdmin && profile.role !== 'ADMIN') closeAdmin();
     } catch (err) {
       removeToken();
       setUser(null);
@@ -78,7 +100,7 @@ export function App() {
   const handleLogout = () => {
     removeToken();
     setUser(null);
-    setShowAdmin(false);
+    closeAdmin();
   };
 
   if (loading) {
@@ -99,12 +121,12 @@ export function App() {
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
           onOpenTopUp={() => setIsTopUpOpen(true)}
-          onOpenAdmin={user?.role === 'ADMIN' ? () => setShowAdmin(true) : undefined}
+          onOpenAdmin={user?.role === 'ADMIN' ? openAdmin : undefined}
         />
 
         <main className="pb-16">
           {user && showAdmin && user.role === 'ADMIN' ? (
-            <AdminPanel lang={lang} onBack={() => setShowAdmin(false)} />
+            <AdminPanel lang={lang} onBack={closeAdmin} />
           ) : user ? (
             <DashboardView
               lang={lang}
