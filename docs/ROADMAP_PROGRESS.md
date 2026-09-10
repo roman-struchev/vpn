@@ -36,8 +36,8 @@
 | **Фаза 4** | Telegram-бот: вебхук, Telegram Stars (`XTR`), 15% рефералка, автодиагностика | **ВЫПОЛНЕНО** | 100% `[x]` |
 | **Фаза 5** | Веб-интерфейс: Лендинг, Личный кабинет, Telegram Mini App, i18n (ru/en) | **ВЫПОЛНЕНО** | 100% `[x]` |
 | **Фаза 6** | Админ-панель: операционный дашборд, пользователи, ноды, политики, аудит-лог | **ВЫПОЛНЕНО** | 100% `[x]` |
-| **Фаза 7** | Android MVP: Java + `libXray` (.aar), Material 3, логика подключения, конформанс | **ТЕКУЩАЯ** | 0% `[ ]` |
-| **Фаза 8** | Desktop Windows/macOS: Electron + React, системный прокси, автообновление | **ПРЕДСТОИТ** | 0% `[ ]` |
+| **Фаза 7** | Android MVP: Java + `libXray` (.aar), Material 3, логика подключения, конформанс | **ВЫПОЛНЕНО** | 100% `[x]` |
+| **Фаза 8** | Desktop Windows/macOS: Electron + React, системный прокси, автообновление | **ТЕКУЩАЯ** | 0% `[ ]` |
 | **Фаза 9** | Транспортная гибкость: CDN-ноды, gRPC fallback, резервные пулы | **ПРЕДСТОИТ** | 0% `[ ]` |
 | **Фаза 10** | Закалка: резервные домены API, DoH, защита от перечисления РКН, релиз | **ПРЕДСТОИТ** | 0% `[ ]` |
 
@@ -110,21 +110,20 @@
   - Ручная реконсиляция депозитов `POST /api/v1/admin/crypto/reconcile`.
 - [x] Тесты административного контроллера в [`AdminControllerTest.java`](file:///Users/roman.struchev/git/vpn/vpn/server/src/test/java/com/vpn/server/AdminControllerTest.java) (14 unit тестов).
 
----
-
-## 4. Что сейчас в работе и что предстоит сделать
-
-### [ ] Фаза 7: Нативный Android-клиент (MVP)
-*Требования по PLAN.md §5 и §9*:
-- [ ] **Язык и стек**: Нативная Java, интерфейс на **Material 3** с поддержкой тёмной темы.
-- [ ] **Ядро VPN**: Интеграция готовой `libXray` (.aar) под Android VpnService.
-- [ ] **Логика подключения**:
-  - Клиент получает профиль и ноды с сервера через REST API (`GET /api/v1/client/profile`).
-  - Стейт-машина: `Disconnected` → `Connecting` → `Connected` → `Reconnecting` → `Error`.
-  - **Честный экран блокировки**: две HTTP-пробы (к заведомо «белому» хосту типа gosuslugi.ru и тестовому зарубежному). Если белый доступен, а зарубежный заблокирован — экран: *"Ограничение вашего оператора связи"*.
-  - **Smart Reconnect Backoff**: Пауза после разрыва не менее 15–20 секунд, сохранение сессионного fingerprint (`firefox`/`edge`), ротация ноды только после 2–3 неудач подряд.
-  - Встроенный DoH (DNS-over-HTTPS) через OkHttp в обход провайдерских DNS.
-- [ ] **CI / Тесты**: Конформанс-тесты сценариев переподключения.
+### [x] Фаза 7: Нативный Android-клиент (MVP)
+*Требования по PLAN.md §5 и §9*. Отдельный Gradle-проект [`android/`](file:///Users/roman.struchev/git/vpn/vpn/android) (Groovy DSL, не часть корневого multi-project — как `agent/` и `web/`), см. [`android/README.md`](file:///Users/roman.struchev/git/vpn/vpn/android/README.md).
+- [x] **Язык и стек**: Нативная Java 17, AGP 8.7.3, Material 3 (`Theme.Material3.DayNight`) с обязательной тёмной темой и брендовыми токенами из `web/tailwind.config.js`.
+- [x] **Ядро VPN**: Интеграция `libXray` v26.9.9 (.aar) через [`XrayInvoker`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/xray/XrayInvoker.java) (raw `invoke(String)` JSON envelope, API version 3) и [`XrayVpnService`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/XrayVpnService.java) под Android `VpnService`; TUN fd передаётся через `env["xray.tun.fd"]` конфига Xray-core (контракт `proxy/tun` для Android), сокеты защищены через `DialerController`/`protect()`. `.aar` не коммитится в git (~95MB); подтягивается [`scripts/fetch-libxray.sh`](file:///Users/roman.struchev/git/vpn/vpn/android/scripts/fetch-libxray.sh).
+- [x] **Логика подключения**:
+  - Клиент получает ноды/политику через `GET /api/v1/client/config` и VLESS-ссылки через `GET /api/v1/user/subscription/links` (парсинг в [`VlessUri`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/xray/VlessUri.java), конфиг собирается в [`XrayConfigFactory`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/xray/XrayConfigFactory.java)).
+  - Стейт-машина [`ConnectionStateMachine`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/state/ConnectionStateMachine.java): `Disconnected → Connecting → Connected → Reconnecting → Error` + отдельное состояние `OperatorBlocked`.
+  - **Честный экран блокировки**: [`CensorshipProbeService`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/CensorshipProbeService.java) — HTTP-пробы к gosuslugi.ru и внешнему тест-хосту вне туннеля, решение в чистой функции [`CensorshipVerdict`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/CensorshipVerdict.java).
+  - **Smart Reconnect Backoff** в [`ReconnectBackoffPolicy`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/vpn/ReconnectBackoffPolicy.java): пауза 15–20с (клэмп), ротация ноды только после 2–3 неудач подряд, fingerprint (`firefox`/`edge`) зафиксирован на сессию.
+  - Встроенный DoH через `okhttp-dnsoverhttps` для REST-клиента ([`DohDns`](file:///Users/roman.struchev/git/vpn/vpn/android/app/src/main/java/com/vpn/android/api/DohDns.java)) и через `dns`-блок Xray-конфига для системного DNS внутри туннеля.
+- [x] **UI**: экраны логина/регистрации (email+password, тот же `/api/v1/auth/*` что у веба), подключения (квота, honest-блокировка), устройств, профиля — Material 3, RecyclerView, ViewBinding.
+- [x] **CI / Тесты**: 29 unit-тестов (JUnit, без Robolectric/эмулятора) на state machine, backoff-инварианты, vless-парсинг, censorship-вердикт, xray-config factory — `android/app/src/test/`. `lintDebug` чист от ошибок. Job `android` добавлен в [`.github/workflows/gradlew-publish-and-deploy.yml`](file:///Users/roman.struchev/git/vpn/vpn/.github/workflows/gradlew-publish-and-deploy.yml).
+- [x] Собранный debug APK вручную проверен на эмуляторе (Pixel API 34, arm64): установка, запуск, рендер Material 3 UI, переключение режимов логина, валидация формы — без крашей.
+- **Не сделано в этом MVP**: нет on-device/инструментальных тестов для самого VPN-туннеля (проверено ревью кода + модульными тестами чистой логики, но не подключением к реальной ноде); нет входа через Telegram Mini App (только email/password); подпись релиза и публикация в Google Play — вне рамок MVP.
 
 ### [ ] Фаза 8: Desktop-клиент для Windows и macOS
 *Требования по PLAN.md §5*:
@@ -161,6 +160,9 @@ cd web && npm run build
 
 # 4. Сборка единого fat-JAR
 ./gradlew :server:bootJar -x test
+
+# 5. Android: unit-тесты (JDK 17-21 required for the Gradle 8.10 wrapper; see android/README.md)
+cd android && ./scripts/fetch-libxray.sh && ./gradlew :app:testDebugUnitTest
 ```
 
 ### Запуск локальной инфраструктуры
