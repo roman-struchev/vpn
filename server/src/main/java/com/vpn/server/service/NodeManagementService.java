@@ -43,6 +43,15 @@ public class NodeManagementService {
     @Value("${vpn.stats-interval-sec:30}")
     private int statsIntervalSec;
 
+    @Value("${vpn.grpc-fallback.port:8443}")
+    private int grpcFallbackPort;
+
+    @Value("${vpn.grpc-fallback.service-name:vless-grpc}")
+    private String grpcFallbackServiceName;
+
+    @Value("${vpn.cdn.cert-dir:/etc/xray/certs}")
+    private String cdnCertDir;
+
     public NodeManagementService(
             NodeRepository nodeRepository,
             NodeBootstrapTokenRepository tokenRepository,
@@ -223,8 +232,10 @@ public class NodeManagementService {
                 ? Arrays.asList(node.getRealityShortIds())
                 : List.of("0123456789abcdef", "fedcba9876543210");
 
+        boolean isDirect = "direct".equalsIgnoreCase(node.getType());
+
         RealityConfig realityConfig = RealityConfig.newBuilder()
-                .setEnabled("direct".equalsIgnoreCase(node.getType()))
+                .setEnabled(isDirect)
                 .setDest(defaultRealityDest)
                 .addAllServerNames(serverNames)
                 .setPrivateKey(node.getRealityPublicKey() != null ? node.getRealityPublicKey() : "")
@@ -236,24 +247,56 @@ public class NodeManagementService {
                 .setMode("auto")
                 .build();
 
-        InboundConfig inboundConfig = InboundConfig.newBuilder()
+        InboundConfig.Builder inboundBuilder = InboundConfig.newBuilder()
                 .setListenPort(443)
                 .setProtocol("vless")
                 .setTransport("xhttp")
                 .setReality(realityConfig)
-                .setXhttpSettings(xhttpSettings)
-                .build();
+                .setXhttpSettings(xhttpSettings);
+
+        if (!isDirect) {
+            // CDN nodes: the CDN terminates TLS itself, so Reality (which needs an
+            // unmodified handshake to the origin) doesn't apply here — use a real
+            // certificate instead. Certs are provisioned out-of-band on the node
+            // (scripts/install-node.sh's optional certbot step); the server only
+            // references the resulting file paths by convention.
+            inboundBuilder.setTlsSettings(TlsSettings.newBuilder()
+                    .setEnabled(true)
+                    .setServerName(node.getHostname())
+                    .setCertPath(cdnCertDir + "/" + node.getHostname() + "/fullchain.pem")
+                    .setKeyPath(cdnCertDir + "/" + node.getHostname() + "/privkey.pem")
+                    .build());
+        }
+
+        ConfigSync.Builder syncBuilder = ConfigSync.newBuilder()
+                .setInbound(inboundBuilder.build());
+
+        if (isDirect) {
+            // gRPC+Reality fallback (docs/ROADMAP_PROGRESS.md Phase 9 / PLAN.md §6:
+            // "VLESS + gRPC + Reality — запасной"): reuses the same Reality key
+            // material and client identities as the primary XHTTP inbound, just on
+            // a different port, so clients can switch transport without a new node
+            // or new keys. Not offered for CDN nodes — a CDN's own transport
+            // framing already replaces the role gRPC would play here.
+            InboundConfig grpcInbound = InboundConfig.newBuilder()
+                    .setListenPort(grpcFallbackPort)
+                    .setProtocol("vless")
+                    .setTransport("grpc")
+                    .setReality(realityConfig)
+                    .setGrpcSettings(GrpcSettings.newBuilder().setServiceName(grpcFallbackServiceName).build())
+                    .build();
+            syncBuilder.setFallbackInbound(grpcInbound);
+        }
 
         long version = node.getConfigVersion() + 1;
         String hash = computeConfigHash(version, clients.size(), node.getType());
 
         NodeType assignedType = "cdn".equalsIgnoreCase(node.getType()) ? NodeType.NODE_TYPE_CDN : NodeType.NODE_TYPE_DIRECT;
 
-        return ConfigSync.newBuilder()
+        return syncBuilder
                 .setConfigVersion(version)
                 .setConfigHash(hash)
                 .setNodeType(assignedType)
-                .setInbound(inboundConfig)
                 .addAllClients(clients)
                 .build();
     }

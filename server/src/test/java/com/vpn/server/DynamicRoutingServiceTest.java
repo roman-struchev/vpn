@@ -49,6 +49,8 @@ class DynamicRoutingServiceTest {
                 nodeRepository,
                 agentStreamService
         );
+        org.springframework.test.util.ReflectionTestUtils.setField(dynamicRoutingService, "grpcFallbackPort", 8443);
+        org.springframework.test.util.ReflectionTestUtils.setField(dynamicRoutingService, "grpcFallbackServiceName", "vless-grpc");
     }
 
     @Test
@@ -70,6 +72,7 @@ class DynamicRoutingServiceTest {
         node1.setPublicIp("1.2.3.4");
         node1.setRegion("RU-MOW");
         node1.setPool("paid");
+        node1.setType("direct");
 
         when(nodeRepository.findByPoolAndStatus("paid", "ONLINE"))
                 .thenReturn(List.of(node1));
@@ -82,6 +85,30 @@ class DynamicRoutingServiceTest {
         assertEquals("chrome", config.fingerprint());
         assertEquals(1, config.nodes().size());
         assertEquals("1.2.3.4", config.nodes().get(0).publicIp());
+        // Phase 9: direct nodes advertise the gRPC+Reality fallback inbound.
+        assertEquals(8443, config.nodes().get(0).grpcFallbackPort());
+        assertEquals("vless-grpc", config.nodes().get(0).grpcFallbackServiceName());
+    }
+
+    @Test
+    void testGetRoutingConfigOmitsGrpcFallbackForCdnNodes() {
+        when(transportPolicyRepository.findFirstByScopeAndScopeValueAndIsActiveTrue(eq("global"), eq("*")))
+                .thenReturn(Optional.empty());
+
+        Node cdnNode = new Node();
+        cdnNode.setId(2L);
+        cdnNode.setPublicIp("2.2.2.2");
+        cdnNode.setRegion("RU-MOW");
+        cdnNode.setPool("paid");
+        cdnNode.setType("cdn");
+
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE"))
+                .thenReturn(List.of(cdnNode));
+
+        DynamicRoutingService.RoutingConfigResponse config = dynamicRoutingService.getRoutingConfig(null, null);
+
+        assertNull(config.nodes().get(0).grpcFallbackPort());
+        assertNull(config.nodes().get(0).grpcFallbackServiceName());
     }
 
     @Test
@@ -108,5 +135,39 @@ class DynamicRoutingServiceTest {
         assertEquals("quarantine", node.getPool());
         verify(nodeRepository).save(node);
         verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testQuarantinePromotesReserveNodeInSameRegion() {
+        Node node = new Node();
+        node.setId(5L);
+        node.setPublicIp("5.5.5.5");
+        node.setPool("paid");
+        node.setRegion("RU-MOW");
+
+        Node reserve = new Node();
+        reserve.setId(99L);
+        reserve.setPublicIp("9.9.9.9");
+        reserve.setPool("reserve");
+        reserve.setRegion("RU-MOW");
+
+        when(nodeRepository.findById(5L)).thenReturn(Optional.of(node));
+        when(nodeRepository.findByPoolAndRegionAndStatus("reserve", "RU-MOW", "ONLINE")).thenReturn(List.of(reserve));
+
+        List<ConnTelemetry> telemetryList = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            ConnTelemetry t = new ConnTelemetry();
+            t.setNode(node);
+            t.setFailureCount(3);
+            telemetryList.add(t);
+        }
+        when(connTelemetryRepository.findRecent(any(Instant.class))).thenReturn(telemetryList);
+
+        dynamicRoutingService.recordTelemetry(5L, "MTS", "RU-MOW", "XHTTP", 0, 3, true);
+
+        assertEquals("quarantine", node.getPool());
+        // The reserve node takes over the quarantined node's former ('paid') pool.
+        assertEquals("paid", reserve.getPool());
+        verify(nodeRepository).save(reserve);
     }
 }

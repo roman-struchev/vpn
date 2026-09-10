@@ -37,8 +37,25 @@ public final class XrayConfigFactory {
      * @param mtu         TUN interface MTU, must match what was passed to the VpnService Builder.
      */
     public static String build(VlessUri vless, String fingerprint, int tunFd, int mtu) {
+        return build(vless, fingerprint, tunFd, mtu, "XHTTP", null, null);
+    }
+
+    /**
+     * Same as {@link #build(VlessUri, String, int, int)}, but selects the transport
+     * (Phase 9 "transport flexibility"): "GRPC" builds a gRPC+Reality outbound against
+     * {@code grpcPort}/{@code grpcServiceName} (from RoutingConfigResponse.NodeInfo)
+     * instead of the XHTTP settings embedded in the vless link, reusing the same
+     * Reality key material and client UUID either way.
+     */
+    public static String build(
+            VlessUri vless, String fingerprint, int tunFd, int mtu,
+            String transport, Integer grpcPort, String grpcServiceName) {
         if (!"firefox".equals(fingerprint) && !"edge".equals(fingerprint)) {
             throw new IllegalArgumentException("fingerprint must be firefox or edge, got: " + fingerprint);
+        }
+        boolean useGrpc = "GRPC".equals(transport);
+        if (useGrpc && grpcPort == null) {
+            throw new IllegalArgumentException("grpcPort is required when transport is GRPC");
         }
 
         JsonObject root = new JsonObject();
@@ -80,7 +97,7 @@ public final class XrayConfigFactory {
         JsonArray outbounds = new JsonArray();
         // First outbound is Xray's default match for anything not covered by a routing
         // rule below — must be the proxy, not direct/block.
-        outbounds.add(buildProxyOutbound(vless, fingerprint));
+        outbounds.add(buildProxyOutbound(vless, fingerprint, useGrpc, grpcPort, grpcServiceName));
         outbounds.add(buildDnsOutbound());
         outbounds.add(buildBlockOutbound());
         root.add("outbounds", outbounds);
@@ -100,14 +117,17 @@ public final class XrayConfigFactory {
         return inbound;
     }
 
-    private static JsonObject buildProxyOutbound(VlessUri vless, String fingerprint) {
+    private static JsonObject buildProxyOutbound(
+            VlessUri vless, String fingerprint, boolean useGrpc, Integer grpcPort, String grpcServiceName) {
         JsonObject outbound = new JsonObject();
         outbound.addProperty("tag", PROXY_OUTBOUND_TAG);
         outbound.addProperty("protocol", "vless");
 
         JsonObject vnext = new JsonObject();
         vnext.addProperty("address", vless.getHost());
-        vnext.addProperty("port", vless.getPort());
+        // Same node, different port when falling back to gRPC — see
+        // NodeManagementService#buildNodeConfigSync on the server (Phase 9).
+        vnext.addProperty("port", useGrpc ? grpcPort : vless.getPort());
         JsonArray users = new JsonArray();
         JsonObject user = new JsonObject();
         user.addProperty("id", vless.getUuid());
@@ -123,7 +143,7 @@ public final class XrayConfigFactory {
 
         boolean reality = "reality".equalsIgnoreCase(vless.getParam("security", "none"));
         JsonObject streamSettings = new JsonObject();
-        streamSettings.addProperty("network", "xhttp".equals(vless.getParam("type", "xhttp")) ? "xhttp" : "xhttp");
+        streamSettings.addProperty("network", useGrpc ? "grpc" : "xhttp");
         streamSettings.addProperty("security", reality ? "reality" : "none");
 
         if (reality) {
@@ -138,15 +158,21 @@ public final class XrayConfigFactory {
             streamSettings.add("realitySettings", realitySettings);
         }
 
-        JsonObject xhttpSettings = new JsonObject();
-        xhttpSettings.addProperty("path", vless.getParam("path", "/vless-xhttp"));
-        xhttpSettings.addProperty("mode", vless.getParam("mode", "auto"));
-        streamSettings.add("xhttpSettings", xhttpSettings);
+        if (useGrpc) {
+            JsonObject grpcSettings = new JsonObject();
+            grpcSettings.addProperty("serviceName", grpcServiceName != null ? grpcServiceName : "vless-grpc");
+            streamSettings.add("grpcSettings", grpcSettings);
+        } else {
+            JsonObject xhttpSettings = new JsonObject();
+            xhttpSettings.addProperty("path", vless.getParam("path", "/vless-xhttp"));
+            xhttpSettings.addProperty("mode", vless.getParam("mode", "auto"));
+            streamSettings.add("xhttpSettings", xhttpSettings);
 
-        // XMUX always on (docs/ROADMAP_PROGRESS.md §1.5).
-        JsonObject xmuxSettings = new JsonObject();
-        xmuxSettings.addProperty("maxConcurrency", 16);
-        streamSettings.add("xmuxSettings", xmuxSettings);
+            // XMUX applies to the XHTTP transport only (docs/ROADMAP_PROGRESS.md §1.5).
+            JsonObject xmuxSettings = new JsonObject();
+            xmuxSettings.addProperty("maxConcurrency", 16);
+            streamSettings.add("xmuxSettings", xmuxSettings);
+        }
 
         outbound.add("streamSettings", streamSettings);
         return outbound;

@@ -69,4 +69,87 @@ describe('buildXrayConfig', () => {
     expect(vlessInbound.streamSettings.realitySettings.privateKey).toBe('testPrivateKeyBase64');
     expect(vlessInbound.streamSettings.xhttpSettings.path).toBe('/vless-xhttp');
   });
+
+  it('adds a gRPC+Reality fallback inbound when the server sends one (Phase 9)', () => {
+    const payload: ServerConfigSyncPayload = {
+      configVersion: 2,
+      configHash: 'hash-abc-456',
+      nodeType: 'NODE_TYPE_DIRECT',
+      inbound: {
+        listenPort: 443,
+        protocol: 'vless',
+        transport: 'xhttp',
+        reality: {
+          enabled: true,
+          dest: 'dl.google.com:443',
+          serverNames: ['dl.google.com'],
+          privateKey: 'testPrivateKeyBase64',
+          shortIds: ['0123456789abcdef'],
+        },
+        xhttpSettings: { path: '/vless-xhttp', mode: 'auto' },
+      },
+      fallbackInbound: {
+        listenPort: 8443,
+        protocol: 'vless',
+        transport: 'grpc',
+        reality: {
+          enabled: true,
+          dest: 'dl.google.com:443',
+          serverNames: ['dl.google.com'],
+          privateKey: 'testPrivateKeyBase64',
+          shortIds: ['0123456789abcdef'],
+        },
+        grpcSettings: { serviceName: 'vless-grpc' },
+      },
+      clients: [
+        { userId: 1, deviceId: 10, uuid: 'c8a14b5d-0000-4000-8000-000000000001', emailTag: 'user_1_dev_10', isActive: true },
+      ],
+    };
+
+    const config = buildXrayConfig(payload);
+    const inbounds = config.inbounds as any[];
+
+    // api, primary xhttp, fallback grpc
+    expect(inbounds).toHaveLength(3);
+
+    const grpcInbound = inbounds[2];
+    expect(grpcInbound.tag).toBe('vless-inbound-fallback');
+    expect(grpcInbound.port).toBe(8443);
+    expect(grpcInbound.streamSettings.network).toBe('grpc');
+    expect(grpcInbound.streamSettings.security).toBe('reality');
+    expect(grpcInbound.streamSettings.grpcSettings.serviceName).toBe('vless-grpc');
+    // Same client identities on both transports.
+    expect(grpcInbound.settings.clients[0].id).toBe('c8a14b5d-0000-4000-8000-000000000001');
+  });
+
+  it('uses real TLS (not Reality, not plaintext) for a CDN node', () => {
+    const payload: ServerConfigSyncPayload = {
+      configVersion: 1,
+      configHash: 'hash-cdn-1',
+      nodeType: 'NODE_TYPE_CDN',
+      inbound: {
+        listenPort: 443,
+        protocol: 'vless',
+        transport: 'xhttp',
+        reality: { enabled: false, dest: '', serverNames: [], privateKey: '', shortIds: [] },
+        tlsSettings: {
+          enabled: true,
+          serverName: 'edge.example.com',
+          certPath: '/etc/xray/certs/edge.example.com/fullchain.pem',
+          keyPath: '/etc/xray/certs/edge.example.com/privkey.pem',
+        },
+        xhttpSettings: { path: '/vless-xhttp', mode: 'auto' },
+      },
+      clients: [],
+    };
+
+    const config = buildXrayConfig(payload);
+    const vlessInbound = (config.inbounds as any[])[1];
+
+    expect(vlessInbound.streamSettings.security).toBe('tls');
+    expect(vlessInbound.streamSettings.tlsSettings.serverName).toBe('edge.example.com');
+    expect(vlessInbound.streamSettings.tlsSettings.certificates[0].certificateFile).toBe(
+      '/etc/xray/certs/edge.example.com/fullchain.pem'
+    );
+  });
 });

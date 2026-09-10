@@ -65,6 +65,13 @@ override per environment with `-PapiBaseUrl=https://...`.
 - `vpn/XrayVpnService` — owns the TUN fd, the Xray lifecycle, and implements
   libXray's `DialerController` (`VpnService.protect()`) so every Go-initiated
   socket bypasses the tunnel.
+- `vpn/TransportFallbackPolicy` (Phase 9) — once every node has been tried on
+  XHTTP without success, switches to the gRPC+Reality fallback inbound the
+  server advertises per node (`RoutingConfigResponse.NodeInfo.grpcFallbackPort`),
+  same Reality keys and client UUID, before falling through to the honest
+  operator-blocked screen. Always starts on XHTTP — doesn't yet honor a
+  server-side `primaryTransport=GRPC` override (see desktop/README.md's
+  matching note; same simplification on both clients).
 
 ## Known gaps / not yet done
 
@@ -76,5 +83,9 @@ override per environment with `-PapiBaseUrl=https://...`.
 - No Telegram-native login (the Mini App's `initData` HMAC flow is
   Telegram-WebView-specific); the app uses the same email/password
   `POST /api/v1/auth/{register,login}` the web client uses.
+- Telemetry reports (`POST /api/v1/client/telemetry`) are sent with `nodeId=null`:
+  subscription links don't carry the server-side node id today, only
+  `/api/v1/client/config` does. Feeds the admin degradation dashboard, not
+  yet `DynamicRoutingService`'s auto-quarantine (which keys off `nodeId`).
 - Release signing / Play Store listing (docs/stores-and-liability.md) is out
   of scope for this MVP pass.

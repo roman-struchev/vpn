@@ -85,6 +85,13 @@ Same server contract as `web/src/api.ts` and the Android client:
   `networksetup`, Windows via the `Internet Settings` registry key + a
   `rundll32` refresh call, Linux via GNOME's `gsettings` (other desktop
   environments: the local proxy still runs, just isn't auto-applied).
+- `src/shared/transportFallbackPolicy.ts` (Phase 9) — once every node has
+  been tried on XHTTP without success, switches to the gRPC+Reality fallback
+  inbound the server advertises per node
+  (`RoutingConfigResponse.nodes[].grpcFallbackPort`), same Reality keys and
+  client UUID, before falling through to the honest operator-blocked screen.
+  Always starts on XHTTP — doesn't yet honor a server-side
+  `primaryTransport=GRPC` override (same simplification on the Android client).
 - `src/main/vpn/vpnController.ts` — orchestrates all of the above, mirrors
   `android/.../vpn/XrayVpnService.java` one-for-one in responsibility.
 - `src/preload/index.ts` exposes a typed `window.vpnApi` via
@@ -112,3 +119,5 @@ Same server contract as `web/src/api.ts` and the Android client:
   renders, IPC round-trips to a real — if unreachable — API host).
 - Auto-update is wired but unverified against a real GitHub Releases feed
   (no release has been published yet).
+- Telemetry reports (`submitTelemetry`) are sent with `nodeId=null`: same gap
+  as the Android client — see android/README.md.

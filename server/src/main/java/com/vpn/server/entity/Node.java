@@ -22,7 +22,7 @@ public class Node {
     private String status = "OFFLINE"; // ONLINE, OFFLINE, DRAINING, MAINTENANCE
 
     @Column(nullable = false, length = 32)
-    private String pool = "paid"; // trial, paid, quarantine
+    private String pool = "paid"; // trial, paid, quarantine, reserve (standby — see DynamicRoutingService#promoteReserveNode)
 
     @Column(nullable = false, length = 32)
     private String type = "direct"; // direct, cdn

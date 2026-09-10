@@ -41,7 +41,17 @@ export interface RoutingConfigResponse {
   fingerprint: string;
   backoffInitialSec: number;
   maxRetriesBeforeNodeSwitch: number;
-  nodes: { id: number; publicIp: string; vlessPort: number; region: string; sni: string }[];
+  nodes: {
+    id: number;
+    publicIp: string;
+    vlessPort: number;
+    region: string;
+    sni: string;
+    // Phase 9: gRPC+Reality fallback inbound, same node/keys, different port —
+    // present only for "direct" nodes (see NodeManagementService on the server).
+    grpcFallbackPort: number | null;
+    grpcFallbackServiceName: string | null;
+  }[];
 }
 
 export class ApiError extends Error {

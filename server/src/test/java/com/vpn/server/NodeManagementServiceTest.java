@@ -12,6 +12,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -54,6 +55,9 @@ class NodeManagementServiceTest {
         ReflectionTestUtils.setField(nodeManagementService, "defaultServerNames", "dl.google.com");
         ReflectionTestUtils.setField(nodeManagementService, "heartbeatIntervalSec", 30);
         ReflectionTestUtils.setField(nodeManagementService, "statsIntervalSec", 30);
+        ReflectionTestUtils.setField(nodeManagementService, "grpcFallbackPort", 8443);
+        ReflectionTestUtils.setField(nodeManagementService, "grpcFallbackServiceName", "vless-grpc");
+        ReflectionTestUtils.setField(nodeManagementService, "cdnCertDir", "/etc/xray/certs");
     }
 
     @Test
@@ -122,5 +126,55 @@ class NodeManagementServiceTest {
         assertTrue(nodeManagementService.authenticateNode(5L, "secret-raw-token"));
         assertFalse(nodeManagementService.authenticateNode(5L, "wrong-token"));
         assertFalse(nodeManagementService.authenticateNode(999L, "secret-raw-token"));
+    }
+
+    @Test
+    void testBuildNodeConfigSyncDirectNodeIncludesGrpcRealityFallback() {
+        Node node = new Node();
+        node.setId(7L);
+        node.setHostname("node-direct-01");
+        node.setType("direct");
+        node.setConfigVersion(1L);
+        node.setRealityPublicKey("realityPrivKeyBase64");
+        node.setRealityShortIds(new String[]{"0123456789abcdef"});
+
+        when(nodeRepository.findById(7L)).thenReturn(Optional.of(node));
+        when(deviceNodeKeyRepository.findActiveKeysByNodeId(7L)).thenReturn(List.of());
+
+        ConfigSync sync = nodeManagementService.buildNodeConfigSync(7L);
+
+        assertEquals("xhttp", sync.getInbound().getTransport());
+        assertTrue(sync.getInbound().getReality().getEnabled());
+        assertFalse(sync.getInbound().hasTlsSettings() && sync.getInbound().getTlsSettings().getEnabled());
+
+        assertTrue(sync.hasFallbackInbound());
+        InboundConfig fallback = sync.getFallbackInbound();
+        assertEquals("grpc", fallback.getTransport());
+        assertEquals(8443, fallback.getListenPort());
+        assertTrue(fallback.getReality().getEnabled());
+        // Same Reality key material on both transports — no new keys needed to switch.
+        assertEquals("realityPrivKeyBase64", fallback.getReality().getPrivateKey());
+        assertEquals("vless-grpc", fallback.getGrpcSettings().getServiceName());
+    }
+
+    @Test
+    void testBuildNodeConfigSyncCdnNodeUsesRealTlsNotReality() {
+        Node node = new Node();
+        node.setId(8L);
+        node.setHostname("edge.example.com");
+        node.setType("cdn");
+        node.setConfigVersion(1L);
+
+        when(nodeRepository.findById(8L)).thenReturn(Optional.of(node));
+        when(deviceNodeKeyRepository.findActiveKeysByNodeId(8L)).thenReturn(List.of());
+
+        ConfigSync sync = nodeManagementService.buildNodeConfigSync(8L);
+
+        assertFalse(sync.getInbound().getReality().getEnabled());
+        assertTrue(sync.getInbound().getTlsSettings().getEnabled());
+        assertEquals("edge.example.com", sync.getInbound().getTlsSettings().getServerName());
+        assertEquals("/etc/xray/certs/edge.example.com/fullchain.pem", sync.getInbound().getTlsSettings().getCertPath());
+        // CDN nodes don't get a gRPC fallback — the CDN's own framing already covers that role.
+        assertFalse(sync.hasFallbackInbound());
     }
 }

@@ -7,8 +7,9 @@ import { waitForPortOpen } from './portReady';
 import type { ConnectionEvent, ConnectionState } from '../../shared/connectionState';
 import { ConnectionStateMachine } from '../../shared/connectionState';
 import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnectBackoffPolicy';
+import { TransportFallbackPolicy } from '../../shared/transportFallbackPolicy';
 import { parseVlessUri, type ParsedVlessUri } from '../../shared/vlessUri';
-import { buildXrayConfig, HTTP_PORT } from '../../shared/xrayConfigFactory';
+import { buildXrayConfig, HTTP_PORT, type GrpcFallback } from '../../shared/xrayConfigFactory';
 
 export interface VpnControllerEvents {
   state: [ConnectionState];
@@ -29,6 +30,8 @@ export class VpnController extends EventEmitter {
   private nodes: ParsedVlessUri[] = [];
   private nodeIndex = 0;
   private backoff: ReconnectBackoffPolicy | null = null;
+  private transportFallback: TransportFallbackPolicy | null = null;
+  private grpcByHost = new Map<string, GrpcFallback>();
   private stopping = false;
   private retryTimer: NodeJS.Timeout | null = null;
 
@@ -77,6 +80,14 @@ export class VpnController extends EventEmitter {
         normalizeFingerprint(policy.fingerprint)
       );
 
+      this.grpcByHost = new Map();
+      for (const n of policy.nodes) {
+        if (n.grpcFallbackPort) {
+          this.grpcByHost.set(n.publicIp, { port: n.grpcFallbackPort, serviceName: n.grpcFallbackServiceName ?? undefined });
+        }
+      }
+      this.transportFallback = new TransportFallbackPolicy(parsed.length, this.grpcByHost.size > 0);
+
       await this.attemptStart();
     } catch (e) {
       console.error('Failed to load VPN profile', e);
@@ -101,11 +112,12 @@ export class VpnController extends EventEmitter {
   }
 
   private async attemptStart(): Promise<void> {
-    if (this.stopping || !this.backoff) return;
+    if (this.stopping || !this.backoff || !this.transportFallback) return;
     const vless = this.nodes[this.nodeIndex % this.nodes.length];
+    const transport = this.transportFallback.getCurrentTransport();
 
     try {
-      const config = buildXrayConfig(vless, this.backoff.getFingerprint());
+      const config = buildXrayConfig(vless, this.backoff.getFingerprint(), transport, this.grpcByHost.get(vless.host));
       this.xrayProcess.start(config, (code, signal) => this.onXrayExit(code, signal));
 
       const ready = await waitForPortOpen(HTTP_PORT);
@@ -119,7 +131,7 @@ export class VpnController extends EventEmitter {
       this.transition('TUNNEL_UP');
       this.emit('region', vless.remark || vless.host);
     } catch (e) {
-      console.warn(`Tunnel start failed on node ${this.nodeIndex}`, e);
+      console.warn(`Tunnel start failed on node ${this.nodeIndex} (transport=${transport})`, e);
       await this.handleFailure();
     }
   }
@@ -134,19 +146,25 @@ export class VpnController extends EventEmitter {
   }
 
   private async handleFailure(): Promise<void> {
-    if (this.stopping || !this.backoff) return;
+    if (this.stopping || !this.backoff || !this.transportFallback) return;
 
     const decision = this.backoff.onFailure();
     let whitelistSuspected = false;
 
     if (decision.switchNode) {
       this.nodeIndex += 1;
-      const verdict = await probeCensorship();
-      whitelistSuspected = verdict === 'OPERATOR_RESTRICTION';
-      if (whitelistSuspected) {
-        this.reportTelemetry(whitelistSuspected);
-        this.transition('OPERATOR_BLOCK_DETECTED');
-        return;
+      const transportOutcome = this.transportFallback.onNodeSwitch();
+
+      if (transportOutcome.allTransportsExhausted) {
+        const verdict = await probeCensorship();
+        whitelistSuspected = verdict === 'OPERATOR_RESTRICTION';
+        if (whitelistSuspected) {
+          this.reportTelemetry(whitelistSuspected);
+          this.transition('OPERATOR_BLOCK_DETECTED');
+          return;
+        }
+      } else if (transportOutcome.transportChanged) {
+        console.log('XHTTP exhausted across all nodes, falling back to gRPC+Reality (Phase 9)');
       }
     }
 
@@ -163,7 +181,7 @@ export class VpnController extends EventEmitter {
       null,
       null,
       null,
-      'XHTTP',
+      this.transportFallback?.getCurrentTransport() ?? 'XHTTP',
       0,
       this.backoff?.getConsecutiveFailuresOnNode() ?? 0,
       whitelistSuspected

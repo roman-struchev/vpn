@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -82,5 +83,33 @@ public class XrayConfigFactoryTest {
         VlessUri vless = VlessUri.parse(LINK);
         assertThrows(IllegalArgumentException.class, () -> XrayConfigFactory.build(vless, "chrome", 5, 1500));
         assertThrows(IllegalArgumentException.class, () -> XrayConfigFactory.build(vless, null, 5, 1500));
+    }
+
+    @Test
+    public void grpcTransportUsesTheFallbackPortAndServiceNameKeepingReality() {
+        VlessUri vless = VlessUri.parse(LINK);
+        String json = XrayConfigFactory.build(vless, "firefox", 5, 1500, "GRPC", 8443, "vless-grpc");
+
+        JsonObject root = JsonParser.parseString(json).getAsJsonObject();
+        JsonObject proxyOutbound = root.getAsJsonArray("outbounds").get(0).getAsJsonObject();
+        JsonObject streamSettings = proxyOutbound.getAsJsonObject("streamSettings");
+
+        assertEquals("grpc", streamSettings.get("network").getAsString());
+        assertEquals("reality", streamSettings.get("security").getAsString());
+        assertEquals("vless-grpc", streamSettings.getAsJsonObject("grpcSettings").get("serviceName").getAsString());
+        assertFalse(streamSettings.has("xhttpSettings"));
+
+        JsonObject vnext = proxyOutbound.getAsJsonObject("settings").getAsJsonArray("vnext").get(0).getAsJsonObject();
+        assertEquals(8443, vnext.get("port").getAsInt());
+        // Same node address and Reality keys as the primary transport.
+        assertEquals("203.0.113.10", vnext.get("address").getAsString());
+        assertEquals("abcDEF123", streamSettings.getAsJsonObject("realitySettings").get("publicKey").getAsString());
+    }
+
+    @Test
+    public void grpcTransportRequiresAPort() {
+        VlessUri vless = VlessUri.parse(LINK);
+        assertThrows(IllegalArgumentException.class,
+                () -> XrayConfigFactory.build(vless, "firefox", 5, 1500, "GRPC", null, "vless-grpc"));
     }
 }

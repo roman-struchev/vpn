@@ -41,4 +41,24 @@ describe('buildXrayConfig', () => {
     const uri = parseVlessUri(LINK);
     expect(() => buildXrayConfig(uri, 'chrome' as any)).toThrow();
   });
+
+  it('gRPC transport uses the fallback port and service name, keeping Reality', () => {
+    const config = buildXrayConfig(parseVlessUri(LINK), 'firefox', 'GRPC', { port: 8443, serviceName: 'vless-grpc' }) as any;
+    const streamSettings = config.outbounds[0].streamSettings;
+
+    expect(streamSettings.network).toBe('grpc');
+    expect(streamSettings.security).toBe('reality');
+    expect(streamSettings.grpcSettings.serviceName).toBe('vless-grpc');
+    expect(streamSettings.xhttpSettings).toBeUndefined();
+
+    const vnext = config.outbounds[0].settings.vnext[0];
+    expect(vnext.port).toBe(8443);
+    expect(vnext.address).toBe('203.0.113.10');
+    expect(streamSettings.realitySettings.publicKey).toBe('abcDEF123');
+  });
+
+  it('gRPC transport requires a fallback port', () => {
+    const uri = parseVlessUri(LINK);
+    expect(() => buildXrayConfig(uri, 'firefox', 'GRPC')).toThrow();
+  });
 });

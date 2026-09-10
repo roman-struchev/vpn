@@ -30,7 +30,9 @@ import com.vpn.android.vpn.xray.XrayConfigFactory;
 import com.vpn.android.vpn.xray.XrayInvoker;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -60,7 +62,10 @@ public class XrayVpnService extends VpnService implements DialerController {
     private ApiClient apiClient;
     private ParcelFileDescriptor tunInterface;
     private ReconnectBackoffPolicy backoffPolicy;
+    private TransportFallbackPolicy transportFallbackPolicy;
     private List<VlessUri> nodes = new ArrayList<>();
+    private final Map<String, Integer> grpcPortsByHost = new HashMap<>();
+    private final Map<String, String> grpcServiceNamesByHost = new HashMap<>();
     private int currentNodeIndex = 0;
     private volatile boolean stopping = false;
 
@@ -117,6 +122,16 @@ public class XrayVpnService extends VpnService implements DialerController {
             this.backoffPolicy = new ReconnectBackoffPolicy(
                     policy.backoffInitialSec, policy.maxRetriesBeforeNodeSwitch, normalizeFingerprint(policy.fingerprint));
 
+            grpcPortsByHost.clear();
+            grpcServiceNamesByHost.clear();
+            if (policy.nodes != null) {
+                for (RoutingConfigResponse.NodeInfo n : policy.nodes) {
+                    if (n.grpcFallbackPort != null) grpcPortsByHost.put(n.publicIp, n.grpcFallbackPort);
+                    if (n.grpcFallbackServiceName != null) grpcServiceNamesByHost.put(n.publicIp, n.grpcFallbackServiceName);
+                }
+            }
+            this.transportFallbackPolicy = new TransportFallbackPolicy(parsed.size(), !grpcPortsByHost.isEmpty());
+
             attemptTunnelStart();
         } catch (Exception e) {
             Log.e(TAG, "Failed to load VPN profile", e);
@@ -132,6 +147,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private void attemptTunnelStart() {
         if (stopping) return;
         VlessUri vless = nodes.get(currentNodeIndex % nodes.size());
+        boolean useGrpc = transportFallbackPolicy.getCurrentTransport() == TransportFallbackPolicy.Transport.GRPC;
         try {
             ensureTunEstablished();
             int tunFd = tunInterface.getFd();
@@ -139,7 +155,10 @@ public class XrayVpnService extends VpnService implements DialerController {
             XrayInvoker.registerDialerController(this);
             XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
 
-            String config = XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU);
+            String config = useGrpc
+                    ? XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU,
+                            "GRPC", grpcPortsByHost.get(vless.getHost()), grpcServiceNamesByHost.get(vless.getHost()))
+                    : XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU);
             XrayInvoker.runXray(config);
 
             backoffPolicy.onSuccess();
@@ -148,7 +167,8 @@ public class XrayVpnService extends VpnService implements DialerController {
             updateNotification();
             mainHandler.postDelayed(healthCheck, 30_000);
         } catch (Exception e) {
-            Log.w(TAG, "Tunnel start failed on node " + currentNodeIndex, e);
+            Log.w(TAG, "Tunnel start failed on node " + currentNodeIndex
+                    + " (transport=" + transportFallbackPolicy.getCurrentTransport() + ")", e);
             handleFailure();
         }
     }
@@ -160,13 +180,18 @@ public class XrayVpnService extends VpnService implements DialerController {
         boolean whitelistSuspected = false;
         if (decision.switchNode) {
             currentNodeIndex++;
-            CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
-            whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
-            if (whitelistSuspected) {
-                reportTelemetry(decision, true);
-                transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
-                updateNotification();
-                return;
+            TransportFallbackPolicy.Outcome transportOutcome = transportFallbackPolicy.onNodeSwitch();
+            if (transportOutcome.allTransportsExhausted) {
+                CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
+                whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
+                if (whitelistSuspected) {
+                    reportTelemetry(decision, true);
+                    transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
+                    updateNotification();
+                    return;
+                }
+            } else if (transportOutcome.transportChanged) {
+                Log.i(TAG, "XHTTP exhausted across all nodes, falling back to gRPC+Reality (Phase 9)");
             }
         }
         reportTelemetry(decision, whitelistSuspected);
@@ -192,8 +217,9 @@ public class XrayVpnService extends VpnService implements DialerController {
      * server-side node id, only {@code /api/v1/client/config} does.
      */
     private void reportTelemetry(ReconnectBackoffPolicy.Decision decision, boolean whitelistSuspected) {
+        String transport = transportFallbackPolicy.getCurrentTransport().name();
         worker.execute(() -> apiClient.submitTelemetry(
-                null, null, null, "XHTTP", 0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected));
+                null, null, null, transport, 0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected));
     }
 
     private void checkHealth() {

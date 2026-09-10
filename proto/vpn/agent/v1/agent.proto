@@ -130,14 +130,23 @@ message ConfigSync {
   NodeType node_type = 3;
   InboundConfig inbound = 4;
   repeated ClientConfig clients = 5;
+  // Optional second inbound the node listens on concurrently with `inbound`,
+  // e.g. gRPC+Reality as a client-selectable fallback when XHTTP degrades
+  // (docs/ROADMAP_PROGRESS.md Phase 9). Unset when no fallback is configured.
+  InboundConfig fallback_inbound = 6;
 }
 
 message InboundConfig {
   int32 listen_port = 1;
   string protocol = 2; // "vless"
-  string transport = 3; // "xhttp"
+  string transport = 3; // "xhttp" | "grpc"
   RealityConfig reality = 4;
   XhttpSettings xhttp_settings = 5;
+  GrpcSettings grpc_settings = 6;
+  // Real TLS instead of Reality — used for CDN nodes (NodeType.NODE_TYPE_CDN),
+  // since a CDN terminates TLS itself and Reality's cert-stealing handshake
+  // does not survive that. Unset/disabled for direct Reality nodes.
+  TlsSettings tls_settings = 7;
 }
 
 message RealityConfig {
@@ -152,6 +161,17 @@ message XhttpSettings {
   string path = 1;
   string host = 2;
   string mode = 3; // "auto", "stream-one", "stream-up"
+}
+
+message GrpcSettings {
+  string service_name = 1;
+}
+
+message TlsSettings {
+  bool enabled = 1;
+  string server_name = 2; // SNI / certificate CN — typically the node's public hostname
+  string cert_path = 3;   // e.g. /etc/xray/certs/<hostname>/fullchain.pem
+  string key_path = 4;    // e.g. /etc/xray/certs/<hostname>/privkey.pem
 }
 
 message ClientConfig {

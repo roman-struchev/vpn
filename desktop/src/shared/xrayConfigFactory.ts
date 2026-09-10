@@ -1,6 +1,7 @@
 import type { ParsedVlessUri } from './vlessUri';
 import { vlessParam } from './vlessUri';
 import type { Fingerprint } from './reconnectBackoffPolicy';
+import type { Transport } from './transportFallbackPolicy';
 
 /**
  * Local proxy ports the desktop client listens on. MVP mode is system
@@ -22,9 +23,22 @@ const BLOCK_OUTBOUND_TAG = 'block';
  * The only structural difference is the inbound: SOCKS5 + HTTP listening on
  * localhost instead of a TUN device.
  */
-export function buildXrayConfig(vless: ParsedVlessUri, fingerprint: Fingerprint): object {
+export interface GrpcFallback {
+  port: number;
+  serviceName?: string;
+}
+
+export function buildXrayConfig(
+  vless: ParsedVlessUri,
+  fingerprint: Fingerprint,
+  transport: Transport = 'XHTTP',
+  grpcFallback?: GrpcFallback
+): object {
   if (fingerprint !== 'firefox' && fingerprint !== 'edge') {
     throw new Error(`fingerprint must be firefox or edge, got: ${fingerprint}`);
+  }
+  if (transport === 'GRPC' && !grpcFallback) {
+    throw new Error('grpcFallback (port) is required when transport is GRPC');
   }
 
   const reality = vlessParam(vless, 'security', 'none').toLowerCase() === 'reality';
@@ -62,7 +76,7 @@ export function buildXrayConfig(vless: ParsedVlessUri, fingerprint: Fingerprint)
     ],
 
     outbounds: [
-      buildProxyOutbound(vless, fingerprint, reality),
+      buildProxyOutbound(vless, fingerprint, reality, transport, grpcFallback),
       { tag: DNS_OUTBOUND_TAG, protocol: 'dns' },
       { tag: BLOCK_OUTBOUND_TAG, protocol: 'blackhole' },
     ],
@@ -87,17 +101,30 @@ export function buildXrayConfig(vless: ParsedVlessUri, fingerprint: Fingerprint)
   };
 }
 
-function buildProxyOutbound(vless: ParsedVlessUri, fingerprint: Fingerprint, reality: boolean) {
+function buildProxyOutbound(
+  vless: ParsedVlessUri,
+  fingerprint: Fingerprint,
+  reality: boolean,
+  transport: Transport,
+  grpcFallback?: GrpcFallback
+) {
+  const useGrpc = transport === 'GRPC';
+
   const streamSettings: Record<string, unknown> = {
-    network: 'xhttp',
+    network: useGrpc ? 'grpc' : 'xhttp',
     security: reality ? 'reality' : 'none',
-    xhttpSettings: {
+  };
+
+  if (useGrpc) {
+    streamSettings.grpcSettings = { serviceName: grpcFallback?.serviceName || 'vless-grpc' };
+  } else {
+    streamSettings.xhttpSettings = {
       path: vlessParam(vless, 'path', '/vless-xhttp'),
       mode: vlessParam(vless, 'mode', 'auto'),
-    },
-    // XMUX always on (docs/ROADMAP_PROGRESS.md §1.5).
-    xmuxSettings: { maxConcurrency: 16 },
-  };
+    };
+    // XMUX applies to the XHTTP transport only (docs/ROADMAP_PROGRESS.md §1.5).
+    streamSettings.xmuxSettings = { maxConcurrency: 16 };
+  }
 
   if (reality) {
     streamSettings.realitySettings = {
@@ -118,7 +145,9 @@ function buildProxyOutbound(vless: ParsedVlessUri, fingerprint: Fingerprint, rea
       vnext: [
         {
           address: vless.host,
-          port: vless.port,
+          // Same node, different port when falling back to gRPC — see
+          // NodeManagementService#buildNodeConfigSync on the server (Phase 9).
+          port: useGrpc ? grpcFallback!.port : vless.port,
           users: [{ id: vless.uuid, encryption: 'none' }],
         },
       ],

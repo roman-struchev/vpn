@@ -26,6 +26,12 @@ public class DynamicRoutingService {
     private final NodeRepository nodeRepository;
     private final AgentStreamServiceImpl agentStreamService;
 
+    @org.springframework.beans.factory.annotation.Value("${vpn.grpc-fallback.port:8443}")
+    private int grpcFallbackPort;
+
+    @org.springframework.beans.factory.annotation.Value("${vpn.grpc-fallback.service-name:vless-grpc}")
+    private String grpcFallbackServiceName;
+
     public DynamicRoutingService(
             TransportPolicyRepository transportPolicyRepository,
             ConnTelemetryRepository connTelemetryRepository,
@@ -51,7 +57,11 @@ public class DynamicRoutingService {
                 String publicIp,
                 int vlessPort,
                 String region,
-                String sni
+                String sni,
+                // Phase 9: gRPC+Reality fallback inbound, same node/keys, different port —
+                // set only for "direct" nodes (see NodeManagementService.buildNodeConfigSync).
+                Integer grpcFallbackPort,
+                String grpcFallbackServiceName
         ) {}
     }
 
@@ -64,16 +74,22 @@ public class DynamicRoutingService {
             activeNodes = nodeRepository.findByStatus("ONLINE");
         }
 
-        // Filter out quarantine pool
+        // Filter out quarantine and reserve pools (reserve nodes are standby-only
+        // until DynamicRoutingService promotes them — see checkAndQuarantineNode).
         List<RoutingConfigResponse.NodeInfo> nodeInfos = activeNodes.stream()
-                .filter(n -> !"quarantine".equalsIgnoreCase(n.getPool()))
-                .map(n -> new RoutingConfigResponse.NodeInfo(
-                        n.getId(),
-                        n.getPublicIp(),
-                        443,
-                        n.getRegion(),
-                        "dl.google.com"
-                ))
+                .filter(n -> !"quarantine".equalsIgnoreCase(n.getPool()) && !"reserve".equalsIgnoreCase(n.getPool()))
+                .map(n -> {
+                    boolean isDirect = "direct".equalsIgnoreCase(n.getType());
+                    return new RoutingConfigResponse.NodeInfo(
+                            n.getId(),
+                            n.getPublicIp(),
+                            443,
+                            n.getRegion(),
+                            "dl.google.com",
+                            isDirect ? grpcFallbackPort : null,
+                            isDirect ? grpcFallbackServiceName : null
+                    );
+                })
                 .toList();
 
         return new RoutingConfigResponse(
@@ -131,12 +147,37 @@ public class DynamicRoutingService {
                 .count();
 
         if (nodeFailures >= 5) {
+            String previousPool = node.getPool();
             log.warn("Node {} ({}) reached {} severe connection failures in 10m. Moving to QUARANTINE pool.",
                     node.getId(), node.getPublicIp(), nodeFailures);
             node.setPool("quarantine");
             nodeRepository.save(node);
+            promoteReserveNode(node, previousPool);
             agentStreamService.pushConfigSyncToAll();
         }
+    }
+
+    /**
+     * Phase 9 "backup address pool rotation": when a node is quarantined,
+     * automatically promote a standby node from the 'reserve' pool (same
+     * region) into the pool the quarantined node just vacated, so paid/trial
+     * capacity doesn't silently shrink while waiting for a human to react.
+     * New client keys for the promoted node are created lazily the next time
+     * a user fetches their subscription links (same mechanism already used
+     * for any newly added node — see SubscriptionExportService).
+     */
+    private void promoteReserveNode(Node quarantinedNode, String previousPool) {
+        List<Node> reserves = nodeRepository.findByPoolAndRegionAndStatus("reserve", quarantinedNode.getRegion(), "ONLINE");
+        if (reserves.isEmpty()) {
+            log.warn("No reserve-pool node available in region {} to replace quarantined node {}",
+                    quarantinedNode.getRegion(), quarantinedNode.getId());
+            return;
+        }
+        Node promoted = reserves.get(0);
+        promoted.setPool(previousPool);
+        nodeRepository.save(promoted);
+        log.warn("Promoted reserve node {} ({}) into '{}' pool to replace quarantined node {} in region {}",
+                promoted.getId(), promoted.getPublicIp(), previousPool, quarantinedNode.getId(), quarantinedNode.getRegion());
     }
 
     private TransportPolicy resolvePolicy(String operator, String region) {

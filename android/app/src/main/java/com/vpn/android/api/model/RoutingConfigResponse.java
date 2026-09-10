@@ -17,5 +17,8 @@ public class RoutingConfigResponse {
         public int vlessPort;
         public String region;
         public String sni;
+        /** Phase 9: gRPC+Reality fallback inbound on the same node; null for CDN nodes. */
+        public Integer grpcFallbackPort;
+        public String grpcFallbackServiceName;
     }
 }

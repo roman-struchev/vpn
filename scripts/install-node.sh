@@ -13,10 +13,16 @@ fi
 
 SERVER_GRPC="${1:-}"
 BOOTSTRAP_TOKEN="${2:-}"
+# Optional: only for CDN-fronted nodes (registered with type=cdn). A direct
+# Reality node needs none of this — Reality doesn't use a real certificate.
+CDN_HOSTNAME="${3:-}"
 
 if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
-    echo "Usage: $0 <server_grpc_host:port> <bootstrap_token>"
-    echo "Example: $0 vpn.example.com:9090 bst_abc12345"
+    echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname]"
+    echo "Example (direct Reality node): $0 vpn.example.com:9090 bst_abc12345"
+    echo "Example (CDN node, Phase 9):   $0 vpn.example.com:9090 bst_abc12345 edge.example.com"
+    echo "  cdn_hostname must already resolve (via the CDN) to this host's IP on port 80/443"
+    echo "  before running this script, so certbot's HTTP-01 challenge can complete."
     exit 1
 fi
 
@@ -95,5 +101,33 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
+
+if [ -n "$CDN_HOSTNAME" ]; then
+    echo "==> [7/7] Provisioning Let's Encrypt certificate for CDN node ($CDN_HOSTNAME)..."
+    # CDN nodes use real TLS instead of Reality (a CDN terminates TLS itself,
+    # which breaks Reality's cert-stealing handshake — see docs/PLAN.md §6 and
+    # docs/ROADMAP_PROGRESS.md Phase 9). NodeManagementService expects the
+    # cert at /etc/xray/certs/<hostname>/{fullchain,privkey}.pem by default
+    # (see vpn.cdn.cert-dir); certbot's --deploy-hook keeps that path in sync
+    # across renewals instead of a one-time copy that would go stale.
+    apt-get install -y -qq certbot
+    mkdir -p /etc/xray/certs
+    if certbot certonly --standalone --non-interactive --agree-tos \
+        --register-unsafely-without-email -d "$CDN_HOSTNAME" \
+        --deploy-hook "mkdir -p /etc/xray/certs/$CDN_HOSTNAME && cp /etc/letsencrypt/live/$CDN_HOSTNAME/fullchain.pem /etc/xray/certs/$CDN_HOSTNAME/fullchain.pem && cp /etc/letsencrypt/live/$CDN_HOSTNAME/privkey.pem /etc/xray/certs/$CDN_HOSTNAME/privkey.pem && systemctl restart vpn-node-agent || true"; then
+        mkdir -p "/etc/xray/certs/$CDN_HOSTNAME"
+        cp "/etc/letsencrypt/live/$CDN_HOSTNAME/fullchain.pem" "/etc/xray/certs/$CDN_HOSTNAME/fullchain.pem"
+        cp "/etc/letsencrypt/live/$CDN_HOSTNAME/privkey.pem" "/etc/xray/certs/$CDN_HOSTNAME/privkey.pem"
+        echo "==> Certificate installed at /etc/xray/certs/$CDN_HOSTNAME/"
+    else
+        echo "WARNING: certbot failed — this node needs a cert at /etc/xray/certs/$CDN_HOSTNAME/{fullchain,privkey}.pem"
+        echo "         before it's registered with type=cdn, or Xray will fail to start."
+    fi
+fi
+
 echo "==> Installation complete!"
 echo "To start the agent: systemctl enable --now vpn-node-agent"
+if [ -n "$CDN_HOSTNAME" ]; then
+    echo "This node was provisioned as a CDN edge for $CDN_HOSTNAME — register it via the admin API"
+    echo "with type=cdn (see docs/ROADMAP_PROGRESS.md Phase 9 / AdminController's bootstrap-token endpoint)."
+fi
