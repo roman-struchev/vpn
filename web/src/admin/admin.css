@@ -1,0 +1,80 @@
+/* Retints PrimeReact's lara-dark-green theme to match this site's own dark
+   palette (web/tailwind.config.js: dark-800 #181b20 / dark-850 #131519 /
+   dark-900 #0c0e12) instead of PrimeReact's default dark surface greys —
+   scoped to [data-testid="admin-panel"] so it can't bleed into the rest of
+   the site even if PrimeReact's own selectors ever get less specific. */
+[data-testid='admin-panel'] {
+  --surface-ground: #0c0e12;
+  --surface-section: #0c0e12;
+  --surface-card: #131519;
+  --surface-overlay: #131519;
+  --surface-border: #1f232a;
+  --surface-hover: #181b20;
+  --text-color: #e2e8f0;
+  --text-color-secondary: #94a3b8;
+  --primary-color: #22c55e;
+  --primary-color-text: #06070a;
+  --font-family: inherit;
+}
+
+[data-testid='admin-panel'] .p-component {
+  font-family: inherit;
+  font-size: 0.75rem;
+}
+
+[data-testid='admin-panel'] .p-datatable .p-datatable-thead > tr > th {
+  background: var(--surface-card);
+  color: var(--text-color-secondary);
+  border-color: var(--surface-border);
+  font-size: 0.6875rem;
+  text-transform: none;
+  padding: 0.6rem 0.75rem;
+}
+
+[data-testid='admin-panel'] .p-datatable .p-datatable-tbody > tr {
+  background: var(--surface-card);
+  color: var(--text-color);
+}
+
+[data-testid='admin-panel'] .p-datatable .p-datatable-tbody > tr > td {
+  border-color: var(--surface-border);
+  padding: 0.6rem 0.75rem;
+}
+
+[data-testid='admin-panel'] .p-datatable .p-datatable-tbody > tr:hover {
+  background: var(--surface-hover);
+  cursor: pointer;
+}
+
+[data-testid='admin-panel'] .p-paginator {
+  background: var(--surface-card);
+  border-color: var(--surface-border);
+}
+
+[data-testid='admin-panel'] .p-dropdown {
+  background: var(--surface-ground);
+  border-color: var(--surface-border);
+  min-width: 8rem;
+}
+
+[data-testid='admin-panel'] .p-dropdown-panel {
+  background: var(--surface-card);
+  border-color: var(--surface-border);
+}
+
+[data-testid='admin-panel'] .p-dialog {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: 1.5rem;
+}
+
+[data-testid='admin-panel'] .p-dialog .p-dialog-header {
+  background: var(--surface-card);
+  color: var(--text-color);
+  border-radius: 1.5rem 1.5rem 0 0;
+}
+
+[data-testid='admin-panel'] .p-dialog .p-dialog-content {
+  background: var(--surface-card);
+  color: var(--text-color);
+}

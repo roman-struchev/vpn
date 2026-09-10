@@ -6,6 +6,7 @@ import { Navbar } from './components/Navbar';
 import { LandingView } from './components/LandingView';
 import { DashboardView } from './components/DashboardView';
 import { AuthModal } from './components/AuthModal';
+import { AdminPanel } from './admin/AdminPanel';
 
 declare global {
   interface Window {
@@ -28,6 +29,7 @@ export function App() {
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
 
   useEffect(() => {
     initApp();
@@ -76,6 +78,7 @@ export function App() {
   const handleLogout = () => {
     removeToken();
     setUser(null);
+    setShowAdmin(false);
   };
 
   if (loading) {
@@ -96,10 +99,13 @@ export function App() {
           onOpenAuth={() => setIsAuthOpen(true)}
           onLogout={handleLogout}
           onOpenTopUp={() => setIsTopUpOpen(true)}
+          onOpenAdmin={user?.role === 'ADMIN' ? () => setShowAdmin(true) : undefined}
         />
 
         <main className="pb-16">
-          {user ? (
+          {user && showAdmin && user.role === 'ADMIN' ? (
+            <AdminPanel lang={lang} onBack={() => setShowAdmin(false)} />
+          ) : user ? (
             <DashboardView
               lang={lang}
               user={user}

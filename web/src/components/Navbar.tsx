@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Globe, LogIn, LogOut, Wallet } from 'lucide-react';
+import { Shield, Globe, LogIn, LogOut, Wallet, ShieldAlert } from 'lucide-react';
 import { Lang, translations } from '../i18n';
 import { UserProfile } from '../types';
 
@@ -10,6 +10,8 @@ interface NavbarProps {
   onOpenAuth: () => void;
   onLogout: () => void;
   onOpenTopUp: () => void;
+  /** Present only for ADMIN-role users — entry point into the admin panel. */
+  onOpenAdmin?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,6 +21,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
   onLogout,
   onOpenTopUp,
+  onOpenAdmin,
 }) => {
   const t = translations[lang];
 
@@ -46,6 +49,16 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {user ? (
             <div className="flex items-center gap-2">
+              {onOpenAdmin && (
+                <button
+                  onClick={onOpenAdmin}
+                  data-testid="nav-admin-link"
+                  className="p-2 rounded-lg bg-dark-800 hover:bg-brand-500/10 hover:text-brand-500 text-slate-400 transition-colors border border-dark-800"
+                  title="Admin"
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                </button>
+              )}
               <button
                 onClick={onOpenTopUp}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-xs font-semibold transition-colors"
