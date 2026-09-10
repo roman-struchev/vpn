@@ -37,8 +37,8 @@
 | **Фаза 5** | Веб-интерфейс: Лендинг, Личный кабинет, Telegram Mini App, i18n (ru/en) | **ВЫПОЛНЕНО** | 100% `[x]` |
 | **Фаза 6** | Админ-панель: операционный дашборд, пользователи, ноды, политики, аудит-лог | **ВЫПОЛНЕНО** | 100% `[x]` |
 | **Фаза 7** | Android MVP: Java + `libXray` (.aar), Material 3, логика подключения, конформанс | **ВЫПОЛНЕНО** | 100% `[x]` |
-| **Фаза 8** | Desktop Windows/macOS: Electron + React, системный прокси, автообновление | **ТЕКУЩАЯ** | 0% `[ ]` |
-| **Фаза 9** | Транспортная гибкость: CDN-ноды, gRPC fallback, резервные пулы | **ПРЕДСТОИТ** | 0% `[ ]` |
+| **Фаза 8** | Desktop Windows/macOS: Electron + React, системный прокси, автообновление | **ВЫПОЛНЕНО** | 100% `[x]` |
+| **Фаза 9** | Транспортная гибкость: CDN-ноды, gRPC fallback, резервные пулы | **ТЕКУЩАЯ** | 0% `[ ]` |
 | **Фаза 10** | Закалка: резервные домены API, DoH, защита от перечисления РКН, релиз | **ПРЕДСТОИТ** | 0% `[ ]` |
 
 ---
@@ -125,12 +125,16 @@
 - [x] Собранный debug APK вручную проверен на эмуляторе (Pixel API 34, arm64): установка, запуск, рендер Material 3 UI, переключение режимов логина, валидация формы — без крашей.
 - **Не сделано в этом MVP**: нет on-device/инструментальных тестов для самого VPN-туннеля (проверено ревью кода + модульными тестами чистой логики, но не подключением к реальной ноде); нет входа через Telegram Mini App (только email/password); подпись релиза и публикация в Google Play — вне рамок MVP.
 
-### [ ] Фаза 8: Desktop-клиент для Windows и macOS
-*Требования по PLAN.md §5*:
-- [ ] **Стек**: Electron-vite + React + TypeScript.
-- [ ] **Дизайн**: Использование дизайн-токенов и компонентов из веб-кабинета (единый брендинг).
-- [ ] **Режим MVP**: Системный прокси (SOCKS5/HTTP через локальный `xray-core`). Без TUN-драйверов, без прав администратора и без необходимости сертификата подписи кода (схема из `aurapad`).
-- [ ] **Автообновление без сертификата**: `electron-updater` + GitHub Releases (`latest.yml`, `mac.notarize: false`, NSIS инсталлятор для Windows).
+### [x] Фаза 8: Desktop-клиент для Windows и macOS
+*Требования по PLAN.md §5*. Отдельный npm-проект [`desktop/`](file:///Users/roman.struchev/git/vpn/vpn/desktop) (как `agent/` и `web/`), см. [`desktop/README.md`](file:///Users/roman.struchev/git/vpn/vpn/desktop/README.md).
+- [x] **Стек**: Electron-vite 5 + React 18 + TypeScript, electron-builder + electron-updater.
+- [x] **Дизайн**: тот же брендовый набор цветов, что в `web/tailwind.config.js` и Android `colors.xml` (значения продублированы в `desktop/tailwind.config.js` — общий пакет `ui/` из PLAN.md §9 сознательно не заводился в этом MVP, см. «Не сделано» ниже).
+- [x] **Режим MVP — системный прокси, не TUN**: локальный дочерний процесс `xray-core` (`Xray-core` releases, бинарь `xray`, подтягивается [`scripts/fetch-xray-core.mjs`](file:///Users/roman.struchev/git/vpn/vpn/desktop/scripts/fetch-xray-core.mjs), не коммитится в git) слушает SOCKS5+HTTP на `127.0.0.1`; ОС-прокси переключается через [`systemProxy.ts`](file:///Users/roman.struchev/git/vpn/vpn/desktop/src/main/proxy/systemProxy.ts) (`networksetup` на macOS, реестр `Internet Settings` + `rundll32`-рефреш на Windows, `gsettings` для GNOME на Linux).
+- [x] **Логика подключения**: [`vpnController.ts`](file:///Users/roman.struchev/git/vpn/vpn/desktop/src/main/vpn/vpnController.ts) — тот же контракт, что и в Android-клиенте: `connectionState.ts` (стейт-машина + `OperatorBlocked`), `reconnectBackoffPolicy.ts` (15–20с, смена ноды после 2–3 неудач, фиксированный fingerprint на сессию), `censorshipVerdict.ts`/`censorshipProbe.ts` (честный экран блокировки), `xrayConfigFactory.ts` (VLESS+XHTTP+Reality, XMUX всегда включён, `dns`-блок с DoH для трафика через прокси).
+- [x] **Автообновление без сертификата**: `electron-updater` + `publish: provider: github` в `package.json`, `mac.notarize: false`, NSIS для Windows — схема идентична `aurapad`.
+- [x] **CI / Тесты**: 28 unit-тестов (Vitest, framework-free `src/shared/`) — `desktop/test/`. Jobs `web` и `desktop` добавлены в [`.github/workflows/gradlew-publish-and-deploy.yml`](file:///Users/roman.struchev/git/vpn/vpn/.github/workflows/gradlew-publish-and-deploy.yml).
+- [x] Реально собран и вручную проверен на этой машине: `npm run dev` (Electron-окно, вход, DevTools-логи IPC) и `npx electron-builder --mac --dir` (несигнированный `.app`, запущен как отдельный процесс, меню/иконка Dock показывают правильное имя `NextGen VPN`).
+- **Не сделано в этом MVP**: нет общего пакета `ui/` (см. выше — вместо этого продублированы значения токенов); нет TUN-режима (сознательно, см. `desktop/README.md`); нет DoH для собственных REST-запросов приложения (только для трафика внутри туннеля); Linux-прокси автоматизирован только для GNOME; автообновление не проверялось против реального GitHub Releases (релизов ещё не было).
 
 ### [ ] Фаза 9: Транспортная гибкость и стрессоустойчивость
 - [ ] Поддержка резервного транспорта gRPC + TLS при деградации XHTTP.
@@ -163,6 +167,9 @@ cd web && npm run build
 
 # 5. Android: unit-тесты (JDK 17-21 required for the Gradle 8.10 wrapper; see android/README.md)
 cd android && ./scripts/fetch-libxray.sh && ./gradlew :app:testDebugUnitTest
+
+# 6. Desktop: typecheck + unit-тесты (see desktop/README.md)
+cd desktop && npm install && npm run typecheck && npm test
 ```
 
 ### Запуск локальной инфраструктуры
