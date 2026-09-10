@@ -195,13 +195,23 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
           <div className="space-y-3 text-xs">
             <div>
               <label className="block text-slate-400 mb-1">{t.pool}</label>
-              <select value={pool} onChange={(e) => setPool(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700">
+              <select
+                data-testid="bootstrap-pool-select"
+                value={pool}
+                onChange={(e) => setPool(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
+              >
                 {POOLS.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-slate-400 mb-1">{t.type}</label>
-              <select value={type} onChange={(e) => setType(e.target.value)} className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700">
+              <select
+                data-testid="bootstrap-type-select"
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
+              >
                 <option value="direct">direct</option>
                 <option value="cdn">cdn</option>
               </select>
@@ -222,7 +232,10 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
         ) : (
           <div className="space-y-3">
             <p className="text-xs text-emerald-400 font-semibold">{t.tokenCreated}</p>
-            <div className="p-3 rounded-xl bg-dark-900 border border-dark-700 text-[11px] font-mono break-all text-slate-200">
+            <div
+              data-testid="bootstrap-token-value"
+              className="p-3 rounded-xl bg-dark-900 border border-dark-700 text-[11px] font-mono break-all text-slate-200"
+            >
               {result.token}
             </div>
             <p className="text-[10px] text-slate-500">

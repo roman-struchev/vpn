@@ -90,12 +90,14 @@ export function PoliciesSection({ t }: { t: AdminT }) {
 
       {error && <p className="text-xs text-red-400">{t.error}: {error}</p>}
 
-      <button
-        onClick={() => setEditing({ ...EMPTY })}
-        className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-xs font-semibold"
-      >
-        {t.newPolicy}
-      </button>
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setEditing({ ...EMPTY })}
+          className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-xs font-semibold text-slate-200 transition-colors"
+        >
+          {t.newPolicy}
+        </button>
+      </div>
 
       {loading ? (
         <p className="text-xs text-slate-500">{t.loading}</p>
