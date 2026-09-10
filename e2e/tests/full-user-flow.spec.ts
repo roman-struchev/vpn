@@ -45,8 +45,10 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
   });
 
   await test.step('activates the free trial tariff from the dashboard', async () => {
+    // "Активировать бесплатно", not "Оплатить с баланса" — a $0 tariff has
+    // nothing to charge the balance for; see docs/ROADMAP_PROGRESS.md.
     const trialCard = page.locator('div.rounded-xl.bg-dark-900:has-text("Пробный")').first();
-    await trialCard.getByRole('button', { name: 'Оплатить с баланса' }).click();
+    await trialCard.getByRole('button', { name: 'Активировать бесплатно' }).click();
 
     await expect(page.getByText('Трафик:', { exact: false })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('Active · TRIAL', { exact: false })).toBeVisible();

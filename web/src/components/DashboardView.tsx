@@ -314,7 +314,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     ? 'Processing...'
                     : isCurrent
                       ? t.renewPlan
-                      : t.buyWithBalance}
+                      : price === 0
+                        ? t.activateFree
+                        : t.buyWithBalance}
                 </button>
               </div>
             );
