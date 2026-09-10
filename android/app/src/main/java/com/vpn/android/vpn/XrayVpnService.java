@@ -157,15 +157,19 @@ public class XrayVpnService extends VpnService implements DialerController {
         if (stopping) return;
 
         ReconnectBackoffPolicy.Decision decision = backoffPolicy.onFailure();
+        boolean whitelistSuspected = false;
         if (decision.switchNode) {
             currentNodeIndex++;
             CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
-            if (verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION) {
+            whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
+            if (whitelistSuspected) {
+                reportTelemetry(decision, true);
                 transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
                 updateNotification();
                 return;
             }
         }
+        reportTelemetry(decision, whitelistSuspected);
         transition(ConnectionEvent.TUNNEL_DOWN);
         updateNotification();
         worker.execute(() -> {
@@ -178,6 +182,18 @@ public class XrayVpnService extends VpnService implements DialerController {
                 attemptTunnelStart();
             }
         });
+    }
+
+    /**
+     * Best-effort — feeds the admin degradation dashboard and (once nodeId
+     * correlation is added) DynamicRoutingService's auto-quarantine (see
+     * docs/ROADMAP_PROGRESS.md §3). nodeId is left null here: subscription
+     * links (used to build {@link #nodes}) don't currently carry the
+     * server-side node id, only {@code /api/v1/client/config} does.
+     */
+    private void reportTelemetry(ReconnectBackoffPolicy.Decision decision, boolean whitelistSuspected) {
+        worker.execute(() -> apiClient.submitTelemetry(
+                null, null, null, "XHTTP", 0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected));
     }
 
     private void checkHealth() {
