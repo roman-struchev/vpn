@@ -32,15 +32,16 @@ export function App() {
   // Backed by the URL hash (#admin), not just React state: a plain useState
   // resets to false on every reload (F5 while in the admin panel bounced you
   // back to the dashboard with no way to tell you'd been in admin at all).
-  const [showAdmin, setShowAdmin] = useState(() => window.location.hash === '#admin');
+  // #admin, or #admin/<tab> once AdminPanel starts tracking its own tab.
+  const [showAdmin, setShowAdmin] = useState(() => window.location.hash.startsWith('#admin'));
 
   const openAdmin = () => {
-    window.location.hash = 'admin';
+    if (!window.location.hash.startsWith('#admin')) window.location.hash = 'admin';
     setShowAdmin(true);
   };
 
   const closeAdmin = () => {
-    if (window.location.hash === '#admin') {
+    if (window.location.hash.startsWith('#admin')) {
       history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     setShowAdmin(false);
@@ -49,7 +50,7 @@ export function App() {
   useEffect(() => {
     initApp();
 
-    const onHashChange = () => setShowAdmin(window.location.hash === '#admin');
+    const onHashChange = () => setShowAdmin(window.location.hash.startsWith('#admin'));
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);

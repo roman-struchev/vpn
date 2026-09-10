@@ -18,10 +18,25 @@ import 'primeicons/primeicons.css';
 import './admin.css';
 
 type Tab = 'dashboard' | 'users' | 'nodes' | 'policies' | 'payments';
+const TABS: Tab[] = ['dashboard', 'users', 'nodes', 'policies', 'payments'];
+
+function tabFromHash(): Tab {
+  // #admin/<tab> — falls back to 'dashboard' for a bare #admin or an
+  // unrecognized sub-path (e.g. an old bookmark from before a tab was renamed).
+  const sub = window.location.hash.slice('#admin'.length).replace(/^\//, '') as Tab;
+  return TABS.includes(sub) ? sub : 'dashboard';
+}
 
 export function AdminPanel({ lang, onBack }: { lang: Lang; onBack: () => void }) {
   const t = adminTranslations[lang];
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const [tab, setTabState] = useState<Tab>(tabFromHash);
+
+  // F5 while on e.g. the Nodes tab used to always bounce back to Dashboard —
+  // the tab was plain React state with nothing to restore it from on reload.
+  const setTab = (next: Tab) => {
+    window.location.hash = `admin/${next}`;
+    setTabState(next);
+  };
 
   const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard }> = [
     { id: 'dashboard', label: t.tabDashboard, icon: LayoutDashboard },
