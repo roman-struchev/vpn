@@ -177,4 +177,43 @@ class NodeManagementServiceTest {
         // CDN nodes don't get a gRPC fallback — the CDN's own framing already covers that role.
         assertFalse(sync.hasFallbackInbound());
     }
+
+    @Test
+    void testBuildNodeConfigSyncExcludesBlockedUserEvenWithUnexpiredSubscription() {
+        Node node = new Node();
+        node.setId(9L);
+        node.setHostname("node-09");
+        node.setType("direct");
+        node.setConfigVersion(1L);
+
+        User blockedUser = new User();
+        blockedUser.setId(42L);
+        blockedUser.setStatus("BLOCKED");
+
+        Device device = new Device();
+        device.setId(100L);
+        device.setUser(blockedUser);
+        device.setIsActive(true);
+
+        UUID uuid = UUID.randomUUID();
+        DeviceNodeKey key = new DeviceNodeKey(device, node, uuid);
+
+        Subscription sub = new Subscription();
+        sub.setUser(blockedUser);
+        sub.setStatus("ACTIVE");
+        sub.setTrafficUsedBytes(0L);
+        sub.setTrafficLimitBytes(100_000_000_000L);
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        when(nodeRepository.findById(9L)).thenReturn(Optional.of(node));
+        when(deviceNodeKeyRepository.findActiveKeysByNodeId(9L)).thenReturn(List.of(key));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(42L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+
+        ConfigSync sync = nodeManagementService.buildNodeConfigSync(9L);
+
+        assertEquals(1, sync.getClientsCount());
+        assertFalse(sync.getClients(0).getIsActive(),
+                "a BLOCKED user must lose VPN access even with an unexpired subscription");
+    }
 }

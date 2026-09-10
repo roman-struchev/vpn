@@ -209,10 +209,14 @@ public class NodeManagementService {
             Device device = key.getDevice();
             User user = device.getUser();
 
-            // Check if user has an active non-exhausted subscription
-            boolean hasActiveSub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE")
-                    .map(sub -> sub.getTrafficUsedBytes() < sub.getTrafficLimitBytes() && sub.getCurrentPeriodEnd().isAfter(Instant.now()))
-                    .orElse(false);
+            // Check if user has an active non-exhausted subscription. Blocked accounts
+            // (AdminController#updateUserStatus) must lose VPN access immediately, not
+            // just stop being billable — this was previously unchecked here, so a
+            // BLOCKED user with an unexpired subscription kept working VLESS keys.
+            boolean hasActiveSub = "ACTIVE".equalsIgnoreCase(user.getStatus())
+                    && subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE")
+                            .map(sub -> sub.getTrafficUsedBytes() < sub.getTrafficLimitBytes() && sub.getCurrentPeriodEnd().isAfter(Instant.now()))
+                            .orElse(false);
 
             clients.add(ClientConfig.newBuilder()
                     .setUserId(user.getId())
