@@ -86,6 +86,67 @@ class BillingServiceTest {
     }
 
     @Test
+    void testCreditInvoicePaymentAppliesReferralRewardsOnFirstDeposit() {
+        User referrer = new User();
+        referrer.setId(7L);
+        referrer.setBalanceUsdtMicro(0L);
+
+        User user = new User();
+        user.setId(8L);
+        user.setBalanceUsdtMicro(0L);
+        user.setReferredBy(referrer);
+
+        CryptoInvoice invoice = new CryptoInvoice();
+        invoice.setId(51L);
+        invoice.setUser(user);
+        invoice.setChain("TRON");
+        invoice.setStatus("PENDING");
+
+        when(cryptoInvoiceRepository.findById(51L)).thenReturn(Optional.of(invoice));
+        // Only the DEPOSIT entry saved just above exists so far -> this is the user's first deposit.
+        when(balanceEntryRepository.countByUserIdAndType(8L, "DEPOSIT")).thenReturn(1L);
+
+        billingService.creditInvoicePayment(51L, 10_000_000L, "0xhash456");
+
+        // Referee: 10 USDT deposit + 10% welcome bonus = 11 USDT
+        assertEquals(11_000_000L, user.getBalanceUsdtMicro());
+        // Referrer: 15% of the 10 USDT deposit
+        assertEquals(1_500_000L, referrer.getBalanceUsdtMicro());
+        // 1 deposit entry + 1 referrer bonus entry + 1 referee welcome bonus entry
+        verify(balanceEntryRepository, times(3)).save(any(BalanceEntry.class));
+    }
+
+    @Test
+    void testCreditInvoicePaymentSkipsWelcomeBonusAfterFirstDeposit() {
+        User referrer = new User();
+        referrer.setId(9L);
+        referrer.setBalanceUsdtMicro(0L);
+
+        User user = new User();
+        user.setId(11L);
+        user.setBalanceUsdtMicro(0L);
+        user.setReferredBy(referrer);
+
+        CryptoInvoice invoice = new CryptoInvoice();
+        invoice.setId(52L);
+        invoice.setUser(user);
+        invoice.setChain("TRON");
+        invoice.setStatus("PENDING");
+
+        when(cryptoInvoiceRepository.findById(52L)).thenReturn(Optional.of(invoice));
+        // This user already had a prior deposit before this one.
+        when(balanceEntryRepository.countByUserIdAndType(11L, "DEPOSIT")).thenReturn(2L);
+
+        billingService.creditInvoicePayment(52L, 10_000_000L, "0xhash789");
+
+        // Referee gets only the raw deposit, no welcome bonus this time.
+        assertEquals(10_000_000L, user.getBalanceUsdtMicro());
+        assertEquals(1_500_000L, referrer.getBalanceUsdtMicro());
+        // 1 deposit entry + 1 referrer bonus entry, no welcome bonus entry
+        verify(balanceEntryRepository, times(2)).save(any(BalanceEntry.class));
+    }
+
+    @Test
     void testPurchaseSubscriptionDeductsBalanceAndCreatesSub() {
         User user = new User();
         user.setId(3L);

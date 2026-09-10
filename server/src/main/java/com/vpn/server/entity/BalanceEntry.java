@@ -29,7 +29,7 @@ public class BalanceEntry {
     private Long balanceAfterMicro;
 
     @Column(nullable = false, length = 32)
-    private String type; // DEPOSIT, SUBSCRIPTION_DEBIT, REFUND, REFERRAL_BONUS, MANUAL_ADJUSTMENT
+    private String type; // DEPOSIT, SUBSCRIPTION_DEBIT, REFUND, REFERRAL_BONUS, REFERRAL_WELCOME_BONUS, MANUAL_ADJUSTMENT
 
     @Column(nullable = false, columnDefinition = "text")
     private String description;

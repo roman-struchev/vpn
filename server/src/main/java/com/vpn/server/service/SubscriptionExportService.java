@@ -17,16 +17,19 @@ public class SubscriptionExportService {
     private final DeviceRepository deviceRepository;
     private final NodeRepository nodeRepository;
     private final DeviceNodeKeyRepository deviceNodeKeyRepository;
+    private final NodeManagementService nodeManagementService;
 
     public SubscriptionExportService(
             SubscriptionRepository subscriptionRepository,
             DeviceRepository deviceRepository,
             NodeRepository nodeRepository,
-            DeviceNodeKeyRepository deviceNodeKeyRepository) {
+            DeviceNodeKeyRepository deviceNodeKeyRepository,
+            NodeManagementService nodeManagementService) {
         this.subscriptionRepository = subscriptionRepository;
         this.deviceRepository = deviceRepository;
         this.nodeRepository = nodeRepository;
         this.deviceNodeKeyRepository = deviceNodeKeyRepository;
+        this.nodeManagementService = nodeManagementService;
     }
 
     /**
@@ -108,6 +111,12 @@ public class SubscriptionExportService {
                         DeviceNodeKey newKey = new DeviceNodeKey(primaryDevice, currentNode, UUID.randomUUID());
                         return deviceNodeKeyRepository.save(newKey);
                     });
+
+            // Backfills REALITY keys for a node whose row predates key generation
+            // (or whose agent never re-registered to pick it up) — otherwise this
+            // node hands out a VLESS link with an empty "pbk" forever, which fails
+            // client-side with "infra/conf: empty publicKey" at xray startup.
+            nodeManagementService.ensureRealityKeyMaterial(node);
 
             String vlessLink = buildVlessUrl(node, key.getUuid());
             links.add(vlessLink);

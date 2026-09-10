@@ -68,6 +68,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Top-up modal states
   const [invoice, setInvoice] = useState<CryptoInvoice | null>(null);
   const [invoiceAmount, setInvoiceAmount] = useState('5');
+  const [depositChain, setDepositChain] = useState<'TRON' | 'ETHEREUM'>('TRON');
   const [claimTxHash, setClaimTxHash] = useState('');
   const [claimAmount, setClaimAmount] = useState('5');
   const [claimStatus, setClaimStatus] = useState<string | null>(null);
@@ -133,7 +134,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const handleCreateInvoice = async () => {
     try {
       const amountMicro = Math.round(parseFloat(invoiceAmount) * 1_000_000);
-      const inv = await api.createCryptoInvoice('TRON', amountMicro);
+      const inv = await api.createCryptoInvoice(depositChain, amountMicro);
       setInvoice(inv);
     } catch (err: any) {
       alert(err.message || 'Error generating invoice');
@@ -146,7 +147,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setClaimStatus(null);
     try {
       const amountMicro = Math.round(parseFloat(claimAmount) * 1_000_000);
-      const res = await api.claimTx('TRON', claimTxHash, amountMicro);
+      const res = await api.claimTx(depositChain, claimTxHash, amountMicro);
       setClaimStatus(`Successfully credited $${(res.amountMicro / 1_000_000).toFixed(2)} USDT!`);
       setClaimTxHash('');
       onRefreshUser();
@@ -174,6 +175,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // object present without a tariffId crashed this whole view with
   // "Cannot read properties of undefined (reading 'toUpperCase')" below.
   const sub = user.subscription && user.subscription.tariffId ? user.subscription : null;
+  const currentTariff = sub ? tariffs.find((tf) => tf.id === sub.tariffId) ?? null : null;
   const usedGb = sub ? sub.trafficUsedBytes / (1024 * 1024 * 1024) : 0;
   const limitGb = sub ? sub.trafficLimitBytes / (1024 * 1024 * 1024) : 0;
   const trafficPercent = limitGb > 0 ? Math.min(100, Math.round((usedGb / limitGb) * 100)) : 0;
@@ -248,6 +250,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </h2>
             <p className="text-xs text-slate-400 mt-1">
               Active connections: {devices.length}
+              {currentTariff ? ` / ${currentTariff.maxDevices}` : ''}
             </p>
           </div>
           <button
@@ -258,6 +261,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <span>{t.addDevice}</span>
           </button>
         </div>
+
+        <p className="text-xs text-slate-500 mb-4">{t.deviceAutoAddedHint}</p>
 
         {devices.length === 0 ? (
           <p className="text-xs text-slate-500 py-4 text-center">No devices added yet.</p>
@@ -364,7 +369,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-slate-400 mt-2">
-                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB · {tariff.maxDevices} devices
+                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB/mo · {tariff.maxDevices} devices
                   </p>
                 </div>
 
@@ -414,8 +419,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   : inv.status === 'PENDING'
                     ? 'bg-amber-500/10 text-amber-400'
                     : 'bg-dark-800 text-slate-500';
+              const isPending = inv.status === 'PENDING';
               return (
-                <div key={inv.id} className="py-2.5 flex items-center justify-between text-xs">
+                <div
+                  key={inv.id}
+                  onClick={
+                    isPending
+                      ? () => {
+                          setDepositChain(inv.chain === 'ETHEREUM' ? 'ETHEREUM' : 'TRON');
+                          setInvoice({
+                            id: inv.id,
+                            chain: inv.chain,
+                            token: 'USDT',
+                            expectedAmountUsdtMicro: inv.expectedAmountUsdtMicro,
+                            toleranceMinMicro: inv.toleranceMinMicro,
+                            toleranceMaxMicro: inv.toleranceMaxMicro,
+                            recipientAddress: inv.recipientAddress,
+                            status: inv.status,
+                            expiresAt: inv.expiresAt,
+                          });
+                          setOpenTopUp(true);
+                        }
+                      : undefined
+                  }
+                  className={`py-2.5 flex items-center justify-between text-xs ${
+                    isPending ? 'cursor-pointer hover:bg-dark-800/50 -mx-2 px-2 rounded-lg' : ''
+                  }`}
+                  title={isPending ? t.viewPaymentDetails : undefined}
+                >
                   <div>
                     <span className="font-semibold text-slate-200">${amount.toFixed(2)}</span>
                     <span className="text-slate-500 ml-2">{inv.chain}</span>
@@ -566,7 +597,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 py-10 overflow-y-auto">
           <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-md w-full space-y-6">
             <div className="sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3 bg-dark-850 rounded-t-3xl flex items-center justify-between z-10">
-              <h3 className="font-bold text-base">{t.topUp} (TRC-20 USDT)</h3>
+              <h3 className="font-bold text-base">{t.topUp} (USDT)</h3>
               <button
                 onClick={() => setOpenTopUp(false)}
                 className="text-slate-400 hover:text-white text-xs"
@@ -577,6 +608,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             {/* Invoice Generator */}
             <div>
+              <label className="block text-xs text-slate-400 mb-1">Network</label>
+              <div className="flex gap-2 mb-3">
+                {(
+                  [
+                    { value: 'TRON' as const, label: 'TRC-20 (Tron)' },
+                    { value: 'ETHEREUM' as const, label: 'ERC-20 (Ethereum)' },
+                  ]
+                ).map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      setDepositChain(opt.value);
+                      setInvoice(null);
+                    }}
+                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border ${
+                      depositChain === opt.value
+                        ? 'bg-brand-500 text-dark-950 border-brand-500'
+                        : 'bg-dark-900 border-dark-700 text-slate-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
               <label className="block text-xs text-slate-400 mb-1">Select Amount (USDT)</label>
               <div className="flex gap-2 mb-3">
                 {['1', '5', '10', '20'].map((amt) => (
@@ -617,7 +672,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </span>
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400">TRC-20 Address:</span>
+                  <span className="text-[11px] text-slate-400">
+                    {invoice.chain === 'ETHEREUM' ? 'ERC-20 Address:' : 'TRC-20 Address:'}
+                  </span>
                   <div className="text-xs font-mono break-all text-slate-200 mt-0.5">
                     {invoice.recipientAddress}
                   </div>

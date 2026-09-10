@@ -16,7 +16,14 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RESOURCES_BIN = path.join(__dirname, '..', 'resources', 'bin');
-const VERSION = process.env.XRAY_CORE_VERSION || 'v26.3.27';
+// Must match the Xray-core version installed on server nodes (see
+// scripts/install-node.sh and agent/Dockerfile) — REALITY outbound config
+// built here has to stay wire-compatible with the node's inbound. Newer
+// Xray-core releases (e.g. v26.x) made "password" mandatory on outbound
+// REALITY stream settings for XHTTP/gRPC, which nothing in this repo's
+// config/URL/proto pipeline populates, so bumping this ahead of the node
+// version breaks every connection with "empty \"password\"".
+const VERSION = process.env.XRAY_CORE_VERSION || 'v24.11.30';
 const REPO = 'XTLS/Xray-core';
 
 // electron-builder ${os}-${arch} key -> Xray-core release asset name.

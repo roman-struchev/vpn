@@ -54,6 +54,17 @@ export class VpnController extends EventEmitter {
     this.transition('CONNECT_REQUESTED');
 
     try {
+      // Must happen before fetching subscription links, not just after a
+      // successful tunnel start (the only other call site, below): a brand
+      // new account has zero devices, and the server only ever includes
+      // nodes/keys for a user's *existing* devices in the subscription
+      // export (SubscriptionExportService#exportVlessLinksForOwnApp
+      // deliberately doesn't auto-create one anymore) — so the very first
+      // connect() attempt always got "No subscription links available for
+      // this account" with no way to recover, since the device that would
+      // fix that only ever got registered *after* a tunnel came up.
+      await this.registerOrTouchDevice();
+
       const [policy, links] = await Promise.all([
         this.apiClient.getRoutingConfig(null, null),
         this.apiClient.getSubscriptionLinks(),
@@ -142,7 +153,7 @@ export class VpnController extends EventEmitter {
       const connectTimeMs = Date.now() - attemptStartedAt;
       const connectedNodeId = this.nodeIdByHost.get(vless.host) ?? null;
       this.reportTelemetry(false, connectedNodeId, connectTimeMs, 0);
-      this.registerOrTouchDevice();
+      void this.registerOrTouchDevice();
     } catch (e) {
       console.warn(`Tunnel start failed on node ${this.nodeIndex} (transport=${transport})`, e);
       await this.handleFailure();
@@ -219,26 +230,32 @@ export class VpnController extends EventEmitter {
   }
 
   /**
-   * Best-effort, on every successful connect: keeps this install counting as
-   * a "recently active" device (server-side DEVICE_ACTIVE_WINDOW_DAYS) with
-   * no manual "add device" step. Touches the locally-persisted device from a
-   * prior run first; only registers a new one if that 404s (never
-   * registered yet, or revoked elsewhere) — see TokenStore.getDeviceId.
+   * Best-effort (errors are swallowed — a transient failure here shouldn't
+   * itself abort connect(); if it leaves the account with zero devices, the
+   * subsequent "No subscription links available" check already reports
+   * that). Keeps this install counting as a "recently active" device
+   * (server-side DEVICE_ACTIVE_WINDOW_DAYS) with no manual "add device"
+   * step. Touches the locally-persisted device from a prior run first; only
+   * registers a new one if that 404s (never registered yet, or revoked
+   * elsewhere) — see TokenStore.getDeviceId.
+   *
+   * Called both before fetching subscription links (so a brand-new account
+   * has a device to be paired with a node at all) and again after a
+   * successful tunnel start (to keep an existing device's last-active
+   * timestamp fresh on every connect, not just the first one).
    */
-  private registerOrTouchDevice(): void {
-    void (async () => {
-      try {
-        const deviceId = this.apiClient.getDeviceId();
-        if (deviceId && (await this.apiClient.touchDevice(deviceId))) {
-          return;
-        }
-        const platform = process.platform === 'darwin' ? 'MACOS' : process.platform === 'win32' ? 'WINDOWS' : 'THIRD_PARTY';
-        const device = await this.apiClient.addDevice(os.hostname(), platform);
-        this.apiClient.saveDeviceId(device.deviceId);
-      } catch (e) {
-        console.warn('Failed to register/touch this device (best-effort)', e);
+  private async registerOrTouchDevice(): Promise<void> {
+    try {
+      const deviceId = this.apiClient.getDeviceId();
+      if (deviceId && (await this.apiClient.touchDevice(deviceId))) {
+        return;
       }
-    })();
+      const platform = process.platform === 'darwin' ? 'MACOS' : process.platform === 'win32' ? 'WINDOWS' : 'THIRD_PARTY';
+      const device = await this.apiClient.addDevice(os.hostname(), platform);
+      this.apiClient.saveDeviceId(device.deviceId);
+    } catch (e) {
+      console.warn('Failed to register/touch this device (best-effort)', e);
+    }
   }
 
   private transition(event: ConnectionEvent): void {

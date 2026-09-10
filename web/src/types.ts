@@ -53,6 +53,10 @@ export interface InvoiceHistoryEntry {
   status: string;
   expectedAmountUsdtMicro: number;
   actualAmountUsdtMicro: number | null;
+  recipientAddress: string;
+  toleranceMinMicro: number;
+  toleranceMaxMicro: number;
+  expiresAt: string;
   createdAt: string;
   paidAt: string | null;
 }

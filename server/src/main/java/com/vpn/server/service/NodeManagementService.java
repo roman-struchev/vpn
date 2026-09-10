@@ -11,9 +11,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.security.KeyPairGenerator;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.security.interfaces.XECPrivateKey;
+import java.security.interfaces.XECPublicKey;
+import java.security.spec.NamedParameterSpec;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -22,6 +29,7 @@ import java.util.*;
 public class NodeManagementService {
 
     private static final Logger log = LoggerFactory.getLogger(NodeManagementService.class);
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final NodeRepository nodeRepository;
     private final NodeBootstrapTokenRepository tokenRepository;
@@ -91,6 +99,9 @@ public class NodeManagementService {
         node.setAsn(request.getAsn());
         node.setStatus("ONLINE");
         node.setLastHeartbeatAt(Instant.now());
+
+        applyRealityKeyMaterial(node);
+
         node = nodeRepository.save(node);
 
         bootstrapToken.setIsUsed(true);
@@ -208,10 +219,14 @@ public class NodeManagementService {
         telemetryRepository.saveAll(records);
     }
 
-    @Transactional(readOnly = true)
+    // Not readOnly: ensureRealityKeyMaterial below may backfill and persist
+    // key material for a node whose row predates it (self-invocation runs in
+    // this same transaction, so it needs an actual flush at commit).
+    @Transactional
     public ConfigSync buildNodeConfigSync(Long nodeId) {
         Node node = nodeRepository.findById(nodeId)
                 .orElseThrow(() -> new IllegalArgumentException("Node not found: " + nodeId));
+        ensureRealityKeyMaterial(node);
 
         List<DeviceNodeKey> keys = deviceNodeKeyRepository.findActiveKeysByNodeId(nodeId);
         List<ClientConfig> clients = new ArrayList<>();
@@ -253,7 +268,7 @@ public class NodeManagementService {
                 .setEnabled(isDirect)
                 .setDest(defaultRealityDest)
                 .addAllServerNames(serverNames)
-                .setPrivateKey(node.getRealityPublicKey() != null ? node.getRealityPublicKey() : "")
+                .setPrivateKey(node.getRealityPrivateKey() != null ? node.getRealityPrivateKey() : "")
                 .addAllShortIds(shortIds)
                 .build();
 
@@ -335,5 +350,92 @@ public class NodeManagementService {
         } catch (NoSuchAlgorithmException e) {
             return String.valueOf(System.currentTimeMillis());
         }
+    }
+
+    /**
+     * REALITY key material is generated once per node and never rotated once
+     * present — rotating it would invalidate every subscription link already
+     * handed out with the old public key. Mutates {@code node} in place; does
+     * not persist (callers that already hold a save/flush of their own, like
+     * {@link #registerNode}, fold it into that).
+     */
+    private boolean applyRealityKeyMaterial(Node node) {
+        boolean changed = false;
+        if (node.getRealityPublicKey() == null || node.getRealityPrivateKey() == null) {
+            RealityKeyPair keyPair = generateRealityKeyPair();
+            node.setRealityPrivateKey(keyPair.privateKeyBase64Url());
+            node.setRealityPublicKey(keyPair.publicKeyBase64Url());
+            changed = true;
+        }
+        if (node.getRealityShortIds() == null || node.getRealityShortIds().length == 0) {
+            node.setRealityShortIds(new String[] { generateShortId(), generateShortId() });
+            changed = true;
+        }
+        return changed;
+    }
+
+    /**
+     * Backfills REALITY key material for a node that predates it — either a
+     * row created before {@link #applyRealityKeyMaterial} existed, or one
+     * whose agent process never re-registers because it persists its node
+     * token locally and skips the register RPC on restart/reconnect (see
+     * agent/src/client/grpc-client.ts AgentGrpcClient#init, agent/src/config.ts
+     * loadPersistedState). Called wherever a node's keys are consumed
+     * (config sync, subscription export) so such a node is fixed the next
+     * time it's touched instead of being stuck with null keys — and an empty
+     * "pbk" in every VLESS link it hands out — forever. No-op, no extra write,
+     * for a node that already has its keys.
+     */
+    @Transactional
+    public Node ensureRealityKeyMaterial(Node node) {
+        // node is mutated in place, so return it directly rather than trust
+        // save()'s return value — keeps this robust under simple test doubles
+        // that don't stub save() to echo its argument back.
+        if (applyRealityKeyMaterial(node)) {
+            nodeRepository.save(node);
+        }
+        return node;
+    }
+
+    private record RealityKeyPair(String privateKeyBase64Url, String publicKeyBase64Url) {}
+
+    /**
+     * Generates a fresh REALITY (X25519) keypair in the same raw, unpadded
+     * base64url encoding {@code xray x25519} produces — verified byte-for-byte
+     * against the actual xray-core binary (same private scalar in, same
+     * public key out) since Java's X25519 keys are ASN.1-wrapped and don't
+     * expose the raw 32-byte values directly.
+     */
+    private RealityKeyPair generateRealityKeyPair() {
+        try {
+            KeyPairGenerator generator = KeyPairGenerator.getInstance("X25519");
+            generator.initialize(NamedParameterSpec.X25519);
+            KeyPair keyPair = generator.generateKeyPair();
+
+            byte[] privateScalar = ((XECPrivateKey) keyPair.getPrivate()).getScalar()
+                    .orElseThrow(() -> new IllegalStateException("X25519 provider did not expose a raw private scalar"));
+
+            // XECPublicKey#getU() is a big-endian BigInteger; X25519 encodes the
+            // u-coordinate as 32 little-endian bytes, so it has to be reversed
+            // (and zero-padded — a small u-coordinate can serialize shorter).
+            BigInteger u = ((XECPublicKey) keyPair.getPublic()).getU();
+            byte[] uBigEndian = u.toByteArray();
+            byte[] publicRaw = new byte[32];
+            for (int i = 0; i < Math.min(uBigEndian.length, 32); i++) {
+                publicRaw[i] = uBigEndian[uBigEndian.length - 1 - i];
+            }
+
+            Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+            return new RealityKeyPair(encoder.encodeToString(privateScalar), encoder.encodeToString(publicRaw));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to generate REALITY X25519 keypair", e);
+        }
+    }
+
+    /** xray REALITY short IDs: 0-16 hex chars (0-8 bytes) identifying a client config. */
+    private String generateShortId() {
+        byte[] bytes = new byte[8];
+        SECURE_RANDOM.nextBytes(bytes);
+        return HexFormat.of().formatHex(bytes);
     }
 }

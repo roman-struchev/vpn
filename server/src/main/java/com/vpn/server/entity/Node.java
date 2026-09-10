@@ -36,6 +36,11 @@ public class Node {
     @Column(name = "reality_public_key", length = 128)
     private String realityPublicKey;
 
+    // Never sent to clients — only the node's own xray inbound needs this,
+    // via NodeManagementService#buildNodeConfigSync's RealityConfig.
+    @Column(name = "reality_private_key", length = 128)
+    private String realityPrivateKey;
+
     @Column(name = "reality_short_ids", columnDefinition = "text[]")
     private String[] realityShortIds;
 
@@ -100,6 +105,9 @@ public class Node {
 
     public String getRealityPublicKey() { return realityPublicKey; }
     public void setRealityPublicKey(String realityPublicKey) { this.realityPublicKey = realityPublicKey; }
+
+    public String getRealityPrivateKey() { return realityPrivateKey; }
+    public void setRealityPrivateKey(String realityPrivateKey) { this.realityPrivateKey = realityPrivateKey; }
 
     public String[] getRealityShortIds() { return realityShortIds; }
     public void setRealityShortIds(String[] realityShortIds) { this.realityShortIds = realityShortIds; }

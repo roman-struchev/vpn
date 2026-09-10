@@ -10,8 +10,13 @@ android {
         applicationId "com.vpn.android"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "0.1.0-mvp"
+        // Defaults below are for local/dev builds only. Release builds (see
+        // .github/workflows/release.yml) override both from the root
+        // VERSION file via -PversionName=... -PversionCode=..., so that
+        // file stays the single source of truth and these two never drift
+        // from the Docker image tags / DMG version cut from the same release.
+        versionCode (project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1)
+        versionName (project.findProperty('versionName') ?: '0.1.0-mvp')
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
@@ -30,6 +35,13 @@ android {
 
     buildTypes {
         release {
+            // No production signing certificate/secrets exist anywhere in this
+            // repo. Signing with the SDK's auto-generated local debug keystore
+            // keeps the release APK installable (`adb install`) for internal
+            // testing/CI artifacts; it is NOT a Play Store-ready signed build.
+            // Swap this for a real signingConfig if/when a production keystore
+            // and secrets are provisioned.
+            signingConfig signingConfigs.debug
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
@@ -71,4 +83,20 @@ dependencies {
     implementation files('libs/libXray.aar')
 
     testImplementation 'junit:junit:4.13.2'
+
+    // Real-device/emulator instrumented tests (src/androidTest) — see
+    // ApiFlowTest for why these exist alongside the pure-JVM testImplementation
+    // ones above: those never touch a real Android Context (TokenStore's
+    // Keystore-backed EncryptedSharedPreferences) or a real network stack.
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:rules:1.6.1'
+    // Espresso drives real taps/typing against the app's actual rendered
+    // Activities/Fragments (see UiFlowTest) — as opposed to ApiFlowTest,
+    // which never opens a UI at all.
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+    // UiAutomator can reach OUTSIDE the app's own view hierarchy, which
+    // Espresso cannot: used only to click through the one-time, OS-owned
+    // VpnService consent dialog in UiFlowTest's connect-flow stretch goal.
+    androidTestImplementation 'androidx.test.uiautomator:uiautomator:2.3.0'
 }

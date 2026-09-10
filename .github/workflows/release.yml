@@ -1,0 +1,314 @@
+name: Release (Docker images, APK, DMG)
+
+# ==============================================================================
+# Release build+publish pipeline
+# ==============================================================================
+# Version source of truth: the root VERSION file. Cut a release with:
+#   npm run release [-- major|minor|patch]      (default: patch)
+# which bumps VERSION, commits, tags the commit `v<version>` and pushes —
+# see scripts/release.sh. Pushing that tag is what triggers this workflow.
+#
+# This workflow is intentionally test-free: every job here only builds and
+# publishes release artifacts (Docker images, an Android APK, a macOS DMG).
+# No `./gradlew test`, no `npm test`, no lint gate runs anywhere below.
+# PR/branch testing lives entirely in gradlew-publish-and-deploy.yml, which
+# this workflow does not depend on.
+#
+# Realistic-scope notes (see also inline comments in the jobs below):
+#   - The Android APK is signed with the SDK's auto-generated local debug
+#     keystore (see android/app/build.gradle) — there is no production
+#     signing keystore/secrets in this repo. Installable via `adb install`,
+#     not Play Store-ready.
+#   - The macOS DMG is unsigned/not notarized (no Apple Developer ID or
+#     notarization credentials exist in this repo's secrets — see
+#     `notarize: false` in desktop/package.json). Gatekeeper will warn on
+#     first launch; that's expected for an ad-hoc build.
+#   - Docker registry push (both images) is skipped gracefully if
+#     DOCKER_PUBLISH_REGISTRY_USERNAME isn't configured, mirroring the
+#     existing behavior in gradlew-publish-and-deploy.yml.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          VERSION="$(cat VERSION)"
+          TAG="${GITHUB_REF_NAME:-v$VERSION}"
+          if [ "${{ github.event_name }}" = "push" ] && [ "$TAG" != "v$VERSION" ]; then
+            echo "::warning::Tag $TAG does not match the VERSION file ($VERSION) — did scripts/release.sh's commit make it into this tag? Using the VERSION file's value ($VERSION) for all artifact versions."
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  create-draft-release:
+    name: Create draft GitHub Release
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.version.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; reusing it (re-run of a partially failed release, or workflow_dispatch)."
+            exit 0
+          fi
+          # Nearest tag reachable from the commit *before* this release's own
+          # tag - i.e. the previous release. Empty on the very first release.
+          PREV_TAG="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+          {
+            echo "## Changes"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              git log --no-merges --pretty='- %s' "$PREV_TAG..$TAG" | grep -v '^- release v' || true
+              echo
+              echo "**Full changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...$TAG"
+            else
+              git log --no-merges --pretty='- %s' "$TAG" | grep -v '^- release v' || true
+            fi
+          } > "$RUNNER_TEMP/release-notes.md"
+          gh release create "$TAG" --draft --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  docker-server:
+    name: Build & Push Server Docker Image
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      # actionlint/GitHub Actions don't allow the `secrets` context directly
+      # in a step `if:` — mirror gradlew-publish-and-deploy.yml's existing
+      # `env.DOCKER_USER` pattern instead.
+      DOCKER_USER: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build BootJar (no tests)
+        run: ./gradlew :server:bootJar -x test
+
+      - name: Resolve image tags
+        id: img
+        run: |
+          {
+            RAW="${{ secrets.DOCKER_IMAGE_NAME }}"
+            RAW="${RAW:-romanew/vpn-server:latest}"
+            BASE="${RAW%%:*}"
+            echo "tags<<EOF"
+            echo "$BASE:latest"
+            echo "$BASE:${{ needs.version.outputs.version }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Registry
+        if: env.DOCKER_USER != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_PUBLISH_REGISTRY_PASSWORD }}
+
+      - uses: docker/setup-buildx-action@v3
+        if: env.DOCKER_USER != ''
+
+      - name: Build & push
+        if: env.DOCKER_USER != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.img.outputs.tags }}
+
+  docker-node:
+    name: Build & Push VPN Node/Agent Docker Image
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_USER: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve image tags
+        id: img
+        run: |
+          {
+            RAW="${{ secrets.DOCKER_NODE_IMAGE_NAME }}"
+            RAW="${RAW:-romanew/vpn-node:latest}"
+            BASE="${RAW%%:*}"
+            echo "tags<<EOF"
+            echo "$BASE:latest"
+            echo "$BASE:${{ needs.version.outputs.version }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Registry
+        if: env.DOCKER_USER != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_PUBLISH_REGISTRY_PASSWORD }}
+
+      - uses: docker/setup-buildx-action@v3
+        if: env.DOCKER_USER != ''
+
+      - name: Build & push
+        if: env.DOCKER_USER != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: agent
+          file: agent/Dockerfile
+          push: true
+          tags: ${{ steps.img.outputs.tags }}
+
+  android-apk:
+    name: Build & Release Android APK
+    needs: [version, create-draft-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP/Gradle in android/ predates Java 25 support; pin JDK 21 for this
+      # job (see android/gradle.properties), matching the CI job in
+      # gradlew-publish-and-deploy.yml.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'gradle'
+          cache-dependency-path: 'android/**/*.gradle*'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew scripts/fetch-libxray.sh
+        working-directory: android
+
+      - name: Fetch libXray .aar
+        working-directory: android
+        run: ./scripts/fetch-libxray.sh
+
+      - name: Compute Android versionCode from VERSION
+        id: vc
+        run: |
+          V="${{ needs.version.outputs.version }}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$V"
+          # MAJOR.MINOR.PATCH -> MAJOR*10000 + MINOR*100 + PATCH. Assumes
+          # MINOR/PATCH stay below 100 between releases; bump the scheme if
+          # that ever stops holding. Must strictly increase release over
+          # release for any future Play Store upload.
+          echo "code=$((MAJOR * 10000 + MINOR * 100 + PATCH))" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble release APK (no tests)
+        # See android/app/build.gradle: signed with the SDK's local debug
+        # keystore (no production signing cert/secrets exist here) — this
+        # is an internal-testing artifact, not a Play Store release.
+        working-directory: android
+        run: |
+          ./gradlew :app:assembleRelease \
+            -PversionName=${{ needs.version.outputs.version }} \
+            -PversionCode=${{ steps.vc.outputs.code }}
+
+      - name: Upload APK to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: android
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk \
+            "vpn-android-${{ needs.version.outputs.version }}.apk"
+          gh release upload "${{ needs.version.outputs.tag }}" \
+            "vpn-android-${{ needs.version.outputs.version }}.apk" --clobber
+
+  desktop-dmg:
+    name: Build & Release macOS DMG
+    needs: [version, create-draft-release]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'desktop/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Set package version from release (drives DMG filename/app version)
+        working-directory: desktop
+        run: npm version ${{ needs.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      # Both Apple Silicon and Intel Macs: desktop/scripts/fetch-xray-core.mjs
+      # supports mac-arm64 and mac-x64 (see its TARGETS map), and
+      # electron-builder's ${os}-${arch} extraResources macro picks the
+      # matching one per architecture built below.
+      - name: Fetch xray-core binaries (mac-arm64, mac-x64)
+        working-directory: desktop
+        run: |
+          npm run fetch:xray -- mac-arm64
+          npm run fetch:xray -- mac-x64
+
+      - name: Build (main/preload/renderer bundles, no tests)
+        working-directory: desktop
+        run: npm run build
+
+      - name: Package & publish macOS DMG (both architectures)
+        # Unsigned/ad-hoc: no Apple Developer ID or notarization credentials
+        # exist in this repo (see `notarize: false` in package.json's mac
+        # config) — Gatekeeper will warn on first launch, which is expected.
+        # --config.publish.owner/repo is passed explicitly rather than
+        # relying on electron-builder's own git-remote autodetection, which
+        # throws an unrelated null-pointer error when it can't resolve a
+        # repository (observed locally in a checkout with no git remote).
+        working-directory: desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder --mac --x64 --arm64 --publish always \
+            --config.publish.provider=github \
+            --config.publish.owner=${{ github.repository_owner }} \
+            --config.publish.repo=${{ github.event.repository.name }}
+
+  finalize-release:
+    name: Publish GitHub Release
+    needs: [version, create-draft-release, docker-server, docker-node, android-apk, desktop-dmg]
+    if: |
+      always() &&
+      needs.create-draft-release.result == 'success' &&
+      needs.docker-server.result == 'success' &&
+      needs.docker-node.result == 'success' &&
+      needs.android-apk.result == 'success' &&
+      needs.desktop-dmg.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ needs.version.outputs.tag }}" --draft=false --repo "${{ github.repository }}"

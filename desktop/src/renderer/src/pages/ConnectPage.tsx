@@ -83,7 +83,9 @@ export default function ConnectPage() {
             <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-dark-800">
               <div className="h-full bg-brand-500" style={{ width: `${percent}%` }} />
             </div>
-            <p className="mt-2 text-xs text-white/50">{sub.expiresAt}</p>
+            <p className="mt-2 text-xs text-white/50">
+              {t.expiresAt}: {new Date(sub.expiresAt).toLocaleDateString()}
+            </p>
           </>
         ) : (
           <p className="text-sm text-white/60">{t.noSubscription}</p>

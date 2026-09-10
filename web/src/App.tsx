@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Lang } from './i18n';
 import { UserProfile, Tariff } from './types';
 import { api, getToken, removeToken } from './api';
@@ -29,6 +29,13 @@ export function App() {
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  // A referral link (?ref=CODE, or a forwarded Telegram ?start=CODE) opened
+  // directly in a browser — not inside Telegram — should still land on a
+  // pre-filled register form instead of silently dropping the code.
+  const [referralCode] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ref') || params.get('start');
+  });
   // Backed by the URL hash (#admin), not just React state: a plain useState
   // resets to false on every reload (F5 while in the admin panel bounced you
   // back to the dashboard with no way to tell you'd been in admin at all).
@@ -84,6 +91,14 @@ export function App() {
 
     setLoading(false);
   };
+
+  const hasAutoOpenedAuthRef = useRef(false);
+  useEffect(() => {
+    if (!loading && referralCode && !user && !hasAutoOpenedAuthRef.current) {
+      hasAutoOpenedAuthRef.current = true;
+      setIsAuthOpen(true);
+    }
+  }, [loading, referralCode, user]);
 
   const refreshUser = async () => {
     try {
@@ -156,6 +171,7 @@ export function App() {
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onSuccess={refreshUser}
+        initialReferralCode={referralCode}
       />
     </div>
   );

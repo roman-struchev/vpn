@@ -239,6 +239,18 @@ export class AgentGrpcClient {
       if (message.command.commandType === 'COMMAND_TYPE_RESTART_XRAY') {
         await this.xraySupervisor.restart();
       }
+      // COMMAND_TYPE_DRAIN is declared in agent.proto but intentionally has no
+      // handler here yet — it's a future "stop accepting new xray connections,
+      // let in-flight ones finish, then it's safe to restart/take the node
+      // down" primitive, not implemented today. Wiring it to a no-op admin
+      // button would be worse than not having the button: an operator could
+      // believe they'd achieved a graceful drain when nothing happened. The
+      // practical need this would serve is already covered well enough for
+      // now by the DRAINING node status (see AdminController#updateNodeStatus
+      // and NodeRepository#findByStatus("ONLINE") in DynamicRoutingService /
+      // SubscriptionExportService): flipping a node to DRAINING stops new
+      // clients from being routed to it while existing sessions are left
+      // alone, which is the outcome that matters for planned maintenance.
     }
   }
 

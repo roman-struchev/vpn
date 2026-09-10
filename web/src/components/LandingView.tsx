@@ -158,7 +158,10 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   <ul className="mt-6 space-y-3 text-xs text-slate-300">
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-brand-500 shrink-0" />
-                      <span>{quotaGb} GB high-speed traffic</span>
+                      <span>
+                        {quotaGb} GB high-speed traffic{' '}
+                        <span className="text-slate-500">({t.trafficResetsMonthly})</span>
+                      </span>
                     </li>
                     <li className="flex items-center gap-2">
                       <Check className="w-4 h-4 text-brand-500 shrink-0" />

@@ -146,13 +146,39 @@ export function NodesSection({ t }: { t: AdminT }) {
           <Column
             header={t.actions}
             body={(n: AdminNode) => (
-              <button
-                disabled={busyId === n.id}
-                onClick={() => withBusy(n.id, () => adminApi.forceSync(n.id))}
-                className="px-2 py-1 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-[10px] font-semibold disabled:opacity-50"
-              >
-                {t.forceSync}
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  data-testid={`node-force-sync-${n.id}`}
+                  disabled={busyId === n.id}
+                  onClick={() => withBusy(n.id, () => adminApi.forceSync(n.id))}
+                  className="px-2 py-1 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-[10px] font-semibold disabled:opacity-50"
+                >
+                  {t.forceSync}
+                </button>
+                {/* Bounces only the xray-core child process the agent supervises
+                    (XraySupervisor.restart() in agent/src/xray/xray-supervisor.ts) —
+                    it does NOT touch the agent process itself, so the gRPC command
+                    stream this button relies on stays up throughout, and there is
+                    nothing here to "un-brick" if it goes wrong. Deliberately NOT
+                    exposing a "restart/kill the agent" or "power off the node"
+                    action next to this one: those need real infra access (systemd,
+                    SSH, a cloud provider API) that this gRPC command channel was
+                    never designed to provide, and could strand a node with no
+                    recovery path from the admin panel if the target host's agent
+                    isn't supervised the way scripts/install-node.sh sets one up. */}
+                <button
+                  data-testid={`node-restart-xray-${n.id}`}
+                  disabled={busyId === n.id}
+                  title={t.restartXrayHint}
+                  onClick={() => {
+                    if (!window.confirm(t.restartXrayConfirm)) return;
+                    withBusy(n.id, () => adminApi.sendNodeCommand(n.id, 'COMMAND_TYPE_RESTART_XRAY'));
+                  }}
+                  className="px-2 py-1 rounded-lg bg-dark-800 hover:bg-dark-700 border border-dark-700 text-[10px] font-semibold disabled:opacity-50"
+                >
+                  {t.restartXray}
+                </button>
+              </div>
             )}
           />
         </DataTable>

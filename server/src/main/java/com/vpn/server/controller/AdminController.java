@@ -290,6 +290,15 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("message", "ConfigSync pushed to node " + nodeId));
     }
 
+    // Exposed to the admin UI today only as "Restart Xray"
+    // (COMMAND_TYPE_RESTART_XRAY, see NodesSection.tsx) — bounces the xray-core
+    // child process the agent supervises, not the agent process itself, so this
+    // gRPC command stream stays up. Deliberately not extended to a
+    // "restart/kill the agent" or "power off the node" command: those need real
+    // infra access (systemd, SSH, a cloud provider API) this channel can't
+    // provide, and on a node whose agent isn't supervised the way
+    // scripts/install-node.sh sets one up (Restart=always), getting it wrong
+    // could strand the node with no recovery path from this panel.
     @PostMapping("/nodes/{nodeId}/command")
     public ResponseEntity<?> sendNodeCommand(
             @PathVariable Long nodeId,

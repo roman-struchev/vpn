@@ -6,6 +6,7 @@ import com.vpn.server.repository.*;
 import com.vpn.server.service.NodeManagementService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -96,6 +97,47 @@ class NodeManagementServiceTest {
     }
 
     @Test
+    void testRegisterNodeGeneratesRealityKeyPairAndShortIds() {
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_valid_token_2");
+        token.setAssignedPool("paid");
+        token.setAssignedType("direct");
+        token.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+
+        when(tokenRepository.findByTokenAndIsUsedFalse("bt_valid_token_2")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname("node-nl-02")).thenReturn(Optional.empty());
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
+            Node n = i.getArgument(0);
+            n.setId(11L);
+            return n;
+        });
+
+        RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_valid_token_2")
+                .setHostname("node-nl-02")
+                .setPublicIp("198.51.100.2")
+                .setAgentVersion("1.0.0")
+                .setRegion("nl-ams")
+                .build();
+
+        nodeManagementService.registerNode(request);
+
+        ArgumentCaptor<Node> nodeCaptor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(nodeCaptor.capture());
+        Node saved = nodeCaptor.getValue();
+
+        // No key generation code existed before this — new nodes always had a
+        // NULL realityPublicKey, which broke xray's REALITY outbound/inbound
+        // config on every client and node with "empty \"publicKey\"" /
+        // "empty \"password\"" (nothing to ever populate these fields).
+        assertNotNull(saved.getRealityPublicKey());
+        assertNotNull(saved.getRealityPrivateKey());
+        assertNotEquals(saved.getRealityPublicKey(), saved.getRealityPrivateKey());
+        assertNotNull(saved.getRealityShortIds());
+        assertEquals(2, saved.getRealityShortIds().length);
+    }
+
+    @Test
     void testRegisterNodeExpiredTokenThrows() {
         NodeBootstrapToken token = new NodeBootstrapToken();
         token.setToken("bt_expired");
@@ -135,7 +177,8 @@ class NodeManagementServiceTest {
         node.setHostname("node-direct-01");
         node.setType("direct");
         node.setConfigVersion(1L);
-        node.setRealityPublicKey("realityPrivKeyBase64");
+        node.setRealityPublicKey("realityPubKeyBase64");
+        node.setRealityPrivateKey("realityPrivKeyBase64");
         node.setRealityShortIds(new String[]{"0123456789abcdef"});
 
         when(nodeRepository.findById(7L)).thenReturn(Optional.of(node));

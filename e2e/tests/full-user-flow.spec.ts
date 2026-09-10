@@ -74,7 +74,8 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
 
   await test.step('generates a TRC-20 deposit invoice', async () => {
     await page.getByRole('button', { name: /USDT/ }).click(); // navbar balance button opens top-up
-    await expect(page.getByText('Пополнить баланс (TRC-20 USDT)')).toBeVisible();
+    await expect(page.getByText('Пополнить баланс (USDT)')).toBeVisible();
+    // TRON is the default network in the selector added alongside ERC-20 support.
 
     await page.getByRole('button', { name: '$10', exact: true }).click();
     await page.getByRole('button', { name: 'Get Deposit Address' }).click();

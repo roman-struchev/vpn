@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Lang, translations } from '../i18n';
 import { api } from '../api';
 
@@ -7,6 +7,7 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  initialReferralCode?: string | null;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -14,14 +15,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  initialReferralCode,
 }) => {
   const t = translations[lang];
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [referralApplied, setReferralApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // A referral link (?ref=CODE, or a forwarded Telegram-style ?start=CODE)
+  // should land straight on a pre-filled register form — asking a new user
+  // to re-type a code they just clicked through is how referrals get lost.
+  useEffect(() => {
+    if (initialReferralCode) {
+      setReferralCode(initialReferralCode);
+      setReferralApplied(true);
+      setIsRegister(true);
+    }
+  }, [initialReferralCode]);
 
   if (!isOpen) return null;
 
@@ -96,11 +110,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               <label className="block text-xs text-slate-400 mb-1">Referral Code (Optional)</label>
               <input
                 type="text"
-                placeholder="ref_..."
+                placeholder="ABCD1234"
                 value={referralCode}
-                onChange={(e) => setReferralCode(e.target.value)}
+                onChange={(e) => {
+                  setReferralCode(e.target.value);
+                  setReferralApplied(false);
+                }}
                 className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
               />
+              {referralApplied && referralCode && (
+                <p className="mt-1 text-[11px] text-emerald-400">
+                  {lang === 'ru'
+                    ? 'Реферальный код применён автоматически'
+                    : 'Referral code applied automatically'}
+                </p>
+              )}
             </div>
           )}
 

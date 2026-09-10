@@ -1,0 +1,8 @@
+{
+  "name": "vpn",
+  "private": true,
+  "description": "Root convenience scripts for this monorepo (server/agent/android/desktop/web each keep their own package.json). Not published, no dependencies.",
+  "scripts": {
+    "release": "bash scripts/release.sh"
+  }
+}

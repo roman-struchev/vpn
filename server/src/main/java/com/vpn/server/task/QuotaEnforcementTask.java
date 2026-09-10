@@ -12,12 +12,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Component
 public class QuotaEnforcementTask {
 
     private static final Logger log = LoggerFactory.getLogger(QuotaEnforcementTask.class);
+    private static final int STALE_INVOICE_RETENTION_DAYS = 15;
 
     private final SubscriptionRepository subscriptionRepository;
     private final CryptoInvoiceRepository cryptoInvoiceRepository;
@@ -66,6 +68,12 @@ public class QuotaEnforcementTask {
             cryptoInvoiceRepository.save(invoice);
             log.debug("Crypto invoice {} expired", invoice.getId());
         }
+
+        // 4. Purge invoices that were never paid, long enough ago that
+        // re-showing "where to send" (see billing history UI) is no longer
+        // useful — keeps the history list from accumulating dead rows forever.
+        Instant staleCutoff = now.minus(STALE_INVOICE_RETENTION_DAYS, ChronoUnit.DAYS);
+        cryptoInvoiceRepository.deleteByStatusAndExpiresAtBefore("EXPIRED", staleCutoff);
 
         // If any subscription state changed, trigger sync to all connected node agents
         if (stateChanged) {

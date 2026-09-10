@@ -59,6 +59,21 @@ export interface ServerConfigSyncPayload {
   fallbackInbound?: InboundSyncConfig;
 }
 
+// Local-dev/e2e-only escape hatch: the primary inbound's port always comes
+// from the server (NodeManagementService hardcodes 443 in production), and
+// binding 443 needs root. Unset by default and never referenced by
+// scripts/install-node.sh or agent/Dockerfile — only e2e/tests/tunnel.spec.ts
+// sets it, so a real xray-core process can actually start as a non-root test
+// runner (the fallback gRPC+Reality inbound it actually connects through
+// keeps its normal unprivileged port either way).
+const PRIMARY_INBOUND_PORT_OVERRIDE = process.env.AGENT_PRIMARY_INBOUND_PORT_OVERRIDE
+  ? Number(process.env.AGENT_PRIMARY_INBOUND_PORT_OVERRIDE)
+  : undefined;
+
+// Same rationale as above: 'warning' hides the per-connection REALITY dial
+// logging tunnel.spec.ts needs to diagnose a failed handshake.
+const XRAY_LOGLEVEL = process.env.AGENT_XRAY_LOGLEVEL || 'warning';
+
 export function buildXrayConfig(configSync: ServerConfigSyncPayload): Record<string, unknown> {
   const activeClients = (configSync.clients || []).filter(c => c.isActive);
 
@@ -68,14 +83,16 @@ export function buildXrayConfig(configSync: ServerConfigSyncPayload): Record<str
     level: 0,
   }));
 
-  const vlessInbounds = [buildVlessInbound('vless-inbound', configSync.inbound, xrayClients)];
+  const vlessInbounds = [
+    buildVlessInbound('vless-inbound', configSync.inbound, xrayClients, PRIMARY_INBOUND_PORT_OVERRIDE),
+  ];
   if (configSync.fallbackInbound) {
     vlessInbounds.push(buildVlessInbound('vless-inbound-fallback', configSync.fallbackInbound, xrayClients));
   }
 
   return {
     log: {
-      loglevel: 'warning',
+      loglevel: XRAY_LOGLEVEL,
     },
     api: {
       tag: 'api',
@@ -137,10 +154,15 @@ export function buildXrayConfig(configSync: ServerConfigSyncPayload): Record<str
   };
 }
 
-function buildVlessInbound(tag: string, inbound: InboundSyncConfig, clients: { id: string; email: string; level: number }[]) {
+function buildVlessInbound(
+  tag: string,
+  inbound: InboundSyncConfig,
+  clients: { id: string; email: string; level: number }[],
+  portOverride?: number
+) {
   return {
     tag,
-    port: inbound.listenPort || 443,
+    port: portOverride || inbound.listenPort || 443,
     protocol: 'vless',
     settings: {
       clients,

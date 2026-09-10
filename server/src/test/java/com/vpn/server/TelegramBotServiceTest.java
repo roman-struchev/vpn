@@ -6,6 +6,7 @@ import com.vpn.server.repository.BalanceEntryRepository;
 import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
 import com.vpn.server.repository.UserRepository;
+import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
 import com.vpn.server.service.TelegramBotService;
@@ -44,6 +45,9 @@ class TelegramBotServiceTest {
     @Mock
     private DeviceManagementService deviceManagementService;
 
+    @Mock
+    private BillingService billingService;
+
     private TelegramBotService botService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -55,7 +59,8 @@ class TelegramBotServiceTest {
                 tariffRepository,
                 balanceEntryRepository,
                 exportService,
-                deviceManagementService
+                deviceManagementService,
+                billingService
         );
         botService.setBotToken("mock");
     }
@@ -146,6 +151,15 @@ class TelegramBotServiceTest {
 
         when(balanceEntryRepository.existsByReferenceId("ch_star_12345")).thenReturn(false);
         when(userRepository.findByTelegramId(202020L)).thenReturn(Optional.of(payer));
+        // Referral crediting itself lives in BillingService (shared with the
+        // crypto-invoice deposit path) — stub it to simulate the 15% bonus it
+        // would apply, and assert TelegramBotService reacts to the result
+        // (notifies the referrer) rather than re-deriving the bonus math here.
+        when(billingService.applyReferralRewards(eq(payer), eq(5_000_000L), eq("ch_star_12345")))
+                .thenAnswer(inv -> {
+                    referrer.setBalanceUsdtMicro(referrer.getBalanceUsdtMicro() + 750_000L);
+                    return new BillingService.ReferralRewardResult(750_000L, 0L);
+                });
 
         String updateJson = """
                 {
@@ -174,8 +188,10 @@ class TelegramBotServiceTest {
         // Referrer new balance: 1,000,000 + 750,000 = 1,750,000
         assertEquals(1_750_000L, referrer.getBalanceUsdtMicro());
 
-        // Verify balance entries saved for deposit and referral bonus
-        verify(balanceEntryRepository, times(2)).save(any(BalanceEntry.class));
+        // Only the deposit entry is saved here — the referral bonus entry is
+        // BillingService's responsibility (mocked above).
+        verify(balanceEntryRepository, times(1)).save(any(BalanceEntry.class));
+        verify(billingService).applyReferralRewards(payer, 5_000_000L, "ch_star_12345");
     }
 
     @Test

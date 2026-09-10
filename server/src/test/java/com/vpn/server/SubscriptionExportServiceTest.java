@@ -2,6 +2,7 @@ package com.vpn.server;
 
 import com.vpn.server.entity.*;
 import com.vpn.server.repository.*;
+import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.service.SubscriptionExportService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ class SubscriptionExportServiceTest {
     private DeviceRepository deviceRepository;
     private NodeRepository nodeRepository;
     private DeviceNodeKeyRepository deviceNodeKeyRepository;
+    private NodeManagementService nodeManagementService;
     private SubscriptionExportService exportService;
 
     @BeforeEach
@@ -33,12 +35,19 @@ class SubscriptionExportServiceTest {
         deviceRepository = mock(DeviceRepository.class);
         nodeRepository = mock(NodeRepository.class);
         deviceNodeKeyRepository = mock(DeviceNodeKeyRepository.class);
+        nodeManagementService = mock(NodeManagementService.class);
+
+        // Real nodes already have keys in these tests; stub the backfill call as
+        // a passthrough so it doesn't clobber the fixtures' realityPublicKey.
+        when(nodeManagementService.ensureRealityKeyMaterial(any(Node.class)))
+                .thenAnswer(i -> i.getArgument(0));
 
         exportService = new SubscriptionExportService(
                 subscriptionRepository,
                 deviceRepository,
                 nodeRepository,
-                deviceNodeKeyRepository
+                deviceNodeKeyRepository,
+                nodeManagementService
         );
     }
 

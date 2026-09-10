@@ -36,6 +36,25 @@ services:
       GRPC_SERVER_PORT: 9090
       JWT_SECRET: ${JWT_SECRET:-404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
       JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=75.0
+      # Crypto top-up (mirrors the defaults in server/src/main/resources/application.yml
+      # "vpn.crypto"/"vpn.blockchain" — override via a .env file or the host shell to
+      # point at real deposit addresses/RPC endpoints and turn scanning on).
+      VPN_TRON_DEPOSIT_ADDRESS: ${VPN_TRON_DEPOSIT_ADDRESS:-TXxxDefaultDepositAddressTRC20}
+      VPN_EVM_DEPOSIT_ADDRESS: ${VPN_EVM_DEPOSIT_ADDRESS:-}
+      VPN_BLOCKCHAIN_SCANNER_ENABLED: ${VPN_BLOCKCHAIN_SCANNER_ENABLED:-false}
+      VPN_TRONGRID_URL: ${VPN_TRONGRID_URL:-https://api.trongrid.io}
+      VPN_TRONGRID_API_KEY: ${VPN_TRONGRID_API_KEY:-}
+      VPN_TRON_USDT_CONTRACT: ${VPN_TRON_USDT_CONTRACT:-TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t}
+      # ERC-20 (Ethereum) USDT deposit scanner — set VPN_EVM_RPC_URL and
+      # VPN_EVM_DEPOSIT_ADDRESS above, then flip this on. chain-id/usdt-contract
+      # already default to Ethereum mainnet.
+      VPN_EVM_SCANNER_ENABLED: ${VPN_EVM_SCANNER_ENABLED:-false}
+      VPN_EVM_RPC_URL: ${VPN_EVM_RPC_URL:-}
+      VPN_EVM_CHAIN_NAME: ${VPN_EVM_CHAIN_NAME:-ETHEREUM}
+      VPN_EVM_CHAIN_ID: ${VPN_EVM_CHAIN_ID:-1}
+      VPN_EVM_USDT_CONTRACT: ${VPN_EVM_USDT_CONTRACT:-0xdAC17F958D2ee523a2206206994597C13D831ec7}
+      VPN_EVM_USDT_DECIMALS: ${VPN_EVM_USDT_DECIMALS:-6}
+      VPN_EVM_CONFIRMATIONS: ${VPN_EVM_CONFIRMATIONS:-12}
 
 volumes:
   pgdata:

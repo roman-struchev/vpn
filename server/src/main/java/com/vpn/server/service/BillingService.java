@@ -19,6 +19,12 @@ public class BillingService {
     private static final Logger log = LoggerFactory.getLogger(BillingService.class);
     private final SecureRandom random = new SecureRandom();
 
+    // Referrer gets a recurring cut of every deposit their invitee makes;
+    // the invitee additionally gets a one-time bonus on their first deposit
+    // only, so it reads as a welcome gift rather than a standing discount.
+    private static final long REFERRER_BONUS_PERCENT = 15;
+    private static final long REFEREE_WELCOME_BONUS_PERCENT = 10;
+
     private final UserRepository userRepository;
     private final TariffRepository tariffRepository;
     private final SubscriptionRepository subscriptionRepository;
@@ -155,7 +161,62 @@ public class BillingService {
         balanceEntryRepository.save(entry);
 
         log.info("Successfully credited {} micro-USDT to user {} (new balance: {})", actualAmountMicro, user.getId(), newBalance);
+
+        applyReferralRewards(user, actualAmountMicro, txHash != null ? txHash : String.valueOf(invoice.getId()));
+
         return saved;
+    }
+
+    public record ReferralRewardResult(long referrerBonusMicro, long refereeWelcomeBonusMicro) {}
+
+    /**
+     * Applies referral rewards for a deposit: a recurring {@value #REFERRER_BONUS_PERCENT}%
+     * cut to the referrer, and (only on the referred user's first-ever deposit) a
+     * one-time {@value #REFEREE_WELCOME_BONUS_PERCENT}% welcome bonus to the referred
+     * user themselves. Shared by every deposit path (crypto invoices, Telegram Stars)
+     * so referral rules don't drift between them.
+     */
+    @Transactional
+    public ReferralRewardResult applyReferralRewards(User referredUser, long depositMicro, String referenceIdPrefix) {
+        User referrer = referredUser.getReferredBy();
+        if (referrer == null) {
+            return new ReferralRewardResult(0, 0);
+        }
+
+        long referrerBonusMicro = depositMicro * REFERRER_BONUS_PERCENT / 100;
+        if (referrerBonusMicro > 0) {
+            creditBonus(referrer, referrerBonusMicro, "REFERRAL_BONUS",
+                    "Referral bonus " + REFERRER_BONUS_PERCENT + "% from user #" + referredUser.getId(),
+                    "ref_bonus:" + referenceIdPrefix);
+        }
+
+        boolean isFirstDeposit = balanceEntryRepository.countByUserIdAndType(referredUser.getId(), "DEPOSIT") <= 1;
+        long refereeWelcomeBonusMicro = 0;
+        if (isFirstDeposit) {
+            refereeWelcomeBonusMicro = depositMicro * REFEREE_WELCOME_BONUS_PERCENT / 100;
+            if (refereeWelcomeBonusMicro > 0) {
+                creditBonus(referredUser, refereeWelcomeBonusMicro, "REFERRAL_WELCOME_BONUS",
+                        "Referral welcome bonus " + REFEREE_WELCOME_BONUS_PERCENT + "% on first deposit",
+                        "ref_welcome:" + referenceIdPrefix);
+            }
+        }
+
+        return new ReferralRewardResult(referrerBonusMicro, refereeWelcomeBonusMicro);
+    }
+
+    private void creditBonus(User user, long amountMicro, String type, String description, String referenceId) {
+        long newBalance = user.getBalanceUsdtMicro() + amountMicro;
+        user.setBalanceUsdtMicro(newBalance);
+        userRepository.save(user);
+
+        BalanceEntry entry = new BalanceEntry();
+        entry.setUser(user);
+        entry.setAmountUsdtMicro(amountMicro);
+        entry.setBalanceAfterMicro(newBalance);
+        entry.setType(type);
+        entry.setDescription(description);
+        entry.setReferenceId(referenceId);
+        balanceEntryRepository.save(entry);
     }
 
     @Transactional

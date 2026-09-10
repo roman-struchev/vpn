@@ -26,4 +26,26 @@ export default async function globalTeardown() {
     // running in a Docker container in some environments).
     console.warn('[global-teardown] could not clean up e2e test users:', e.message);
   }
+
+  // Same problem, a different table: nodes.spec.ts and tunnel.spec.ts each
+  // register 1-2 real nodes per run (see agentHelpers.ts's `e2e-<label>-...`
+  // hostname convention) with nothing to ever delete them. Left alone, the
+  // admin nodes table's pagination (NodesSection.tsx, 15 rows/page) eventually
+  // pushes a freshly-registered node off the first page — confirmed live: 27
+  // accumulated test nodes was enough to make nodes.spec.ts's own
+  // `getByText(hostname)` check fail, since that node no longer rendered on
+  // page 1. All FKs from nodes (node_credentials, device_node_keys) are ON
+  // DELETE CASCADE / SET NULL (V1__initial_schema.sql), so this is safe.
+  try {
+    const output = execFileSync(
+      'docker',
+      ['exec', container, 'psql', '-U', user, '-d', db, '-t', '-c',
+        "DELETE FROM nodes WHERE hostname LIKE 'e2e-%' RETURNING id;"],
+      { encoding: 'utf-8' }
+    );
+    const deleted = output.split('\n').map((l) => l.trim()).filter(Boolean).length;
+    console.log(`[global-teardown] removed ${deleted} e2e test node(s) from ${db}`);
+  } catch (e) {
+    console.warn('[global-teardown] could not clean up e2e test nodes:', e.message);
+  }
 }

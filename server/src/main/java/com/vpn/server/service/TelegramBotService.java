@@ -35,6 +35,7 @@ public class TelegramBotService {
     private final BalanceEntryRepository balanceEntryRepository;
     private final SubscriptionExportService exportService;
     private final DeviceManagementService deviceManagementService;
+    private final BillingService billingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
     private final HttpClient httpClient;
@@ -54,7 +55,8 @@ public class TelegramBotService {
             TariffRepository tariffRepository,
             BalanceEntryRepository balanceEntryRepository,
             SubscriptionExportService exportService,
-            DeviceManagementService deviceManagementService
+            DeviceManagementService deviceManagementService,
+            BillingService billingService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -62,6 +64,7 @@ public class TelegramBotService {
         this.balanceEntryRepository = balanceEntryRepository;
         this.exportService = exportService;
         this.deviceManagementService = deviceManagementService;
+        this.billingService = billingService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -189,30 +192,16 @@ public class TelegramBotService {
 
         log.info("Credited {} Stars ({} micro-USDT) to user #{}", totalAmountStars, creditedMicro, user.getId());
 
-        // Process referral bonus (15%)
-        if (user.getReferredBy() != null) {
-            User referrer = user.getReferredBy();
-            long bonusMicro = creditedMicro * 15 / 100;
-            if (bonusMicro > 0) {
-                long refNewBalance = referrer.getBalanceUsdtMicro() + bonusMicro;
-                referrer.setBalanceUsdtMicro(refNewBalance);
-                userRepository.save(referrer);
-
-                BalanceEntry bonusEntry = new BalanceEntry();
-                bonusEntry.setUser(referrer);
-                bonusEntry.setAmountUsdtMicro(bonusMicro);
-                bonusEntry.setBalanceAfterMicro(refNewBalance);
-                bonusEntry.setType("REFERRAL_BONUS");
-                bonusEntry.setDescription("Referral bonus 15% from user #" + user.getId());
-                bonusEntry.setReferenceId("ref_bonus:" + chargeId);
-                balanceEntryRepository.save(bonusEntry);
-
-                if (referrer.getTelegramId() != null) {
-                    sendTextMessage(referrer.getTelegramId(),
-                            String.format("🎉 <b>Реферальный бонус!</b>\nВаш приглашённый друг пополнил баланс. Вам начислено <b>+$%.2f</b> USDT!",
-                                    bonusMicro / 1_000_000.0), null);
-                }
-            }
+        // Referral bonuses (15% to referrer always, 10% one-time welcome bonus
+        // to this user on their first-ever deposit) — same rules for every
+        // deposit path, see BillingService#applyReferralRewards.
+        BillingService.ReferralRewardResult referralResult =
+                billingService.applyReferralRewards(user, creditedMicro, chargeId);
+        if (referralResult.referrerBonusMicro() > 0 && user.getReferredBy() != null
+                && user.getReferredBy().getTelegramId() != null) {
+            sendTextMessage(user.getReferredBy().getTelegramId(),
+                    String.format("🎉 <b>Реферальный бонус!</b>\nВаш приглашённый друг пополнил баланс. Вам начислено <b>+$%.2f</b> USDT!",
+                            referralResult.referrerBonusMicro() / 1_000_000.0), null);
         }
 
         String confirmation = String.format(

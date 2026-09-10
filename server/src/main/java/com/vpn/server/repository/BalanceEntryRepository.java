@@ -10,4 +10,5 @@ import java.util.List;
 public interface BalanceEntryRepository extends JpaRepository<BalanceEntry, Long> {
     List<BalanceEntry> findByUserIdOrderByCreatedAtDesc(Long userId);
     boolean existsByReferenceId(String referenceId);
+    long countByUserIdAndType(Long userId, String type);
 }
