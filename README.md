@@ -18,6 +18,7 @@
 | `web/` | React 18 + Vite лендинг, личный кабинет, Telegram Mini App | отдельный npm-проект; собранный `dist/` копируется в JAR сервера Gradle-таской `copyWebDist` |
 | `android/` | Нативный Android-клиент (Java, Material 3, `libXray`) | отдельный Gradle-проект (Groovy DSL) |
 | `desktop/` | Electron + React клиент для Windows/macOS (системный прокси) | отдельный npm-проект |
+| `e2e/` | Playwright — интеграционные тесты поверх реального сервера+веба (не моки), полный пользовательский флоу | отдельный npm-проект, см. [`e2e/README.md`](e2e/README.md) |
 | `proto/` | Protobuf-контракт `server ↔ agent` | генерируется в `server/` и `agent/` при сборке |
 | `scripts/install-node.sh` | Установщик агента на VPS-ноду (systemd, sysctl, опционально TLS-сертификат для CDN-нод и `tc`-каппинг для пробного пула) | см. §5 ниже |
 | `docs/` | План, статус фаз, исследование блокировок РФ, чеклист магазинов приложений, Google Play readiness | — |
@@ -197,7 +198,20 @@ cd android && ./scripts/fetch-libxray.sh && ./gradlew :app:testDebugUnitTest && 
 
 # Desktop
 cd desktop && npm install && npm run typecheck && npm test
+
+# E2E — требует реально поднятого стека (см. §1): docker compose up -d postgres,
+# ./gradlew :server:bootRun, cd web && npm run dev — только после этого:
+cd e2e && npm install && npx playwright install chromium && npm test
 ```
+
+Все команды выше, кроме e2e, — юнит/компонентные тесты с моками (H2, моки
+репозиториев). Они не заменяют e2e: несколько реальных багов (403 на
+публичной странице тарифов для анонимных пользователей, падение личного
+кабинета при отсутствии подписки, необратимая поломка списка устройств,
+нерабочее пополнение баланса) были невидимы всему юнит-покрытию и нашлись
+только прогоном `e2e/` против настоящего Postgres+сервера+браузера — см.
+`docs/ROADMAP_PROGRESS.md`, «Пост-Фаза-10: e2e-набор». Гонять `e2e/` стоит
+не только вручную по запросу, а как часть обычной проверки перед релизом.
 
 ## 7. Дальнейшая документация
 
