@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared brand tokens, kept in sync with web/tailwind.config.js (brand/dark scales). -->
+    <color name="brand_50">#F0FDF4</color>
+    <color name="brand_100">#DCFCE7</color>
+    <color name="brand_500">#22C55E</color>
+    <color name="brand_600">#16A34A</color>
+    <color name="brand_700">#15803D</color>
+
+    <color name="dark_800">#181B20</color>
+    <color name="dark_850">#131519</color>
+    <color name="dark_900">#0C0E12</color>
+    <color name="dark_950">#060709</color>
+
+    <color name="state_connected">#22C55E</color>
+    <color name="state_connecting">#F59E0B</color>
+    <color name="state_reconnecting">#F59E0B</color>
+    <color name="state_error">#EF4444</color>
+    <color name="state_operator_blocked">#EF4444</color>
+    <color name="state_disconnected">#9CA3AF</color>
+
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>

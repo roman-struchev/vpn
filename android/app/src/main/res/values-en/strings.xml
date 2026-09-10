@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NextGen VPN</string>
+
+    <string name="login_title">Sign in</string>
+    <string name="login_email_hint">Email</string>
+    <string name="login_password_hint">Password</string>
+    <string name="login_action">Sign in</string>
+    <string name="register_action">Create account</string>
+    <string name="register_toggle">No account? Create one</string>
+    <string name="login_toggle">Already have an account? Sign in</string>
+    <string name="login_error_generic">Could not sign in. Check your details and connection.</string>
+    <string name="field_required">This field is required</string>
+
+    <string name="state_disconnected">Disconnected</string>
+    <string name="state_connecting">Connecting…</string>
+    <string name="state_connected">Protected</string>
+    <string name="state_reconnecting">Reconnecting…</string>
+    <string name="state_error">Connection error</string>
+    <string name="state_operator_blocked">Your carrier is restricting this</string>
+    <string name="state_no_subscription">No active subscription</string>
+
+    <string name="connect_action">Connect</string>
+    <string name="disconnect_action">Disconnect</string>
+    <string name="current_node_region">Node region: %1$s</string>
+    <string name="traffic_used">Traffic: %1$.2f / %2$.0f GB</string>
+    <string name="expires_at">Valid until: %1$s</string>
+
+    <string name="operator_blocked_title">This is your carrier\'s restriction, not ours</string>
+    <string name="operator_blocked_body">Russian sites load fine, but foreign ones don\'t — that\'s your carrier blocking traffic. We\'re switching to backup nodes automatically; try reconnecting in a minute.</string>
+
+    <string name="notif_channel_name">VPN status</string>
+    <string name="notif_disconnect_action">Disconnect</string>
+
+    <string name="nav_connect">Connect</string>
+    <string name="nav_devices">Devices</string>
+    <string name="nav_profile">Profile</string>
+
+    <string name="devices_title">Devices</string>
+    <string name="add_device_action">Add device</string>
+    <string name="revoke_device_action">Revoke</string>
+    <string name="device_name_hint">Device name</string>
+
+    <string name="profile_balance">Balance: %1$s USDT</string>
+    <string name="profile_logout">Sign out</string>
+    <string name="profile_referral">Referral link</string>
+
+    <string name="vpn_permission_denied">VPN permission is required to connect</string>
+</resources>

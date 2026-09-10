@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light theme is the base; dark tokens are redefined in values-night. Dark is the
+         primary experience for this product (PLAN.md §9: "тёмная тема обязательна"). -->
+    <style name="Theme.VpnApp" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_600</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/brand_100</item>
+        <item name="colorOnPrimaryContainer">@color/brand_700</item>
+        <item name="colorSecondary">@color/brand_500</item>
+        <item name="colorSurface">@color/white</item>
+        <item name="colorOnSurface">@color/dark_950</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+</resources>

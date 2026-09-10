@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VpnApp" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_500</item>
+        <item name="colorOnPrimary">@color/dark_950</item>
+        <item name="colorPrimaryContainer">@color/brand_700</item>
+        <item name="colorOnPrimaryContainer">@color/brand_100</item>
+        <item name="colorSecondary">@color/brand_600</item>
+        <item name="colorSurface">@color/dark_900</item>
+        <item name="colorSurfaceContainer">@color/dark_850</item>
+        <item name="colorSurfaceContainerHigh">@color/dark_800</item>
+        <item name="colorOnSurface">@color/white</item>
+        <item name="android:statusBarColor">?attr/colorSurface</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
