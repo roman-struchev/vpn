@@ -1,0 +1,26 @@
+// Mirrors src/main/api/apiClient.ts response shapes (kept separate so the
+// renderer's tsconfig doesn't need to reach into the main-process program).
+export interface UserProfile {
+  id: number;
+  email: string;
+  role: string;
+  balanceUsdtMicro: number;
+  referralCode: string;
+  hasActiveSubscription: boolean;
+  subscription?: {
+    id: number;
+    tariffId: string;
+    trafficUsedBytes: number;
+    trafficLimitBytes: number;
+    expiresAt: string;
+  };
+}
+
+export interface DeviceDto {
+  id: number;
+  deviceName: string;
+  platform: string;
+  isActive: boolean;
+  createdAt: string;
+  lastSeenAt?: string;
+}

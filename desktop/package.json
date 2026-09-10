@@ -1,0 +1,77 @@
+{
+  "name": "vpn-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "NextGen VPN desktop client (Windows/macOS) — system-proxy MVP, Electron + React",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "fetch:xray": "node scripts/fetch-xray-core.mjs",
+    "postinstall": "electron-builder install-app-deps",
+    "pack": "npm run build && electron-builder --dir",
+    "release": "npm run build && electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "postcss": "^8.5.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vitest": "^2.1.8"
+  },
+  "build": {
+    "appId": "app.nextgenvpn.desktop",
+    "productName": "NextGen VPN",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin/${os}-${arch}",
+        "to": "bin",
+        "filter": ["**/*"]
+      }
+    ],
+    "publish": {
+      "provider": "github"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities",
+      "notarize": false,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Network"
+    }
+  }
+}

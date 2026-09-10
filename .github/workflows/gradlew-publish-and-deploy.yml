@@ -75,6 +75,60 @@ jobs:
         working-directory: android
         run: ./gradlew :app:assembleDebug
 
+  web:
+    name: Build (Web)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Build web client
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+  desktop:
+    name: Build & Test (Desktop)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'desktop/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Fetch xray-core binary
+        working-directory: desktop
+        run: npm run fetch:xray -- linux-x64
+
+      - name: Typecheck & unit tests
+        working-directory: desktop
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Build (main/preload/renderer bundles)
+        working-directory: desktop
+        run: npm run build
+
+      - name: Package unsigned Linux build (smoke test)
+        working-directory: desktop
+        run: npx electron-builder --linux --dir
+
   publish:
     name: Build Jar & Publish Docker Image
     needs: test
