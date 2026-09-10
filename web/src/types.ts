@@ -5,6 +5,7 @@ export interface UserProfile {
   balanceUsdtMicro: number;
   referralCode: string;
   hasActiveSubscription: boolean;
+  hasUsedTrial: boolean;
   subscription?: {
     id: number;
     tariffId: string;

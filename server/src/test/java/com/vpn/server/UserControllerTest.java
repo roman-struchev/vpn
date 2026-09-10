@@ -112,6 +112,8 @@ class UserControllerTest {
         invoice.setRecipientAddress("TAddrSample");
         invoice.setExpectedAmountUsdtMicro(3_005_000L);
         invoice.setDeltaStepMicro(5000);
+        invoice.setToleranceMinMicro(3_004_600L);
+        invoice.setToleranceMaxMicro(3_005_400L);
         invoice.setStatus("PENDING");
         invoice.setExpiresAt(Instant.now());
 
@@ -128,6 +130,10 @@ class UserControllerTest {
         assertEquals("TRON", body.get("chain"));
         assertEquals("TAddrSample", body.get("recipientAddress"));
         assertEquals(3_005_000L, body.get("expectedAmountUsdtMicro"));
+        // Regression: these two were missing from the response entirely, so the
+        // dashboard's "Acceptable window" line rendered "NaN - NaN".
+        assertEquals(3_004_600L, body.get("toleranceMinMicro"));
+        assertEquals(3_005_400L, body.get("toleranceMaxMicro"));
     }
 
     @Test

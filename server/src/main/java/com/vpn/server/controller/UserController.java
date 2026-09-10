@@ -74,6 +74,12 @@ public class UserController {
         response.put("balanceUsdtMicro", user.getBalanceUsdtMicro());
         response.put("referralCode", user.getReferralCode() != null ? user.getReferralCode() : "");
         response.put("hasActiveSubscription", sub.isPresent());
+        // So the client can hide/disable the trial tariff's action button once
+        // it's been used — the trial is one-shot (see BillingService.
+        // purchaseOrRenewSubscription), but the client has no other way to know
+        // that from just the *current* subscription (which may by now be a
+        // different, paid tariff, or none at all if the trial expired).
+        response.put("hasUsedTrial", subscriptionRepository.existsByUserIdAndTariffId(userId, "trial"));
         response.put("subscription", sub.map(s -> Map.of(
                 "id", s.getId(),
                 "tariffId", s.getTariff().getId(),
@@ -116,6 +122,10 @@ public class UserController {
                 "expectedAmountUsdtMicro", invoice.getExpectedAmountUsdtMicro(),
                 "expectedAmountUsdt", invoice.getExpectedAmountUsdtMicro() / 1_000_000.0,
                 "deltaStepMicro", invoice.getDeltaStepMicro(),
+                // Were missing entirely — DashboardView.tsx's "Acceptable window"
+                // line divided undefined/1_000_000 and rendered "NaN - NaN".
+                "toleranceMinMicro", invoice.getToleranceMinMicro(),
+                "toleranceMaxMicro", invoice.getToleranceMaxMicro(),
                 "status", invoice.getStatus(),
                 "expiresAt", invoice.getExpiresAt().toString()
         ));

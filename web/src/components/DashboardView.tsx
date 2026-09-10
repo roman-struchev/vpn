@@ -180,9 +180,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8">
+      {/* Traffic + Devices — the two things a returning user actually checks
+          first, side by side as the opening row rather than stacked full-width
+          sections with Tariffs sandwiched between them. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Subscription Banner */}
       <div className="p-6 rounded-3xl bg-gradient-to-br from-dark-850 to-dark-800 border border-dark-800 shadow-xl relative overflow-hidden">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+        <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 relative z-10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-3">
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -199,12 +203,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2 w-full md:w-auto">
+          <div className="flex items-center gap-2 w-full xl:w-auto">
             {links.length > 0 && (
               <>
                 <button
                   onClick={handleCopyLink}
-                  className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs transition-all shadow-md shadow-brand-500/10"
+                  className="flex-1 xl:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs transition-all shadow-md shadow-brand-500/10"
                 >
                   {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                   <span>{copiedLink ? t.copied : t.copyLink}</span>
@@ -232,96 +236,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         )}
-      </div>
-
-      {/* Tariffs Selection / Change — kept right under the subscription banner
-          (was much further down, past the entire Devices section): this is
-          the natural next question right after "what's my plan status". */}
-      <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-brand-500" />
-            <span>{t.tariffs}</span>
-          </h2>
-          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-dark-800 border border-dark-700 text-xs">
-            <button
-              onClick={() => setIsAnnual(false)}
-              className={`px-3 py-1 rounded-md transition-all ${
-                !isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
-              }`}
-            >
-              {t.monthly}
-            </button>
-            <button
-              onClick={() => setIsAnnual(true)}
-              className={`px-3 py-1 rounded-md transition-all ${
-                isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
-              }`}
-            >
-              {t.annual}
-            </button>
-          </div>
-        </div>
-
-        {purchaseError && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{purchaseError}</span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {tariffs.map((tariff) => {
-            const priceMicro = isAnnual
-              ? tariff.annualPriceUsdtMicro
-              : tariff.monthlyPriceUsdtMicro;
-            const price = priceMicro / 1_000_000;
-            const isCurrent = sub?.tariffId === tariff.id;
-
-            return (
-              <div
-                key={tariff.id}
-                className={`p-4 rounded-xl bg-dark-900 border flex flex-col justify-between ${
-                  isCurrent ? 'border-emerald-500/40' : 'border-dark-800'
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-sm">{tariff.name}</h4>
-                    {isCurrent && (
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold">
-                        Current
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-2 text-xl font-extrabold">
-                    ${price.toFixed(price % 1 === 0 ? 0 : 2)}
-                    <span className="text-xs font-normal text-slate-400">
-                      {isAnnual ? '/yr' : '/mo'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB · {tariff.maxDevices} devices
-                  </p>
-                </div>
-
-                <button
-                  onClick={() => handlePurchase(tariff.id)}
-                  disabled={purchasingTariffId === tariff.id}
-                  className="mt-4 w-full py-2 rounded-lg bg-dark-800 hover:bg-brand-500 hover:text-dark-950 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
-                >
-                  {purchasingTariffId === tariff.id
-                    ? 'Processing...'
-                    : isCurrent
-                      ? t.renewPlan
-                      : price === 0
-                        ? t.activateFree
-                        : t.buyWithBalance}
-                </button>
-              </div>
-            );
-          })}
-        </div>
       </div>
 
       {/* Devices Section */}
@@ -368,6 +282,115 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             ))}
           </div>
         )}
+      </div>
+      </div>
+
+      {/* Tariffs Selection / Change — kept right under the subscription banner
+          (was much further down, past the entire Devices section): this is
+          the natural next question right after "what's my plan status". */}
+      <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-brand-500" />
+            <span>{t.tariffs}</span>
+          </h2>
+          <div className="flex items-center gap-1 p-0.5 rounded-lg bg-dark-800 border border-dark-700 text-xs">
+            <button
+              onClick={() => setIsAnnual(false)}
+              className={`px-3 py-1 rounded-md transition-all ${
+                !isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
+              }`}
+            >
+              {t.monthly}
+            </button>
+            <button
+              onClick={() => setIsAnnual(true)}
+              className={`px-3 py-1 rounded-md transition-all ${
+                isAnnual ? 'bg-brand-500 text-dark-950 font-bold' : 'text-slate-400'
+              }`}
+            >
+              {t.annual}
+            </button>
+          </div>
+        </div>
+
+        {purchaseError && (
+          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{purchaseError}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {tariffs.map((tariff) => {
+            const priceMicro = isAnnual
+              ? tariff.annualPriceUsdtMicro
+              : tariff.monthlyPriceUsdtMicro;
+            const price = priceMicro / 1_000_000;
+            const isCurrent = sub?.tariffId === tariff.id;
+            // Trial is one-shot server-side (BillingService.purchaseOrRenewSubscription
+            // rejects any repeat activation) — hasUsedTrial covers "already expired/
+            // switched away from it" too, not just "currently on it", so a stale
+            // "Продлить"/"Активировать бесплатно" button never invites a click that
+            // can only ever fail.
+            const isUnusableTrial = tariff.id.toLowerCase() === 'trial' && user.hasUsedTrial;
+
+            return (
+              <div
+                key={tariff.id}
+                className={`p-4 rounded-xl bg-dark-900 border flex flex-col justify-between ${
+                  isCurrent ? 'border-emerald-500/40' : 'border-dark-800'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-sm">{tariff.name}</h4>
+                    {isCurrent && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold">
+                        Current
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 text-xl font-extrabold">
+                    {tariff.id.toLowerCase() === 'trial' ? (
+                      t.freeLabel
+                    ) : (
+                      <>
+                        ${price.toFixed(price % 1 === 0 ? 0 : 2)}
+                        <span className="text-xs font-normal text-slate-400">
+                          {isAnnual ? '/yr' : '/mo'}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-2">
+                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB · {tariff.maxDevices} devices
+                  </p>
+                </div>
+
+                {isUnusableTrial ? (
+                  <div className="mt-4 w-full py-2 rounded-lg text-center text-xs font-semibold text-slate-500 border border-dark-800">
+                    {t.trialAlreadyUsed}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handlePurchase(tariff.id)}
+                    disabled={purchasingTariffId === tariff.id}
+                    className="mt-4 w-full py-2 rounded-lg bg-dark-800 hover:bg-brand-500 hover:text-dark-950 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
+                  >
+                    {purchasingTariffId === tariff.id
+                      ? 'Processing...'
+                      : isCurrent
+                        ? t.renewPlan
+                        : price === 0
+                          ? t.activateFree
+                          : t.buyWithBalance}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Billing History — makes the dashboard show something actually
@@ -535,9 +558,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Top-up Modal */}
       {openTopUp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+        // items-start (not items-center) + a real py margin: this card can grow
+        // taller than the viewport (invoice details + the claim-tx form below
+        // it), and centering a too-tall flex child clips its top equally off
+        // both ends of the screen — the close button used to scroll out of
+        // reach above the viewport with no way back to it without ESC/reload.
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 py-10 overflow-y-auto">
           <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-md w-full space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3 bg-dark-850 rounded-t-3xl flex items-center justify-between z-10">
               <h3 className="font-bold text-base">{t.topUp} (TRC-20 USDT)</h3>
               <button
                 onClick={() => setOpenTopUp(false)}
@@ -583,6 +611,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="text-base font-bold text-brand-400">
                     {(invoice.expectedAmountUsdtMicro / 1_000_000).toFixed(6)} USDT
                   </div>
+                  <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{t.depositAmountHint}</p>
                   <span className="text-[10px] text-slate-500">
                     Acceptable window: {(invoice.toleranceMinMicro / 1_000_000).toFixed(6)} - {(invoice.toleranceMaxMicro / 1_000_000).toFixed(6)}
                   </span>

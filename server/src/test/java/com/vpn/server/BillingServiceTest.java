@@ -55,8 +55,9 @@ class BillingServiceTest {
         assertEquals("USDT", invoice.getToken());
         assertEquals(baseAmount, invoice.getBaseAmountUsdtMicro());
 
-        // Delta step must be in [1..999] * 1000 micro-units
-        assertTrue(invoice.getDeltaStepMicro() >= 1000 && invoice.getDeltaStepMicro() <= 999_000);
+        // Delta step must be in [1..99] * 1000 micro-units (max +$0.099 surcharge —
+        // see BillingService.createInvoice for why this was shrunk from [1..999]).
+        assertTrue(invoice.getDeltaStepMicro() >= 1000 && invoice.getDeltaStepMicro() <= 99_000);
         assertEquals(baseAmount + invoice.getDeltaStepMicro(), invoice.getExpectedAmountUsdtMicro());
         assertEquals(invoice.getExpectedAmountUsdtMicro() - 400, invoice.getToleranceMinMicro());
         assertEquals(invoice.getExpectedAmountUsdtMicro() + 400, invoice.getToleranceMaxMicro());

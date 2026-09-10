@@ -93,9 +93,15 @@ public class BillingService {
             throw new IllegalArgumentException("Base amount must be positive");
         }
 
-        // Reservation step: random k in [1..999], step 0.001 USDT (1000 micro-units)
-        // Window: expected ± 0.0004 USDT (400 micro-units)
-        int k = 1 + random.nextInt(999);
+        // Reservation step: random k in [1..99], step 0.001 USDT (1000 micro-units) —
+        // max +$0.099 on top of the requested amount. Window is ±0.0004 USDT (a
+        // 0.0008 diameter, well under the 0.001 step), so non-overlapping windows
+        // never depend on k's range — 99 concurrent PENDING invoices at the exact
+        // same base amount (invoices expire after 2h) is already generous headroom
+        // for early volume, and keeps the surcharge small enough not to look like a
+        // pricing bug (previously up to +$0.999 on a $1 top-up, with zero UI
+        // explanation of why — see docs/ROADMAP_PROGRESS.md "Пост-Фаза-10").
+        int k = 1 + random.nextInt(99);
         int deltaStepMicro = k * 1000;
         long expectedAmountMicro = baseAmountUsdtMicro + deltaStepMicro;
         long toleranceMin = expectedAmountMicro - 400;

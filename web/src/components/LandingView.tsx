@@ -141,12 +141,18 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 <div>
                   <h3 className="font-bold text-lg">{tariff.name}</h3>
                   <div className="mt-4 flex items-baseline gap-1">
-                    <span className="text-3xl font-extrabold tracking-tight">
-                      ${priceUsdt.toFixed(priceUsdt % 1 === 0 ? 0 : 2)}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      {isAnnual ? '/ year' : '/ month'}
-                    </span>
+                    {tariff.id.toLowerCase() === 'trial' ? (
+                      <span className="text-3xl font-extrabold tracking-tight">{t.freeLabel}</span>
+                    ) : (
+                      <>
+                        <span className="text-3xl font-extrabold tracking-tight">
+                          ${priceUsdt.toFixed(priceUsdt % 1 === 0 ? 0 : 2)}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {isAnnual ? '/ year' : '/ month'}
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   <ul className="mt-6 space-y-3 text-xs text-slate-300">
