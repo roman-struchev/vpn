@@ -1,5 +1,6 @@
 package com.vpn.server.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -11,8 +12,12 @@ public class CryptoInvoice {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // @JsonIgnore: serialized directly by GET /api/v1/user/billing/invoices
+    // (UserController.getUserInvoices) — same LAZY-proxy-after-session-closed
+    // crash as Device.user, see the comment there.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore
     private User user;
 
     @Column(nullable = false, length = 32)

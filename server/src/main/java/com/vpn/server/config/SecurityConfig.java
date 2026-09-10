@@ -42,6 +42,7 @@ public class SecurityConfig {
                                 "/favicon.ico",
                                 "/api/v1/auth/**",
                                 "/api/v1/health",
+                                "/api/v1/user/tariffs",
                                 "/api/v1/subscription/export/**",
                                 "/api/v1/client/**",
                                 "/api/v1/telegram/**",

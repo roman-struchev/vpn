@@ -1,5 +1,6 @@
 package com.vpn.server.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -11,8 +12,14 @@ public class BalanceEntry {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // @JsonIgnore: not serialized by any controller today, but Device.user and
+    // CryptoInvoice.user (same LAZY @ManyToOne shape) both caused a real
+    // "works until you have one row, then 500s forever" bug the moment they
+    // were — kept consistent pre-emptively so a future listing endpoint here
+    // doesn't reintroduce it.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore
     private User user;
 
     @Column(name = "amount_usdt_micro", nullable = false)

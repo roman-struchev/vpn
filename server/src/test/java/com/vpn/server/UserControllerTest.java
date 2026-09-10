@@ -117,7 +117,10 @@ class UserControllerTest {
 
         when(billingService.createInvoice(eq(10L), eq("TRON"), eq(3_000_000L))).thenReturn(invoice);
 
-        Map<String, Object> req = Map.of("amountMicro", 3_000_000L, "chain", "TRON");
+        // Regression: web/src/api.ts createCryptoInvoice() sends "baseAmountUsdtMicro"
+        // (matches CryptoInvoice's own field name) — the controller used to read
+        // "amountMicro" instead, an NPE on every real request from the website.
+        Map<String, Object> req = Map.of("baseAmountUsdtMicro", 3_000_000L, "chain", "TRON");
         ResponseEntity<?> res = userController.createInvoice(auth, req);
         assertEquals(200, res.getStatusCode().value());
         Map<?, ?> body = (Map<?, ?>) res.getBody();
@@ -125,6 +128,13 @@ class UserControllerTest {
         assertEquals("TRON", body.get("chain"));
         assertEquals("TAddrSample", body.get("recipientAddress"));
         assertEquals(3_005_000L, body.get("expectedAmountUsdtMicro"));
+    }
+
+    @Test
+    void testCreateInvoiceMissingAmountReturnsBadRequest() {
+        Map<String, Object> req = Map.of("chain", "TRON");
+        ResponseEntity<?> res = userController.createInvoice(auth, req);
+        assertEquals(400, res.getStatusCode().value());
     }
 
     @Test

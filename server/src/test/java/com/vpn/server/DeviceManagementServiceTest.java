@@ -144,4 +144,25 @@ class DeviceManagementServiceTest {
         verify(deviceNodeKeyRepository).deleteByDeviceId(99L);
         verify(agentStreamService).pushConfigSyncToAll();
     }
+
+    @Test
+    void testGetUserDevicesOnlyReturnsActiveOnes() {
+        // Regression test: deleteDevice() above is a soft delete (isActive=false),
+        // but getUserDevices used to query findByUserId (unfiltered) — a revoked
+        // device stayed listed on the dashboard forever, with a working revoke
+        // button, as if it were still active. See docs/ROADMAP_PROGRESS.md
+        // "Пост-Фаза-10" for the full write-up (found via the e2e Playwright suite,
+        // not a unit test — a mocked repository can't catch a query-shape bug on
+        // its own, only that the *correct* repository method gets called).
+        Device active = new Device();
+        active.setId(1L);
+        active.setIsActive(true);
+        when(deviceRepository.findByUserIdAndIsActiveTrue(7L)).thenReturn(List.of(active));
+
+        List<Device> result = deviceManagementService.getUserDevices(7L);
+
+        assertEquals(1, result.size());
+        assertSame(active, result.get(0));
+        verify(deviceRepository).findByUserIdAndIsActiveTrue(7L);
+    }
 }

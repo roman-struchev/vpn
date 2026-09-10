@@ -11,7 +11,7 @@ export interface UserProfile {
     trafficUsedBytes: number;
     trafficLimitBytes: number;
     expiresAt: string;
-  };
+  } | null;
 }
 
 export interface Tariff {

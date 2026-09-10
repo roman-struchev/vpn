@@ -9,7 +9,6 @@ import java.util.List;
 @Repository
 public interface DeviceRepository extends JpaRepository<Device, Long> {
     List<Device> findByUserIdAndIsActiveTrue(Long userId);
-    List<Device> findByUserId(Long userId);
     java.util.Optional<Device> findByIdAndUserId(Long id, Long userId);
     long countByUserIdAndIsActiveTrue(Long userId);
 }

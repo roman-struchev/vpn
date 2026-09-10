@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,21 +59,30 @@ public class UserController {
 
         Optional<Subscription> sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
 
-        return ResponseEntity.ok(Map.of(
-                "id", user.getId(),
-                "email", user.getEmail() != null ? user.getEmail() : "",
-                "role", user.getRole(),
-                "balanceUsdtMicro", user.getBalanceUsdtMicro(),
-                "referralCode", user.getReferralCode() != null ? user.getReferralCode() : "",
-                "hasActiveSubscription", sub.isPresent(),
-                "subscription", sub.map(s -> Map.of(
-                        "id", s.getId(),
-                        "tariffId", s.getTariff().getId(),
-                        "trafficUsedBytes", s.getTrafficUsedBytes(),
-                        "trafficLimitBytes", s.getTrafficLimitBytes(),
-                        "expiresAt", s.getCurrentPeriodEnd().toString()
-                )).orElse(Map.of())
-        ));
+        // Map.of() can't hold a null value, so an absent subscription used to
+        // serialize as "subscription":{} instead of null. Every client reads
+        // this field with a plain truthiness check (e.g. DashboardView.tsx:
+        // `const sub = user.subscription; sub ? sub.tariffId.toUpperCase() : ...`)
+        // where {} is truthy but has no tariffId — every user without an active
+        // subscription got a hard crash (blank dashboard, no error boundary) on
+        // the web client. LinkedHashMap allows null so this now serializes as a
+        // real JSON null, which every truthiness check already handles correctly.
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("id", user.getId());
+        response.put("email", user.getEmail() != null ? user.getEmail() : "");
+        response.put("role", user.getRole());
+        response.put("balanceUsdtMicro", user.getBalanceUsdtMicro());
+        response.put("referralCode", user.getReferralCode() != null ? user.getReferralCode() : "");
+        response.put("hasActiveSubscription", sub.isPresent());
+        response.put("subscription", sub.map(s -> Map.of(
+                "id", s.getId(),
+                "tariffId", s.getTariff().getId(),
+                "trafficUsedBytes", s.getTrafficUsedBytes(),
+                "trafficLimitBytes", s.getTrafficLimitBytes(),
+                "expiresAt", s.getCurrentPeriodEnd().toString()
+        )).orElse(null));
+
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/tariffs")
@@ -85,7 +95,16 @@ public class UserController {
             Authentication auth,
             @RequestBody Map<String, Object> req) {
         Long userId = (Long) auth.getPrincipal();
-        Long baseAmountMicro = Long.valueOf(req.get("amountMicro").toString());
+        // Field name matches CryptoInvoice.baseAmountUsdtMicro and what
+        // web/src/api.ts createCryptoInvoice() actually sends. Was "amountMicro"
+        // here — a real key-name mismatch with the client that made every
+        // top-up-invoice request from the website NPE (uncaught, surfaced as a
+        // generic 403 to the browser) — see docs/ROADMAP_PROGRESS.md "Пост-Фаза-10".
+        Object rawAmount = req.get("baseAmountUsdtMicro");
+        if (rawAmount == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "baseAmountUsdtMicro is required"));
+        }
+        Long baseAmountMicro = Long.valueOf(rawAmount.toString());
         String chain = (String) req.getOrDefault("chain", "TRON");
 
         CryptoInvoice invoice = billingService.createInvoice(userId, chain, baseAmountMicro);

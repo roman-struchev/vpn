@@ -149,7 +149,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
-  const sub = user.subscription;
+  // Defensive: the server sends null when there's no active subscription, but
+  // don't trust a bare truthiness check on `user.subscription` alone — an
+  // object present without a tariffId crashed this whole view with
+  // "Cannot read properties of undefined (reading 'toUpperCase')" below.
+  const sub = user.subscription && user.subscription.tariffId ? user.subscription : null;
   const usedGb = sub ? sub.trafficUsedBytes / (1024 * 1024 * 1024) : 0;
   const limitGb = sub ? sub.trafficLimitBytes / (1024 * 1024 * 1024) : 0;
   const trafficPercent = limitGb > 0 ? Math.min(100, Math.round((usedGb / limitGb) * 100)) : 0;

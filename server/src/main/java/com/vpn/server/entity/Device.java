@@ -1,5 +1,6 @@
 package com.vpn.server.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -11,8 +12,15 @@ public class Device {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // @JsonIgnore: this entity is serialized directly by GET /api/v1/user/devices
+    // (UserController.getDevices). Without it, Jackson tries to initialize this
+    // LAZY proxy outside the (already-closed, open-in-view: false) Hibernate
+    // session and the whole response 500s — reproduced live: the endpoint works
+    // until a user has any device, then breaks permanently for that user. See
+    // docs/ROADMAP_PROGRESS.md "Пост-Фаза-10" for the write-up.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore
     private User user;
 
     @Column(name = "device_name", nullable = false, length = 128)

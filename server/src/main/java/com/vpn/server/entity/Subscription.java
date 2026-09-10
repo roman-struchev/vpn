@@ -1,5 +1,6 @@
 package com.vpn.server.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -11,8 +12,12 @@ public class Subscription {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // @JsonIgnore: not serialized by any controller today (UserController.getProfile
+    // builds its own Map instead of returning the entity) — see Device.user for why
+    // this is kept consistent pre-emptively rather than only fixed where it already bit.
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore
     private User user;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)

@@ -50,7 +50,11 @@ public class DeviceManagementService {
 
     @Transactional(readOnly = true)
     public List<Device> getUserDevices(Long userId) {
-        return deviceRepository.findByUserId(userId);
+        // isActiveTrue only — deleteDevice() below is a soft delete (isActive=false,
+        // key material revoked), and the dashboard device list has no way to show
+        // "revoked" state: every returned row gets a working revoke button, so an
+        // already-revoked device stayed listed (and re-clickably "revocable") forever.
+        return deviceRepository.findByUserIdAndIsActiveTrue(userId);
     }
 
     @Transactional
