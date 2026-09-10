@@ -186,7 +186,7 @@ public class UserController {
         Long userId = (Long) auth.getPrincipal();
         antiEnumerationService.recordAccessAndEnforce(userId, request.getRemoteAddr());
         try {
-            List<String> links = exportService.exportVlessLinks(userId);
+            List<String> links = exportService.exportVlessLinksForOwnApp(userId);
             return ResponseEntity.ok(Map.of(
                     "count", links.size(),
                     "links", links

@@ -167,7 +167,7 @@ class UserControllerTest {
 
     @Test
     void testGetSubscriptionLinksSuccess() {
-        when(exportService.exportVlessLinks(10L)).thenReturn(List.of(
+        when(exportService.exportVlessLinksForOwnApp(10L)).thenReturn(List.of(
                 "vless://uuid1@1.2.3.4:443?...",
                 "vless://uuid2@5.6.7.8:443?..."
         ));
