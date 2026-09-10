@@ -119,6 +119,28 @@ public class UserController {
         }
     }
 
+    @PostMapping("/billing/claim-tx")
+    public ResponseEntity<?> claimTransaction(
+            Authentication auth,
+            @RequestBody Map<String, Object> req) {
+        Long userId = (Long) auth.getPrincipal();
+        String chain = (String) req.getOrDefault("chain", "TRON");
+        String txHash = (String) req.get("txHash");
+        Long amountMicro = Long.valueOf(req.get("amountMicro").toString());
+
+        try {
+            BalanceEntry entry = billingService.claimTransaction(userId, chain, txHash, amountMicro);
+            return ResponseEntity.ok(Map.of(
+                    "status", "CLAIMED",
+                    "amountMicro", entry.getAmountUsdtMicro(),
+                    "balanceAfterMicro", entry.getBalanceAfterMicro(),
+                    "txHash", entry.getReferenceId()
+            ));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @GetMapping("/invoices")
     public ResponseEntity<List<CryptoInvoice>> getUserInvoices(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();

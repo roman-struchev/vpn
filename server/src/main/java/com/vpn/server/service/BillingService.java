@@ -165,4 +165,37 @@ public class BillingService {
 
         return subscriptionRepository.save(sub);
     }
+
+    @Transactional
+    public BalanceEntry claimTransaction(Long userId, String chain, String txHash, Long amountMicro) {
+        if (txHash == null || txHash.isBlank()) {
+            throw new IllegalArgumentException("Transaction hash cannot be empty");
+        }
+        if (amountMicro == null || amountMicro <= 0) {
+            throw new IllegalArgumentException("Declared amount must be greater than 0");
+        }
+        String cleanTxHash = txHash.trim();
+
+        if (cryptoInvoiceRepository.existsByTxHash(cleanTxHash) || balanceEntryRepository.existsByReferenceId(cleanTxHash)) {
+            throw new IllegalStateException("Transaction has already been claimed or credited: " + cleanTxHash);
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+
+        long newBalance = user.getBalanceUsdtMicro() + amountMicro;
+        user.setBalanceUsdtMicro(newBalance);
+        userRepository.save(user);
+
+        BalanceEntry entry = new BalanceEntry();
+        entry.setUser(user);
+        entry.setAmountUsdtMicro(amountMicro);
+        entry.setBalanceAfterMicro(newBalance);
+        entry.setType("DEPOSIT");
+        entry.setDescription("Claimed deposit (" + (chain != null ? chain : "CRYPTO") + "): " + cleanTxHash);
+        entry.setReferenceId(cleanTxHash);
+
+        log.info("User {} successfully claimed {} micro-USDT with tx {}", userId, amountMicro, cleanTxHash);
+        return balanceEntryRepository.save(entry);
+    }
 }

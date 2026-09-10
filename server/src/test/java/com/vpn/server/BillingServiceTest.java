@@ -127,4 +127,32 @@ class BillingServiceTest {
         assertThrows(IllegalStateException.class, () ->
                 billingService.purchaseOrRenewSubscription(4L, "basic", false));
     }
+
+    @Test
+    void testClaimTransactionSuccess() {
+        User user = new User();
+        user.setId(5L);
+        user.setBalanceUsdtMicro(1_000_000L);
+
+        when(cryptoInvoiceRepository.existsByTxHash("tx_claim_123")).thenReturn(false);
+        when(balanceEntryRepository.existsByReferenceId("tx_claim_123")).thenReturn(false);
+        when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+        when(balanceEntryRepository.save(any(BalanceEntry.class))).thenAnswer(i -> i.getArgument(0));
+
+        BalanceEntry entry = billingService.claimTransaction(5L, "TRON", "tx_claim_123", 5_000_000L);
+
+        assertNotNull(entry);
+        assertEquals(5_000_000L, entry.getAmountUsdtMicro());
+        assertEquals(6_000_000L, entry.getBalanceAfterMicro());
+        assertEquals("tx_claim_123", entry.getReferenceId());
+        assertEquals(6_000_000L, user.getBalanceUsdtMicro());
+    }
+
+    @Test
+    void testClaimTransactionDuplicateThrows() {
+        when(cryptoInvoiceRepository.existsByTxHash("tx_dup")).thenReturn(true);
+
+        assertThrows(IllegalStateException.class, () ->
+                billingService.claimTransaction(5L, "TRON", "tx_dup", 5_000_000L));
+    }
 }

@@ -9,4 +9,5 @@ import java.util.List;
 @Repository
 public interface BalanceEntryRepository extends JpaRepository<BalanceEntry, Long> {
     List<BalanceEntry> findByUserIdOrderByCreatedAtDesc(Long userId);
+    boolean existsByReferenceId(String referenceId);
 }

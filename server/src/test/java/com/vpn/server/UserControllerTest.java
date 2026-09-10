@@ -1,6 +1,7 @@
 package com.vpn.server;
 
 import com.vpn.server.controller.UserController;
+import com.vpn.server.entity.BalanceEntry;
 import com.vpn.server.entity.CryptoInvoice;
 import com.vpn.server.entity.Device;
 import com.vpn.server.entity.Subscription;
@@ -192,5 +193,24 @@ class UserControllerTest {
         Map<?, ?> body = (Map<?, ?>) res.getBody();
         assertEquals("REVOKED", body.get("status"));
         assertEquals(102L, body.get("deviceId"));
+    }
+
+    @Test
+    void testClaimTransactionSuccess() {
+        BalanceEntry entry = new BalanceEntry();
+        entry.setAmountUsdtMicro(5_000_000L);
+        entry.setBalanceAfterMicro(8_000_000L);
+        entry.setReferenceId("0xabc");
+
+        when(billingService.claimTransaction(eq(10L), eq("TRON"), eq("0xabc"), eq(5_000_000L)))
+                .thenReturn(entry);
+
+        Map<String, Object> req = Map.of("chain", "TRON", "txHash", "0xabc", "amountMicro", 5_000_000L);
+        ResponseEntity<?> res = userController.claimTransaction(auth, req);
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals("CLAIMED", body.get("status"));
+        assertEquals(5_000_000L, body.get("amountMicro"));
+        assertEquals("0xabc", body.get("txHash"));
     }
 }
