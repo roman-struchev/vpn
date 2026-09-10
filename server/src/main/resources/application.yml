@@ -38,3 +38,5 @@ vpn:
     server-names: ${VPN_REALITY_SNI:dl.google.com,gateway.icloud.com}
   heartbeat-interval-sec: 30
   stats-interval-sec: 30
+  telegram:
+    bot-token: ${TELEGRAM_BOT_TOKEN:}

@@ -2,6 +2,7 @@ package com.vpn.server;
 
 import com.vpn.server.controller.UserController;
 import com.vpn.server.entity.CryptoInvoice;
+import com.vpn.server.entity.Device;
 import com.vpn.server.entity.Subscription;
 import com.vpn.server.entity.Tariff;
 import com.vpn.server.entity.User;
@@ -10,6 +11,7 @@ import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
 import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.BillingService;
+import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +52,9 @@ class UserControllerTest {
     private SubscriptionExportService exportService;
 
     @Mock
+    private DeviceManagementService deviceManagementService;
+
+    @Mock
     private Authentication auth;
 
     private UserController userController;
@@ -62,7 +67,8 @@ class UserControllerTest {
                 tariffRepository,
                 billingService,
                 cryptoInvoiceRepository,
-                exportService
+                exportService,
+                deviceManagementService
         );
         when(auth.getPrincipal()).thenReturn(10L);
     }
@@ -144,5 +150,47 @@ class UserControllerTest {
         assertEquals(200, res.getStatusCode().value());
         Map<?, ?> body = (Map<?, ?>) res.getBody();
         assertEquals(2, body.get("count"));
+    }
+
+    @Test
+    void testGetDevices() {
+        Device d1 = new Device();
+        d1.setId(101L);
+        d1.setDeviceName("iPhone 15");
+
+        when(deviceManagementService.getUserDevices(10L)).thenReturn(List.of(d1));
+
+        ResponseEntity<List<Device>> res = userController.getDevices(auth);
+        assertEquals(200, res.getStatusCode().value());
+        assertEquals(1, res.getBody().size());
+        assertEquals("iPhone 15", res.getBody().get(0).getDeviceName());
+    }
+
+    @Test
+    void testAddDeviceSuccess() {
+        Device d = new Device();
+        d.setId(102L);
+        d.setDeviceName("MacBook Pro");
+        d.setPlatform("MACOS");
+
+        when(deviceManagementService.addDevice(eq(10L), eq("MacBook Pro"), eq("MACOS"))).thenReturn(d);
+
+        Map<String, String> req = Map.of("deviceName", "MacBook Pro", "platform", "MACOS");
+        ResponseEntity<?> res = userController.addDevice(auth, req);
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals("CREATED", body.get("status"));
+        assertEquals(102L, body.get("deviceId"));
+    }
+
+    @Test
+    void testDeleteDeviceSuccess() {
+        doNothing().when(deviceManagementService).deleteDevice(10L, 102L);
+
+        ResponseEntity<?> res = userController.deleteDevice(auth, 102L);
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals("REVOKED", body.get("status"));
+        assertEquals(102L, body.get("deviceId"));
     }
 }

@@ -6,6 +6,7 @@ import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
 import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.BillingService;
+import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -25,6 +26,7 @@ public class UserController {
     private final BillingService billingService;
     private final CryptoInvoiceRepository cryptoInvoiceRepository;
     private final SubscriptionExportService exportService;
+    private final DeviceManagementService deviceManagementService;
 
     public UserController(
             UserRepository userRepository,
@@ -32,7 +34,8 @@ public class UserController {
             TariffRepository tariffRepository,
             BillingService billingService,
             CryptoInvoiceRepository cryptoInvoiceRepository,
-            SubscriptionExportService exportService
+            SubscriptionExportService exportService,
+            DeviceManagementService deviceManagementService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -40,6 +43,7 @@ public class UserController {
         this.billingService = billingService;
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
         this.exportService = exportService;
+        this.deviceManagementService = deviceManagementService;
     }
 
     @GetMapping("/profile")
@@ -131,6 +135,45 @@ public class UserController {
                     "links", links
             ));
         } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/devices")
+    public ResponseEntity<List<Device>> getDevices(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ResponseEntity.ok(deviceManagementService.getUserDevices(userId));
+    }
+
+    @PostMapping("/devices")
+    public ResponseEntity<?> addDevice(
+            Authentication auth,
+            @RequestBody Map<String, String> req) {
+        Long userId = (Long) auth.getPrincipal();
+        String name = req.get("deviceName");
+        String platform = req.get("platform");
+        try {
+            Device device = deviceManagementService.addDevice(userId, name, platform);
+            return ResponseEntity.ok(Map.of(
+                    "status", "CREATED",
+                    "deviceId", device.getId(),
+                    "deviceName", device.getDeviceName(),
+                    "platform", device.getPlatform()
+            ));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/devices/{deviceId}")
+    public ResponseEntity<?> deleteDevice(
+            Authentication auth,
+            @PathVariable Long deviceId) {
+        Long userId = (Long) auth.getPrincipal();
+        try {
+            deviceManagementService.deleteDevice(userId, deviceId);
+            return ResponseEntity.ok(Map.of("status", "REVOKED", "deviceId", deviceId));
+        } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }

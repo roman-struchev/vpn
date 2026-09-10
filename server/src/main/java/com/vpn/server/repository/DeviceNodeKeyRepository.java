@@ -16,6 +16,9 @@ public interface DeviceNodeKeyRepository extends JpaRepository<DeviceNodeKey, Lo
     Optional<DeviceNodeKey> findByUuid(UUID uuid);
     List<DeviceNodeKey> findByNodeId(Long nodeId);
 
+    void deleteByDeviceId(Long deviceId);
+    List<DeviceNodeKey> findByDeviceId(Long deviceId);
+
     @Query("SELECT dnk FROM DeviceNodeKey dnk JOIN FETCH dnk.device d JOIN FETCH d.user WHERE dnk.node.id = :nodeId AND d.isActive = true")
     List<DeviceNodeKey> findActiveKeysByNodeId(@Param("nodeId") Long nodeId);
 }

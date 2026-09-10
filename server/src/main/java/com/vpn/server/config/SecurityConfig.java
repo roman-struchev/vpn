@@ -38,6 +38,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/**",
                                 "/api/v1/health",
                                 "/api/v1/subscription/export/**",
+                                "/api/v1/client/**",
                                 "/actuator/**"
                         ).permitAll()
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
