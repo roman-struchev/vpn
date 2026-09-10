@@ -95,3 +95,12 @@ tasks.named('test') {
         '--add-opens=java.base/java.util=ALL-UNNAMED'
     )
 }
+
+tasks.register('copyWebDist', Copy) {
+    from file('../web/dist')
+    into file('src/main/resources/static')
+    onlyIf { file('../web/dist').exists() }
+}
+
+processResources.dependsOn copyWebDist
+

@@ -10,6 +10,8 @@ agent/node_modules/
 agent/dist/
 agent/.agent-state.json
 agent/xray-config.json
+web/node_modules/
+web/dist/
 
 # IDE
 .idea/
