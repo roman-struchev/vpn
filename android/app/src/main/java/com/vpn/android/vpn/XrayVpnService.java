@@ -20,6 +20,7 @@ import com.vpn.android.R;
 import com.vpn.android.VpnApp;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
+import com.vpn.android.api.model.DeviceDto;
 import com.vpn.android.api.model.RoutingConfigResponse;
 import com.vpn.android.ui.MainActivity;
 import com.vpn.android.vpn.state.ConnectionEvent;
@@ -60,6 +61,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private final Runnable healthCheck = this::checkHealth;
 
     private ApiClient apiClient;
+    private TokenStore tokenStore;
     private ParcelFileDescriptor tunInterface;
     private ReconnectBackoffPolicy backoffPolicy;
     private TransportFallbackPolicy transportFallbackPolicy;
@@ -73,7 +75,8 @@ public class XrayVpnService extends VpnService implements DialerController {
     @Override
     public void onCreate() {
         super.onCreate();
-        apiClient = new ApiClient(new TokenStore(this));
+        tokenStore = new TokenStore(this);
+        apiClient = new ApiClient(tokenStore);
     }
 
     @Override
@@ -178,6 +181,7 @@ public class XrayVpnService extends VpnService implements DialerController {
             int connectTimeMs = (int) (android.os.SystemClock.elapsedRealtime() - attemptStartUptimeMs);
             Long connectedNodeId = nodeIdsByHost.get(vless.getHost());
             reportTelemetry(connectTimeMs, 0, false, connectedNodeId);
+            registerOrTouchDevice();
         } catch (Exception e) {
             Log.w(TAG, "Tunnel start failed on node " + currentNodeIndex
                     + " (transport=" + transportFallbackPolicy.getCurrentTransport() + ")", e);
@@ -238,6 +242,29 @@ public class XrayVpnService extends VpnService implements DialerController {
         String transport = transportFallbackPolicy.getCurrentTransport().name();
         worker.execute(() -> apiClient.submitTelemetry(
                 nodeId, null, null, transport, connectTimeMs, failureCount, whitelistSuspected));
+    }
+
+    /**
+     * Best-effort, on every successful connect: keeps this install counting as
+     * a "recently active" device (server-side DEVICE_ACTIVE_WINDOW_DAYS) with
+     * no manual "add device" step. Touches the locally-persisted device from
+     * a prior run first; only registers a new one if that 404s (never
+     * registered yet, or revoked elsewhere) — see TokenStore#getDeviceId.
+     */
+    private void registerOrTouchDevice() {
+        worker.execute(() -> {
+            try {
+                long deviceId = tokenStore.getDeviceId();
+                if (deviceId > 0 && apiClient.touchDevice(deviceId)) {
+                    return;
+                }
+                String name = Build.MANUFACTURER + " " + Build.MODEL;
+                DeviceDto device = apiClient.addDevice(name, "ANDROID");
+                tokenStore.saveDeviceId(device.id);
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to register/touch this device (best-effort)", e);
+            }
+        });
     }
 
     private void checkHealth() {

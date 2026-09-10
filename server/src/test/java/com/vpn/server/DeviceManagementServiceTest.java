@@ -81,7 +81,7 @@ class DeviceManagementServiceTest {
         when(userRepository.findById(7L)).thenReturn(Optional.of(user));
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(7L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(deviceRepository.countByUserIdAndIsActiveTrue(7L)).thenReturn(1L);
+        when(deviceRepository.countRecentlyActiveByUserId(eq(7L), any(Instant.class))).thenReturn(1L);
 
         Device savedDevice = new Device();
         savedDevice.setId(105L);
@@ -120,7 +120,7 @@ class DeviceManagementServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(7L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         // Trial limit is 1 device
-        when(deviceRepository.countByUserIdAndIsActiveTrue(7L)).thenReturn(1L);
+        when(deviceRepository.countRecentlyActiveByUserId(eq(7L), any(Instant.class))).thenReturn(1L);
 
         assertThrows(IllegalStateException.class, () ->
                 deviceManagementService.addDevice(7L, "Second Device", "ANDROID")
@@ -143,6 +143,40 @@ class DeviceManagementServiceTest {
         verify(deviceRepository).save(d);
         verify(deviceNodeKeyRepository).deleteByDeviceId(99L);
         verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testTouchDeviceUpdatesLastSeenAt() {
+        Device d = new Device();
+        d.setId(42L);
+        d.setIsActive(true);
+        d.setLastSeenAt(Instant.now().minus(20, ChronoUnit.DAYS));
+
+        when(deviceRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(d));
+
+        deviceManagementService.touchDevice(7L, 42L);
+
+        assertTrue(d.getLastSeenAt().isAfter(Instant.now().minus(1, ChronoUnit.MINUTES)));
+        verify(deviceRepository).save(d);
+    }
+
+    @Test
+    void testTouchDeviceNotFoundThrows() {
+        when(deviceRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> deviceManagementService.touchDevice(7L, 42L));
+    }
+
+    @Test
+    void testTouchDeviceRevokedThrows() {
+        Device d = new Device();
+        d.setId(42L);
+        d.setIsActive(false);
+
+        when(deviceRepository.findByIdAndUserId(42L, 7L)).thenReturn(Optional.of(d));
+
+        assertThrows(IllegalArgumentException.class, () -> deviceManagementService.touchDevice(7L, 42L));
+        verify(deviceRepository, never()).save(any());
     }
 
     @Test

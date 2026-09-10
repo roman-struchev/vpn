@@ -15,6 +15,7 @@ public class TokenStore {
     private static final String PREFS_FILE = "vpn_secure_prefs";
     private static final String KEY_TOKEN = "auth_token";
     private static final String KEY_USER_ID = "user_id";
+    private static final String KEY_DEVICE_ID = "device_id";
 
     private final SharedPreferences prefs;
 
@@ -55,6 +56,22 @@ public class TokenStore {
 
     public boolean isLoggedIn() {
         return getToken() != null;
+    }
+
+    /**
+     * The server-assigned Device row for this physical install, used to auto-
+     * register/touch on connect instead of asking the user to manually "add a
+     * device" (see XrayVpnService#registerOrTouchDevice). -1 means "not
+     * registered yet" — including after a logout, since clear() wipes this
+     * too; re-registering once on next login is harmless (just one extra
+     * Device row) and keeps this simple.
+     */
+    public void saveDeviceId(long deviceId) {
+        prefs.edit().putLong(KEY_DEVICE_ID, deviceId).apply();
+    }
+
+    public long getDeviceId() {
+        return prefs.getLong(KEY_DEVICE_ID, -1);
     }
 
     public void clear() {

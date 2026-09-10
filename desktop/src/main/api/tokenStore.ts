@@ -5,6 +5,13 @@ import path from 'node:path';
 interface StoredAuth {
   token: string;
   userId: number;
+  /**
+   * The server-assigned Device row for this install, used to auto-register/
+   * touch on connect instead of a manual "add device" step — see
+   * VpnController's connect() and TokenStore.getDeviceId's Android
+   * equivalent for the full rationale.
+   */
+  deviceId?: number;
 }
 
 /**
@@ -18,8 +25,8 @@ export class TokenStore {
     this.filePath = path.join(app.getPath('userData'), 'auth.enc');
   }
 
-  save(token: string, userId: number): void {
-    const payload: StoredAuth = { token, userId };
+  save(token: string, userId: number, deviceId?: number): void {
+    const payload: StoredAuth = { token, userId, deviceId };
     if (safeStorage.isEncryptionAvailable()) {
       writeFileSync(this.filePath, safeStorage.encryptString(JSON.stringify(payload)));
     } else {
@@ -43,6 +50,17 @@ export class TokenStore {
 
   getToken(): string | null {
     return this.load()?.token ?? null;
+  }
+
+  getDeviceId(): number | null {
+    return this.load()?.deviceId ?? null;
+  }
+
+  /** No-op if there's no token yet (nothing to attach a deviceId to). */
+  saveDeviceId(deviceId: number): void {
+    const current = this.load();
+    if (!current) return;
+    this.save(current.token, current.userId, deviceId);
   }
 
   clear(): void {

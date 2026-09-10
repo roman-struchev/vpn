@@ -234,4 +234,24 @@ public class UserController {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }
     }
+
+    /**
+     * Called by native clients on a successful connect for the device they
+     * already registered (locally-persisted deviceId) — keeps it counting as
+     * recently active (DeviceManagementService.DEVICE_ACTIVE_WINDOW_DAYS)
+     * without any user action. A 404 here means the client should fall back
+     * to POST /devices to register fresh (e.g. it was revoked elsewhere).
+     */
+    @PostMapping("/devices/{deviceId}/touch")
+    public ResponseEntity<?> touchDevice(
+            Authentication auth,
+            @PathVariable Long deviceId) {
+        Long userId = (Long) auth.getPrincipal();
+        try {
+            deviceManagementService.touchDevice(userId, deviceId);
+            return ResponseEntity.ok(Map.of("status", "OK"));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
 }

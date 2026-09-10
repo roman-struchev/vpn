@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import os from 'node:os';
 import type { ApiClient } from '../api/apiClient';
 import type { SystemProxyManager } from '../proxy/systemProxy';
 import { XrayProcess } from '../xray/xrayProcess';
@@ -141,6 +142,7 @@ export class VpnController extends EventEmitter {
       const connectTimeMs = Date.now() - attemptStartedAt;
       const connectedNodeId = this.nodeIdByHost.get(vless.host) ?? null;
       this.reportTelemetry(false, connectedNodeId, connectTimeMs, 0);
+      this.registerOrTouchDevice();
     } catch (e) {
       console.warn(`Tunnel start failed on node ${this.nodeIndex} (transport=${transport})`, e);
       await this.handleFailure();
@@ -214,6 +216,29 @@ export class VpnController extends EventEmitter {
       failureCount,
       whitelistSuspected
     );
+  }
+
+  /**
+   * Best-effort, on every successful connect: keeps this install counting as
+   * a "recently active" device (server-side DEVICE_ACTIVE_WINDOW_DAYS) with
+   * no manual "add device" step. Touches the locally-persisted device from a
+   * prior run first; only registers a new one if that 404s (never
+   * registered yet, or revoked elsewhere) — see TokenStore.getDeviceId.
+   */
+  private registerOrTouchDevice(): void {
+    void (async () => {
+      try {
+        const deviceId = this.apiClient.getDeviceId();
+        if (deviceId && (await this.apiClient.touchDevice(deviceId))) {
+          return;
+        }
+        const platform = process.platform === 'darwin' ? 'MACOS' : process.platform === 'win32' ? 'WINDOWS' : 'THIRD_PARTY';
+        const device = await this.apiClient.addDevice(os.hostname(), platform);
+        this.apiClient.saveDeviceId(device.deviceId);
+      } catch (e) {
+        console.warn('Failed to register/touch this device (best-effort)', e);
+      }
+    })();
   }
 
   private transition(event: ConnectionEvent): void {

@@ -119,6 +119,22 @@ public class ApiClient {
         delete("api/v1/user/devices/" + deviceId);
     }
 
+    /**
+     * @return true if the device is still registered and was touched; false on a
+     * 404 (revoked elsewhere, or never registered) — caller should fall back to
+     * {@link #addDevice}. Any other failure (network, 5xx) propagates so a
+     * transient outage doesn't get misread as "please re-register".
+     */
+    public boolean touchDevice(long deviceId) throws ApiException, IOException {
+        try {
+            post("api/v1/user/devices/" + deviceId + "/touch", new JsonObject(), JsonObject.class, true);
+            return true;
+        } catch (ApiException e) {
+            if (e.httpCode == 404) return false;
+            throw e;
+        }
+    }
+
     public SubscriptionLinksResponse getSubscriptionLinks() throws ApiException, IOException {
         return get("api/v1/user/subscription/links", SubscriptionLinksResponse.class);
     }

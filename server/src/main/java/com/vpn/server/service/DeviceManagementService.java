@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,6 +25,15 @@ import java.util.UUID;
 public class DeviceManagementService {
 
     private static final Logger log = LoggerFactory.getLogger(DeviceManagementService.class);
+
+    // A device slot only counts against the tariff's device limit if it's been
+    // seen (created, or touched by a client on connect) within this window —
+    // an old phone nobody's used in months ages out of the count on its own,
+    // no explicit "revoke" or auto-eviction needed. See docs/ROADMAP_PROGRESS.md
+    // for the write-up ("add device" was confusing: two disconnected creation
+    // paths — a silent auto-created "Primary Device" on first VLESS export, and
+    // a manual form — with no way for an old, forgotten device to stop counting).
+    private static final int DEVICE_ACTIVE_WINDOW_DAYS = 30;
 
     private final DeviceRepository deviceRepository;
     private final DeviceNodeKeyRepository deviceNodeKeyRepository;
@@ -70,11 +80,13 @@ public class DeviceManagementService {
         }
 
         int maxDevices = resolveMaxDevices(sub.getTariff().getId());
-        long activeCount = deviceRepository.countByUserIdAndIsActiveTrue(userId);
+        Instant activeSince = Instant.now().minus(DEVICE_ACTIVE_WINDOW_DAYS, ChronoUnit.DAYS);
+        long activeCount = deviceRepository.countRecentlyActiveByUserId(userId, activeSince);
 
         if (activeCount >= maxDevices) {
-            throw new IllegalStateException("Device limit exceeded. Maximum devices allowed for tariff "
-                    + sub.getTariff().getName() + " is " + maxDevices);
+            throw new IllegalStateException("Device limit exceeded (" + maxDevices + " for your plan). "
+                    + "A device not used in " + DEVICE_ACTIVE_WINDOW_DAYS
+                    + "+ days stops counting automatically, or revoke one in your device list.");
         }
 
         Device device = new Device();
@@ -82,6 +94,7 @@ public class DeviceManagementService {
         device.setDeviceName(deviceName != null && !deviceName.isBlank() ? deviceName.trim() : "Device " + (activeCount + 1));
         device.setPlatform(platform != null && !platform.isBlank() ? platform.trim() : "OTHER");
         device.setIsActive(true);
+        device.setLastSeenAt(Instant.now());
         device = deviceRepository.save(device);
 
         // Pre-generate device keys for active nodes
@@ -96,6 +109,23 @@ public class DeviceManagementService {
         agentStreamService.pushConfigSyncToAll();
 
         return device;
+    }
+
+    /**
+     * Called by clients on a successful connect to mark the device as recently
+     * used — keeps it counting against the device limit (see
+     * DEVICE_ACTIVE_WINDOW_DAYS) without the user having to do anything. Not
+     * the same as "add a device": clients call this for the device they
+     * already registered (locally-persisted deviceId), falling back to
+     * addDevice() only if this 404s (e.g. the device was revoked elsewhere).
+     */
+    @Transactional
+    public void touchDevice(Long userId, Long deviceId) {
+        Device device = deviceRepository.findByIdAndUserId(deviceId, userId)
+                .filter(Device::getIsActive)
+                .orElseThrow(() -> new IllegalArgumentException("Device not found or not owned by user: " + deviceId));
+        device.setLastSeenAt(Instant.now());
+        deviceRepository.save(device);
     }
 
     @Transactional

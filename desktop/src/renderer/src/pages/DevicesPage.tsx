@@ -19,7 +19,13 @@ export default function DevicesPage() {
   const add = async () => {
     if (!newName.trim()) return;
     try {
-      await window.vpnApi.addDevice(newName.trim(), 'DESKTOP');
+      // 'DESKTOP' isn't a real platform value anywhere else in the system
+      // (server/web use ANDROID/WINDOWS/MACOS/THIRD_PARTY) — this manual form
+      // is for reserving a slot for some other device, not necessarily this
+      // machine (the running app auto-registers *this* install on connect,
+      // see vpnController.registerOrTouchDevice), so there's no single
+      // correct guess here; THIRD_PARTY is the closest existing "unspecified" value.
+      await window.vpnApi.addDevice(newName.trim(), 'THIRD_PARTY');
       setNewName('');
       reload();
     } catch (e) {

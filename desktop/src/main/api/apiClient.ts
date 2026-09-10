@@ -2,6 +2,7 @@ import { ApiHostRotation } from '../../shared/apiHostRotation';
 import type { TokenStore } from './tokenStore';
 
 const DEFAULT_BASE_URL = 'https://api.nextgenvpn.app/';
+const DEV_DEFAULT_BASE_URL = 'http://localhost:8080/';
 
 export interface AuthResponse {
   token: string;
@@ -110,6 +111,21 @@ export class ApiClient {
     await this.request(`api/v1/user/devices/${deviceId}`, { method: 'DELETE' }, true);
   }
 
+  /**
+   * @returns false on a 404 (revoked elsewhere, or never registered) —
+   * caller should fall back to addDevice(). Any other failure (network, 5xx)
+   * rejects so a transient outage isn't misread as "please re-register".
+   */
+  async touchDevice(deviceId: number): Promise<boolean> {
+    try {
+      await this.post(`api/v1/user/devices/${deviceId}/touch`, {}, true);
+      return true;
+    } catch (e) {
+      if (e instanceof ApiError && e.httpCode === 404) return false;
+      throw e;
+    }
+  }
+
   async getSubscriptionLinks(): Promise<string[]> {
     const resp = await this.get<{ count: number; links: string[] }>('api/v1/user/subscription/links');
     return resp.links ?? [];
@@ -145,6 +161,14 @@ export class ApiClient {
 
   logout(): void {
     this.tokenStore.clear();
+  }
+
+  getDeviceId(): number | null {
+    return this.tokenStore.getDeviceId();
+  }
+
+  saveDeviceId(deviceId: number): void {
+    this.tokenStore.saveDeviceId(deviceId);
   }
 
   private get<T>(path: string): Promise<T> {
@@ -189,7 +213,9 @@ export class ApiClient {
 }
 
 function hostsFromEnv(): string[] {
-  const hosts = [process.env.VPN_API_BASE_URL || DEFAULT_BASE_URL];
+  const isDev = process.env.NODE_ENV !== 'production';
+  const defaultUrl = isDev ? DEV_DEFAULT_BASE_URL : DEFAULT_BASE_URL;
+  const hosts = [process.env.VPN_API_BASE_URL || defaultUrl];
   const backups = process.env.VPN_API_BASE_URLS_BACKUP;
   if (backups) {
     hosts.push(...backups.split(',').map((h) => h.trim()).filter(Boolean));

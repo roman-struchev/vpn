@@ -221,6 +221,22 @@ class UserControllerTest {
     }
 
     @Test
+    void testTouchDeviceSuccess() {
+        doNothing().when(deviceManagementService).touchDevice(10L, 102L);
+
+        ResponseEntity<?> res = userController.touchDevice(auth, 102L);
+        assertEquals(200, res.getStatusCode().value());
+    }
+
+    @Test
+    void testTouchDeviceNotFoundReturns404() {
+        doThrow(new IllegalArgumentException("not found")).when(deviceManagementService).touchDevice(10L, 999L);
+
+        ResponseEntity<?> res = userController.touchDevice(auth, 999L);
+        assertEquals(404, res.getStatusCode().value());
+    }
+
+    @Test
     void testClaimTransactionSuccess() {
         BalanceEntry entry = new BalanceEntry();
         entry.setAmountUsdtMicro(5_000_000L);
