@@ -27,6 +27,25 @@ export default async function globalTeardown() {
     console.warn('[global-teardown] could not clean up e2e test users:', e.message);
   }
 
+  // deviceTrial.spec.ts exercises the no-signup device-trial login
+  // (DeviceAuthService), which auto-creates its own account keyed by a
+  // random device UUID with a synthetic `device_<uuid>@device.local` email —
+  // a different pattern from the `e2e-...@example.com` convention above, so
+  // it needs its own cleanup query or it would accumulate one orphaned row
+  // per test run forever (same cascade-delete reasoning as above).
+  try {
+    const output = execFileSync(
+      'docker',
+      ['exec', container, 'psql', '-U', user, '-d', db, '-t', '-c',
+        "DELETE FROM users WHERE email LIKE 'device_%@device.local' RETURNING id;"],
+      { encoding: 'utf-8' }
+    );
+    const deleted = output.split('\n').map((l) => l.trim()).filter(Boolean).length;
+    console.log(`[global-teardown] removed ${deleted} device-trial test user(s) from ${db}`);
+  } catch (e) {
+    console.warn('[global-teardown] could not clean up device-trial test users:', e.message);
+  }
+
   // Same problem, a different table: nodes.spec.ts and tunnel.spec.ts each
   // register 1-2 real nodes per run (see agentHelpers.ts's `e2e-<label>-...`
   // hostname convention) with nothing to ever delete them. Left alone, the
