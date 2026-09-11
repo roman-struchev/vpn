@@ -61,21 +61,11 @@ export default function App() {
     // A trial/guest profile has nothing to navigate to besides "connect"
     // and "sign in or register" (no devices, billing, or referrals — see
     // ProfilePage/DevicesPage, both real-account-only now) — so instead of
-    // a Profile tab hiding that CTA behind a click, it sits directly below
+    // a Profile tab hiding that CTA behind a click, it sits directly inside
     // Connect on one nav-less screen.
     return (
       <div className="flex h-screen flex-col overflow-y-auto">
-        <ConnectPage isGuest />
-        <div className="flex flex-col gap-4 px-6 py-6">
-          <h1 className="text-lg font-semibold">{t.guestProfileTitle}</h1>
-          <p className="text-sm text-white/60">{t.guestProfileDesc}</p>
-          <button
-            className="rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
-            onClick={() => setPhase('loggedOut')}
-          >
-            {t.signInOrRegister}
-          </button>
-        </div>
+        <ConnectPage isGuest onSignInOrRegister={() => setPhase('loggedOut')} />
       </div>
     );
   }

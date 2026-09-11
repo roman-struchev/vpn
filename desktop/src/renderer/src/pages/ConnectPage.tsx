@@ -33,7 +33,13 @@ const STATE_COLOR: Record<ConnectionState, string> = {
   ERROR: 'text-state-error',
 };
 
-export default function ConnectPage({ isGuest }: { isGuest: boolean }) {
+export default function ConnectPage({
+  isGuest,
+  onSignInOrRegister,
+}: {
+  isGuest: boolean;
+  onSignInOrRegister?: () => void;
+}) {
   const [state, setState] = useState<ConnectionState>('DISCONNECTED');
   const [region, setRegion] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -96,19 +102,21 @@ export default function ConnectPage({ isGuest }: { isGuest: boolean }) {
   const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
 
   return (
-    <div className="flex flex-col items-center gap-6 px-8 py-10">
-      <p className={`text-lg font-semibold ${STATE_COLOR[state]}`}>{STATE_LABEL[state]}</p>
-      {region && <p className="text-xs text-white/50">{t.nodeRegion}: {region}</p>}
+    <div className="flex flex-col items-center gap-4 px-6 py-5">
+      <div className="text-center">
+        <p className={`text-lg font-semibold ${STATE_COLOR[state]}`}>{STATE_LABEL[state]}</p>
+        {region && <p className="mt-0.5 text-xs text-white/50">{t.nodeRegion}: {region}</p>}
+      </div>
 
       <div className="w-full rounded-xl bg-dark-900 p-4">
-        <label htmlFor="region-picker" className="mb-2 block text-sm font-semibold">
+        <label htmlFor="region-picker" className="mb-1.5 block text-xs font-semibold text-white/80">
           {t.regionPickerTitle}
         </label>
         <select
           id="region-picker"
           value={selectedRegion ?? ''}
           onChange={(e) => onRegionPicked(e.target.value)}
-          className="w-full rounded-lg bg-dark-800 px-3 py-2 text-sm text-white"
+          className="w-full rounded-lg bg-dark-800 px-3 py-2 text-sm text-white outline-none"
         >
           <option value="">{t.regionAuto}</option>
           {regions.map((r) => (
@@ -125,7 +133,7 @@ export default function ConnectPage({ isGuest }: { isGuest: boolean }) {
 
       <button
         onClick={onToggle}
-        className={`flex h-32 w-32 items-center justify-center rounded-full text-sm font-semibold text-white shadow-lg transition-colors ${
+        className={`flex h-28 w-28 items-center justify-center rounded-full text-sm font-semibold text-white shadow-lg transition-colors ${
           isActive ? 'bg-brand-600 hover:bg-brand-700' : 'bg-dark-800 hover:bg-dark-800/80'
         }`}
       >
@@ -172,6 +180,20 @@ export default function ConnectPage({ isGuest }: { isGuest: boolean }) {
           </div>
         )}
       </div>
+
+      {isGuest && onSignInOrRegister && (
+        <div className="w-full rounded-xl bg-dark-900 p-4">
+          <p className="text-sm font-semibold text-white">{t.guestProfileTitle}</p>
+          <p className="mt-1.5 text-xs leading-relaxed text-white/60">{t.guestProfileDesc}</p>
+          <button
+            type="button"
+            className="mt-3 w-full rounded-lg bg-brand-600 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-brand-700"
+            onClick={onSignInOrRegister}
+          >
+            {t.signInOrRegister}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
