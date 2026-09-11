@@ -4,6 +4,7 @@ import com.vpn.server.config.JwtUtil;
 import com.vpn.server.dto.AuthResponse;
 import com.vpn.server.dto.LoginRequest;
 import com.vpn.server.dto.RegisterRequest;
+import com.vpn.server.dto.UpgradeRequest;
 import com.vpn.server.entity.User;
 import com.vpn.server.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -70,6 +71,44 @@ public class AuthService {
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new IllegalStateException("Account is suspended or blocked");
         }
+
+        String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
+        return new AuthResponse(token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode());
+    }
+
+    /**
+     * Converts the currently-signed-in guest/device-trial account (see
+     * DeviceAuthService) into a real, credentialed one in place — same row,
+     * same id, same balance and active trial subscription, just adding an
+     * email+password so it survives logout/reinstall. Deliberately not a
+     * "create new account" call: that would orphan the guest row's balance
+     * and trial the way plain register() used to (see GuestMergeService for
+     * the equivalent when the user instead signs into a *different*,
+     * already-existing account).
+     */
+    @Transactional
+    public AuthResponse upgradeGuest(Long userId, UpgradeRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        if (user.getPasswordHash() != null || user.getTelegramId() != null || user.getGoogleSub() != null) {
+            throw new IllegalStateException("Account is already registered");
+        }
+        if (request.email() == null || request.email().isBlank()) {
+            throw new IllegalArgumentException("Email cannot be blank");
+        }
+        if (request.password() == null || request.password().length() < 6) {
+            throw new IllegalArgumentException("Password must be at least 6 characters");
+        }
+
+        String normalizedEmail = request.email().toLowerCase().trim();
+        if (userRepository.existsByEmail(normalizedEmail)) {
+            throw new IllegalArgumentException("Email already registered");
+        }
+
+        user.setEmail(normalizedEmail);
+        user.setPasswordHash(passwordEncoder.encode(request.password()));
+        user = userRepository.save(user);
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
         return new AuthResponse(token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode());

@@ -22,6 +22,13 @@ export interface UserProfile {
   /** Ready-to-share plain web link built by the server (`<site>/?ref=CODE`). */
   referralLink?: string;
   referralTelegramLink?: string;
+  /**
+   * No password/Telegram/Google credential — a no-signup device-trial
+   * account (see deviceLogin), not one the user consciously created. The
+   * renderer uses this to hide account-management UI that doesn't make
+   * sense for it yet (devices, logout) in favor of a sign-in/register CTA.
+   */
+  isGuest: boolean;
   hasActiveSubscription: boolean;
   subscription?: {
     id: number;
@@ -104,8 +111,18 @@ export class ApiClient {
     this.hostRotation = new ApiHostRotation(baseUrls.map((url) => (url.endsWith('/') ? url : `${url}/`)));
   }
 
+  /**
+   * Attaches this install's deviceUuid so the server can fold any guest/
+   * trial account still sitting on this device into the account being
+   * signed into, instead of leaving it orphaned — see GuestMergeService.
+   * Harmless if there's no such guest account: the server just no-ops.
+   */
   async login(email: string, password: string): Promise<AuthResponse> {
-    const resp = await this.post<AuthResponse>('api/v1/auth/login', { email, password }, false);
+    const resp = await this.post<AuthResponse>(
+      'api/v1/auth/login',
+      { email, password, deviceUuid: this.tokenStore.getOrCreateDeviceUuid() },
+      false
+    );
     this.tokenStore.save(resp.token, resp.userId);
     return resp;
   }
@@ -125,6 +142,21 @@ export class ApiClient {
    */
   async deviceLogin(deviceUuid: string, referralCode?: string): Promise<AuthResponse> {
     const resp = await this.post<AuthResponse>('api/v1/auth/device', { deviceUuid, referralCode }, false);
+    this.tokenStore.save(resp.token, resp.userId);
+    return resp;
+  }
+
+  /**
+   * Converts the currently-signed-in guest/device-trial account into a
+   * real, credentialed one in place — same user id, balance, and active
+   * trial subscription, just adding an email+password so it survives
+   * logout/reinstall. The register-time counterpart to login()'s merge
+   * above; must be called while still holding the guest's token (`true` ->
+   * sends the current Authorization header), not after switching away from
+   * it. See POST /api/v1/auth/upgrade.
+   */
+  async upgradeGuest(email: string, password: string): Promise<AuthResponse> {
+    const resp = await this.post<AuthResponse>('api/v1/auth/upgrade', { email, password }, true);
     this.tokenStore.save(resp.token, resp.userId);
     return resp;
   }

@@ -6,6 +6,8 @@ const vpnApi = {
   register: (email: string, password: string, referralCode?: string) =>
     ipcRenderer.invoke('auth:register', email, password, referralCode),
   deviceLogin: (referralCode?: string) => ipcRenderer.invoke('auth:deviceLogin', referralCode),
+  /** Upgrades the current guest/device-trial account in place — see apiClient.ts#upgradeGuest. */
+  upgradeGuest: (email: string, password: string) => ipcRenderer.invoke('auth:upgradeGuest', email, password),
   /**
    * Runs the entire Google OAuth "installed app" loopback flow in the main
    * process (opens the system browser, listens on 127.0.0.1 for the

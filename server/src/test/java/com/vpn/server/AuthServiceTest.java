@@ -4,6 +4,7 @@ import com.vpn.server.config.JwtUtil;
 import com.vpn.server.dto.AuthResponse;
 import com.vpn.server.dto.LoginRequest;
 import com.vpn.server.dto.RegisterRequest;
+import com.vpn.server.dto.UpgradeRequest;
 import com.vpn.server.entity.User;
 import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.AuthService;
@@ -90,5 +91,39 @@ class AuthServiceTest {
 
         assertThrows(IllegalArgumentException.class, () ->
                 authService.login(new LoginRequest("user@test.com", "wrongPassword")));
+    }
+
+    @Test
+    void testUpgradeGuestSuccess() {
+        User guest = new User();
+        guest.setId(300L);
+        guest.setDeviceUuid("device-abc");
+        guest.setEmail("device_device-abc@device.local");
+        guest.setRole("USER");
+        guest.setStatus("ACTIVE");
+        guest.setBalanceUsdtMicro(0L);
+        guest.setReferralCode("REF99999");
+
+        when(userRepository.findById(300L)).thenReturn(Optional.of(guest));
+        when(userRepository.existsByEmail("real@example.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AuthResponse resp = authService.upgradeGuest(300L, new UpgradeRequest("real@example.com", "securePassword123"));
+
+        assertEquals(300L, resp.userId());
+        assertEquals("real@example.com", resp.email());
+        assertTrue(jwtUtil.validateToken(resp.token()));
+    }
+
+    @Test
+    void testUpgradeGuestRejectsAlreadyCredentialedAccount() {
+        User user = new User();
+        user.setId(301L);
+        user.setPasswordHash(passwordEncoder.encode("existingPassword"));
+
+        when(userRepository.findById(301L)).thenReturn(Optional.of(user));
+
+        assertThrows(IllegalStateException.class, () ->
+                authService.upgradeGuest(301L, new UpgradeRequest("real@example.com", "securePassword123")));
     }
 }

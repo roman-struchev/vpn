@@ -14,6 +14,9 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('auth:deviceLogin', (_e, referralCode?: string) =>
     apiClient.deviceLogin(apiClient.getOrCreateDeviceUuid(), referralCode)
   );
+  ipcMain.handle('auth:upgradeGuest', (_e, email: string, password: string) =>
+    apiClient.upgradeGuest(email, password)
+  );
   ipcMain.handle('auth:googleLogin', async (_e, referralCode?: string) => {
     // Runs the full loopback flow (opens system browser, listens on
     // 127.0.0.1, exchanges the code for an ID token) then hands the ID

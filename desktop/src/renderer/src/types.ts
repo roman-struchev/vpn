@@ -9,6 +9,13 @@ export interface UserProfile {
   /** Ready-to-share plain web link built by the server (`<site>/?ref=CODE`). */
   referralLink?: string;
   referralTelegramLink?: string;
+  /**
+   * No password/Telegram/Google credential — a no-signup device-trial
+   * account, not one the user consciously created. Drives whether the UI
+   * shows account-management chrome (devices, logout) or a sign-in/
+   * register CTA instead.
+   */
+  isGuest: boolean;
   hasActiveSubscription: boolean;
   subscription?: {
     id: number;

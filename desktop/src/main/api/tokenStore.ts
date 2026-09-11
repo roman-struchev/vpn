@@ -1,6 +1,6 @@
 import { app, safeStorage } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 interface StoredAuth {
@@ -117,7 +117,18 @@ export class TokenStore {
     return deviceUuid;
   }
 
+  /**
+   * Clears the session (token/userId/deviceId) but deliberately keeps
+   * deviceUuid/selectedRegion — same per-install fields save() already
+   * preserves across a re-login. Wiping deviceUuid here used to mean every
+   * logout minted a brand new device-trial account (and a fresh 3-day
+   * trial) on the next launch instead of just returning to LoginPage; the
+   * server now also refuses to auto-login a deviceUuid that's since been
+   * upgraded to a real account (see DeviceAuthService), so keeping it here
+   * is safe rather than a silent password-less re-entry risk.
+   */
   clear(): void {
-    if (existsSync(this.filePath)) unlinkSync(this.filePath);
+    const current = this.load();
+    this.writePayload({ deviceUuid: current?.deviceUuid, selectedRegion: current?.selectedRegion });
   }
 }

@@ -10,38 +10,57 @@ type AuthPhase = 'checking' | 'loggedOut' | 'loggedIn';
 
 export default function App() {
   const [phase, setPhase] = useState<AuthPhase>('checking');
+  // Guest = no-signup device-trial account (see deviceLogin), not one the
+  // user consciously created. Tracked at this level (not just inside
+  // ProfilePage) because it also decides which nav tabs make sense (no
+  // "Devices" for a single-device trial profile) and how LoginPage should
+  // handle "register" (upgrade this session in place vs. create a new one).
+  const [isGuest, setIsGuest] = useState(false);
   const [tab, setTab] = useState<Tab>('connect');
 
-  useEffect(() => {
+  const checkAuth = () => {
+    setPhase('checking');
     window.vpnApi
       .getProfile()
-      .then(() => setPhase('loggedIn'))
+      .then((profile) => {
+        setIsGuest(profile.isGuest);
+        setPhase('loggedIn');
+      })
       .catch(() =>
         // No valid stored session — rather than forcing registration/login,
         // silently log this install into its own (auto-created, trial-tariff)
         // device account. LoginPage stays reachable via ProfilePage's "sign
-        // in with an existing account" for anyone who wants to keep their
-        // account across reinstalls/devices.
+        // in or register" for anyone who wants to keep their account across
+        // reinstalls/devices.
         window.vpnApi
           .deviceLogin()
-          .then(() => setPhase('loggedIn'))
+          .then(() => {
+            setIsGuest(true);
+            setPhase('loggedIn');
+          })
           .catch(() => setPhase('loggedOut'))
       );
-  }, []);
+  };
+
+  useEffect(checkAuth, []);
 
   if (phase === 'checking') {
     return <div className="flex h-screen items-center justify-center text-dark-800/60 text-sm">…</div>;
   }
 
   if (phase === 'loggedOut') {
-    return <LoginPage onAuthenticated={() => setPhase('loggedIn')} />;
+    // isGuest still reflects whatever session we had before landing here —
+    // set on a genuine guest→LoginPage handoff (ProfilePage's CTA doesn't
+    // clear the stored session), and false on a real logout or a first-run
+    // deviceLogin failure, where there's no session to upgrade from.
+    return <LoginPage isGuestSession={isGuest} onAuthenticated={checkAuth} />;
   }
 
   return (
     <div className="flex h-screen flex-col">
       <div className="flex-1 overflow-y-auto">
         {tab === 'connect' && <ConnectPage />}
-        {tab === 'devices' && <DevicesPage />}
+        {tab === 'devices' && <DevicesPage isGuest={isGuest} />}
         {tab === 'profile' && (
           <ProfilePage
             onLoggedOut={() => setPhase('loggedOut')}
@@ -52,7 +71,9 @@ export default function App() {
 
       <nav className="flex border-t border-dark-800 bg-dark-900">
         <TabButton active={tab === 'connect'} label={t.navConnect} onClick={() => setTab('connect')} />
-        <TabButton active={tab === 'devices'} label={t.navDevices} onClick={() => setTab('devices')} />
+        {!isGuest && (
+          <TabButton active={tab === 'devices'} label={t.navDevices} onClick={() => setTab('devices')} />
+        )}
         <TabButton active={tab === 'profile'} label={t.navProfile} onClick={() => setTab('profile')} />
       </nav>
     </div>

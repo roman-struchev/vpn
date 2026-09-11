@@ -1,7 +1,22 @@
 import { useState } from 'react';
 import { t } from '../i18n';
 
-export default function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
+export default function LoginPage({
+  isGuestSession,
+  onAuthenticated,
+}: {
+  /**
+   * True when a guest/device-trial session is still active (e.g. reached
+   * via ProfilePage's "sign in or register" — see App.tsx), so "register"
+   * here should upgrade that same account in place (keeping its balance and
+   * trial) rather than create an unrelated new one. "Login" always sends
+   * this install's deviceUuid regardless (see apiClient.ts#login), which
+   * lets the server merge the guest account into whichever existing
+   * account is signed into — so no branching is needed for that mode.
+   */
+  isGuestSession: boolean;
+  onAuthenticated: () => void;
+}) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,6 +33,8 @@ export default function LoginPage({ onAuthenticated }: { onAuthenticated: () => 
     try {
       if (mode === 'login') {
         await window.vpnApi.login(email.trim(), password);
+      } else if (isGuestSession) {
+        await window.vpnApi.upgradeGuest(email.trim(), password);
       } else {
         await window.vpnApi.register(email.trim(), password);
       }

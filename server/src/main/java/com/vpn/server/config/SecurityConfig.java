@@ -41,6 +41,11 @@ public class SecurityConfig {
                         // /api/v1/auth/web-handoff/exchange (which must stay public: the
                         // whole point of that endpoint is the caller has no session yet).
                         .requestMatchers("/api/v1/auth/web-handoff").authenticated()
+                        // Same carve-out as web-handoff above: upgrading a guest/
+                        // device-trial account into a credentialed one (see
+                        // AuthController#upgrade) needs the caller's own JWT, unlike
+                        // every other /api/v1/auth/** endpoint.
+                        .requestMatchers("/api/v1/auth/upgrade").authenticated()
                         .requestMatchers(
                                 "/",
                                 "/index.html",

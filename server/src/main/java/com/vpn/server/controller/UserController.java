@@ -107,6 +107,14 @@ public class UserController {
         // offer the Stars denomination buttons instead of the "connect
         // Telegram first" prompt.
         response.put("telegramLinked", user.getTelegramId() != null);
+        // No password/Telegram/Google credential — this is a no-signup
+        // device-trial account (see DeviceAuthService), not one the user
+        // consciously created. Clients use this to hide account-management UI
+        // (devices, logout) that doesn't make sense for a profile that isn't
+        // really "theirs" yet, and show a sign-in/register CTA instead — see
+        // AuthController#upgrade and GuestMergeService for what happens when
+        // they do.
+        response.put("isGuest", user.getPasswordHash() == null && user.getTelegramId() == null && user.getGoogleSub() == null);
         response.put("hasActiveSubscription", sub.isPresent());
         // So the client can hide/disable the trial tariff's action button once
         // it's been used — the trial is one-shot (see BillingService.

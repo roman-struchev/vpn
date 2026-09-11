@@ -77,6 +77,13 @@ public class DeviceAuthService {
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new IllegalStateException("Account is suspended or blocked");
         }
+        if (user.getPasswordHash() != null || user.getTelegramId() != null || user.getGoogleSub() != null) {
+            // This install's device UUID now belongs to a credentialed account
+            // (see AuthService#upgradeGuest) — silent auto-login must not walk
+            // back into it without a password. The desktop client falls back
+            // to LoginPage on any failure here (see App.tsx).
+            throw new IllegalStateException("Device is linked to a registered account; sign in explicitly");
+        }
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
         return new AuthResponse(token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode());
