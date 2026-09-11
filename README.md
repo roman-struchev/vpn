@@ -106,6 +106,23 @@ cd web && npm install && npm run dev
 что и `TELEGRAM_WEBHOOK_SECRET`) — это одноразовый ручной/скриптовый шаг,
 не выполняется автоматически при старте сервера.
 
+### Вход через Google
+
+Backend, веб, десктоп и Android умеют логиниться/регистрироваться через
+Google (`POST /api/v1/auth/google` принимает `idToken`, который каждый
+клиент добывает по-своему). Без ключей ниже кнопка Google либо не
+показывается, либо падает с понятной ошибкой — код на это рассчитан, но
+фича не работает, пока не заведены реальные OAuth Client ID в
+[Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+
+| Переменная / значение | Где | Назначение |
+|---|---|---|
+| `GOOGLE_OAUTH_CLIENT_ID` | сервер (`vpn.google.client-id`) | Client ID типа **Web application** — сервер сверяет с ним `aud` в присланном id-токене; если пусто, `/api/v1/auth/google` всегда отклоняет запрос (не auth-bypass) |
+| `VITE_GOOGLE_CLIENT_ID` | веб (сборка, `web/`) | Тот же Web application Client ID — используется Google Identity Services в `AuthModal.tsx` |
+| `google_web_client_id` (строковый ресурс) | Android, `android/app/src/main/res/values/strings.xml` | Тот же Web application Client ID (не Android-тип!) — его требует `GetGoogleIdOption` в Credential Manager. Сейчас там плейсхолдер `REPLACE_WITH_GOOGLE_WEB_CLIENT_ID` |
+| — (Android Client ID) | Google Cloud Console | Отдельно нужен OAuth Client ID типа **Android**, привязанный к `com.vpn.android` + SHA-1 отпечатку подписи (и debug, и release — иначе `DEVELOPER_ERROR`/`GetCredentialException`; debug-отпечаток — `./gradlew signingReport`) |
+| `GOOGLE_DESKTOP_CLIENT_ID` / `GOOGLE_DESKTOP_CLIENT_SECRET` | desktop (env) | OAuth Client ID типа **Desktop app** (+ его secret — для этого типа клиента Google не считает secret конфиденциальным, поэтому его можно зашивать в приложение). Используется в loopback-флоу через системный браузер (`main/auth/googleOAuth.ts`); `http://127.0.0.1:*` как redirect URI не требует отдельной регистрации для Desktop-типа |
+
 ### Приём платежей — TRC-20 (Tron) и ERC-20 (EVM-сети)
 
 | Переменная | По умолчанию | Назначение |
