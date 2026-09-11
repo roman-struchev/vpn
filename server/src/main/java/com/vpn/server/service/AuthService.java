@@ -91,6 +91,9 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new IllegalArgumentException("User not found"));
 
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new IllegalStateException("Account is suspended or blocked");
+        }
         if (user.getPasswordHash() != null || user.getTelegramId() != null || user.getGoogleSub() != null) {
             throw new IllegalStateException("Account is already registered");
         }

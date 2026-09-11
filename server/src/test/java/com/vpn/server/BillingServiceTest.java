@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -306,5 +307,82 @@ class BillingServiceTest {
 
         assertThrows(IllegalStateException.class, () ->
                 billingService.createInvoice(1L, "BASE", 10_000_000L));
+    }
+
+    @Test
+    void testCreditInvoicePaymentPreventsDoubleCreditingWhenAlreadyCredited() {
+        User user = new User();
+        user.setId(2L);
+        user.setBalanceUsdtMicro(5_000_000L);
+
+        CryptoInvoice invoice = new CryptoInvoice();
+        invoice.setId(52L);
+        invoice.setUser(user);
+        invoice.setChain("TRON");
+        invoice.setStatus("PENDING");
+
+        when(cryptoInvoiceRepository.findById(52L)).thenReturn(Optional.of(invoice));
+        when(cryptoInvoiceRepository.save(any(CryptoInvoice.class))).thenAnswer(i -> i.getArgument(0));
+        when(balanceEntryRepository.existsByReferenceId("0xduplicate_hash")).thenReturn(true);
+
+        CryptoInvoice result = billingService.creditInvoicePayment(52L, 10_000_000L, "0xduplicate_hash");
+
+        assertEquals("PAID", result.getStatus());
+        assertEquals("0xduplicate_hash", result.getTxHash());
+        // Balance remains unchanged
+        assertEquals(5_000_000L, user.getBalanceUsdtMicro());
+        verify(balanceEntryRepository, never()).save(any(BalanceEntry.class));
+    }
+
+    @Test
+    void testPurchaseTrialSubscriptionHasThreeDaysDurationAndNoAutoRenew() {
+        User user = new User();
+        user.setId(5L);
+        user.setBalanceUsdtMicro(0L);
+
+        Tariff trialTariff = new Tariff();
+        trialTariff.setId("trial");
+        trialTariff.setMonthlyPriceUsdtMicro(0L);
+        trialTariff.setTrafficQuotaBytes(20_000_000_000L);
+
+        when(userRepository.findById(5L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("trial")).thenReturn(Optional.of(trialTariff));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(eq(5L), eq("ACTIVE")))
+                .thenReturn(Optional.empty());
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+
+        Subscription sub = billingService.purchaseOrRenewSubscription(5L, "trial", false);
+
+        assertNotNull(sub);
+        assertFalse(sub.getAutoRenew());
+        long daysDiff = java.time.Duration.between(sub.getCurrentPeriodStart(), sub.getCurrentPeriodEnd()).toDays();
+        assertEquals(3L, daysDiff);
+    }
+
+    @Test
+    void testClaimTransactionMarksPendingInvoicePaid() {
+        User user = new User();
+        user.setId(10L);
+        user.setBalanceUsdtMicro(1_000_000L);
+
+        CryptoInvoice pendingInvoice = new CryptoInvoice();
+        pendingInvoice.setId(99L);
+        pendingInvoice.setUser(user);
+        pendingInvoice.setChain("TRON");
+        pendingInvoice.setStatus("PENDING");
+
+        when(cryptoInvoiceRepository.existsByTxHash("0xclaim123")).thenReturn(false);
+        when(balanceEntryRepository.existsByReferenceId("0xclaim123")).thenReturn(false);
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(cryptoInvoiceRepository.findByUserIdOrderByCreatedAtDesc(10L)).thenReturn(List.of(pendingInvoice));
+        when(balanceEntryRepository.save(any(BalanceEntry.class))).thenAnswer(i -> i.getArgument(0));
+
+        BalanceEntry entry = billingService.claimTransaction(10L, "TRON", "0xclaim123", 5_000_000L);
+
+        assertNotNull(entry);
+        assertEquals(6_000_000L, user.getBalanceUsdtMicro());
+        assertEquals("PAID", pendingInvoice.getStatus());
+        assertEquals("0xclaim123", pendingInvoice.getTxHash());
+        verify(cryptoInvoiceRepository).save(pendingInvoice);
     }
 }

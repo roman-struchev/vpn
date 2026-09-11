@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -137,6 +138,16 @@ public class BillingService {
         if (!"PENDING".equals(invoice.getStatus())) {
             log.warn("Invoice {} is not pending (status: {}), skipping", invoiceId, invoice.getStatus());
             return invoice;
+        }
+
+        // Guard against double-crediting if already claimed or credited
+        if (txHash != null && balanceEntryRepository.existsByReferenceId(txHash)) {
+            log.info("Transaction {} already credited via balance entry, marking invoice {} PAID without duplicate balance adjustment", txHash, invoiceId);
+            invoice.setStatus("PAID");
+            invoice.setPaidAt(Instant.now());
+            invoice.setTxHash(txHash);
+            invoice.setActualAmountUsdtMicro(actualAmountMicro);
+            return cryptoInvoiceRepository.save(invoice);
         }
 
         invoice.setStatus("PAID");
@@ -266,14 +277,18 @@ public class BillingService {
             periodStart = existingSub.get().getCurrentPeriodEnd();
         }
 
-        Instant periodEnd = isAnnual ? periodStart.plus(365, ChronoUnit.DAYS) : periodStart.plus(30, ChronoUnit.DAYS);
+        boolean isTrial = "trial".equalsIgnoreCase(tariffId);
+        Instant periodEnd = isTrial
+                ? periodStart.plus(3, ChronoUnit.DAYS)
+                : (isAnnual ? periodStart.plus(365, ChronoUnit.DAYS) : periodStart.plus(30, ChronoUnit.DAYS));
+        boolean autoRenew = !isTrial;
 
         Subscription sub = new Subscription();
         sub.setUser(user);
         sub.setTariff(tariff);
         sub.setStatus("ACTIVE");
         sub.setIsAnnual(isAnnual);
-        sub.setAutoRenew(true);
+        sub.setAutoRenew(autoRenew);
         sub.setCurrentPeriodStart(periodStart);
         sub.setCurrentPeriodEnd(periodEnd);
         sub.setTrafficUsedBytes(0L);
@@ -312,6 +327,22 @@ public class BillingService {
         entry.setReferenceId(cleanTxHash);
 
         log.info("User {} successfully claimed {} micro-USDT with tx {}", userId, amountMicro, cleanTxHash);
-        return balanceEntryRepository.save(entry);
+        BalanceEntry savedEntry = balanceEntryRepository.save(entry);
+
+        // Mark any matching pending invoice for this user as PAID to prevent scanner from double-crediting
+        List<CryptoInvoice> userInvoices = cryptoInvoiceRepository.findByUserIdOrderByCreatedAtDesc(userId);
+        for (CryptoInvoice inv : userInvoices) {
+            if ("PENDING".equals(inv.getStatus()) && (chain == null || chain.equalsIgnoreCase(inv.getChain()))) {
+                inv.setStatus("PAID");
+                inv.setPaidAt(Instant.now());
+                inv.setTxHash(cleanTxHash);
+                inv.setActualAmountUsdtMicro(amountMicro);
+                cryptoInvoiceRepository.save(inv);
+                log.info("Matched pending invoice {} to claimed tx {}, marked PAID", inv.getId(), cleanTxHash);
+                break;
+            }
+        }
+
+        return savedEntry;
     }
 }

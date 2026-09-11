@@ -171,7 +171,16 @@ public class AdminController {
             return ResponseEntity.notFound().build();
         }
 
-        long amountMicro = Long.parseLong(req.get("amountMicro").toString());
+        Object amountObj = req.get("amountMicro");
+        if (amountObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "amountMicro is required"));
+        }
+        long amountMicro;
+        try {
+            amountMicro = Long.parseLong(amountObj.toString());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid amountMicro format"));
+        }
         String description = (String) req.getOrDefault("description", "Manual admin adjustment");
 
         long newBalance = Math.max(0L, user.getBalanceUsdtMicro() + amountMicro);
@@ -222,7 +231,15 @@ public class AdminController {
             @PathVariable Long userId,
             @RequestBody Map<String, Object> req
     ) {
-        int days = Integer.parseInt(req.getOrDefault("days", 30).toString());
+        int days = 30;
+        Object daysObj = req.get("days");
+        if (daysObj != null) {
+            try {
+                days = Integer.parseInt(daysObj.toString());
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Invalid days format"));
+            }
+        }
         Optional<Subscription> subOpt = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
 
         if (subOpt.isEmpty()) {
@@ -366,7 +383,16 @@ public class AdminController {
     public ResponseEntity<?> reconcileDeposit(@RequestBody Map<String, Object> payload) {
         String chain = (String) payload.getOrDefault("chain", "TRC20");
         String address = (String) payload.getOrDefault("depositAddress", blockchainPaymentService.getDefaultTronDepositAddress());
-        Long amountMicro = Long.valueOf(payload.get("amountMicro").toString());
+        Object amountObj = payload.get("amountMicro");
+        if (amountObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "amountMicro is required"));
+        }
+        Long amountMicro;
+        try {
+            amountMicro = Long.valueOf(amountObj.toString());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid amountMicro format"));
+        }
         String txHash = (String) payload.getOrDefault("txHash", "manual_tx_" + System.currentTimeMillis());
 
         CryptoInvoice credited = blockchainPaymentService.processIncomingDeposit(chain, address, amountMicro, txHash);

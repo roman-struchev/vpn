@@ -538,4 +538,23 @@ class SubscriptionExportServiceTest {
         assertTrue(links.isEmpty());
         verify(deviceRepository, never()).save(any());
     }
+
+    @Test
+    void testExportVlessLinksBlockedUserThrowsException() {
+        User user = new User();
+        user.setId(30L);
+        user.setStatus("BLOCKED");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(7, ChronoUnit.DAYS));
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(30L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                exportService.exportVlessLinksForOwnApp(30L));
+        assertTrue(ex.getMessage().contains("Account is suspended or blocked"));
+    }
 }

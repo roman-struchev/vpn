@@ -24,15 +24,18 @@ public class QuotaEnforcementTask {
     private final SubscriptionRepository subscriptionRepository;
     private final CryptoInvoiceRepository cryptoInvoiceRepository;
     private final AgentStreamServiceImpl agentStreamService;
+    private final com.vpn.server.service.BillingService billingService;
 
     public QuotaEnforcementTask(
             SubscriptionRepository subscriptionRepository,
             CryptoInvoiceRepository cryptoInvoiceRepository,
-            AgentStreamServiceImpl agentStreamService
+            AgentStreamServiceImpl agentStreamService,
+            com.vpn.server.service.BillingService billingService
     ) {
         this.subscriptionRepository = subscriptionRepository;
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
         this.agentStreamService = agentStreamService;
+        this.billingService = billingService;
     }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 10000)
@@ -44,11 +47,28 @@ public class QuotaEnforcementTask {
         // 1. Process time-expired subscriptions
         List<Subscription> expiredSubs = subscriptionRepository.findExpiredSubscriptions(now);
         for (Subscription sub : expiredSubs) {
+            boolean renewed = false;
+            if (Boolean.TRUE.equals(sub.getAutoRenew()) && sub.getTariff() != null && !"trial".equalsIgnoreCase(sub.getTariff().getId())) {
+                try {
+                    billingService.purchaseOrRenewSubscription(
+                            sub.getUser().getId(),
+                            sub.getTariff().getId(),
+                            Boolean.TRUE.equals(sub.getIsAnnual())
+                    );
+                    renewed = true;
+                    log.info("Subscription {} for user {} successfully auto-renewed", sub.getId(), sub.getUser().getId());
+                } catch (Exception e) {
+                    log.info("Auto-renewal failed for user {} (sub {}): {}", sub.getUser().getId(), sub.getId(), e.getMessage());
+                }
+            }
+
             sub.setStatus("EXPIRED");
             subscriptionRepository.save(sub);
-            stateChanged = true;
-            log.info("Subscription {} for user {} expired (period ended at {})",
-                    sub.getId(), sub.getUser().getId(), sub.getCurrentPeriodEnd());
+            if (!renewed) {
+                stateChanged = true;
+                log.info("Subscription {} for user {} expired without renewal (period ended at {})",
+                        sub.getId(), sub.getUser().getId(), sub.getCurrentPeriodEnd());
+            }
         }
 
         // 2. Process quota-exhausted subscriptions

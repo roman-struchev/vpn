@@ -3,24 +3,26 @@
 Полный отчёт аудита с детальным разбором кода, сценариями воспроизведения и рекомендациями находится в файле:
 👉 [`docs/BUGS_AND_OBSERVATIONS.md`](docs/BUGS_AND_OBSERVATIONS.md)
 
-### Краткое резюме:
-1. **Double-Crediting в крипто-платежах (Высокая критичность):**
-   - Рассинхронизация между `BillingService.claimTransaction` и `BlockchainScannerTask` позволяет дважды зачислить один и тот же крипто-платеж на баланс пользователя при быстром ручном подтверждении.
-2. **Асимметрия срока триала (Web vs Native/Telegram):**
-   - На вебе пробный тариф активируется на 30 дней с `autoRenew=true`, в то время как Telegram, Device Auth и Google Sign-In выдают строго 3 дня с `autoRenew=false`.
-3. **Отсутствие воркера автопродления подписок:**
-   - Несмотря на флаг `autoRenew=true`, планировщик `QuotaEnforcementTask` только помечает подписки как `EXPIRED`, не пытаясь продлить их с баланса пользователя.
-4. **Обход блокировки пользователя через Web Handoff:**
-   - `WebHandoffController.exchangeHandoff` генерирует JWT без проверки статуса `user.getStatus() == "ACTIVE"`.
-5. **Валидность действующих JWT у заблокированных пользователей:**
-   - `JwtAuthFilter` проверяет только HMAC-подпись токена, позволяя заблокированным пользователям обращаться к API до истечения срока JWT.
-6. **Доступность экспорта VLESS-ссылок заблокированным пользователям:**
-   - `SubscriptionExportService.exportVlessLinks` не проверяет статус активности пользователя.
-7. **Риски HTTP 500 (NPE и NumberFormatException) из-за отсутствия `@ControllerAdvice`:**
-   - `UserController.claimTransaction` и `AdminController` вызывают методы на невалидированных полях `Map<String, Object>` без перехвата исключений.
-8. **Утечка синтетического email (`device_<uuid>@device.local`) в UI:**
-   - В клиентах Android и Desktop анонимный системный email показывается как основной логин пользователя.
+### Краткое резюме и статус исправлений:
+1. **Double-Crediting в крипто-платежах (Высокая критичность) — ✅ ИСПРАВЛЕНО:**
+   - Предотвращено двойное зачисление в `BillingService.creditInvoicePayment` через проверку `balanceEntryRepository.existsByReferenceId(txHash)`, а в `BillingService.claimTransaction` ожидающий инвойс переводится в `PAID` с фиксацией хеша.
+2. **Асимметрия срока триала (Web vs Native/Telegram) — ✅ ИСПРАВЛЕНО:**
+   - В `BillingService.purchaseOrRenewSubscription` для тарифа `trial` установлен строгий срок 3 дня и `autoRenew = false`.
+3. **Отсутствие воркера автопродления подписок — ✅ ИСПРАВЛЕНО:**
+   - В `QuotaEnforcementTask` реализовано автопродление подписок с баланса пользователя перед переводом в `EXPIRED`.
+4. **Обход блокировки пользователя через Web Handoff — ✅ ИСПРАВЛЕНО:**
+   - В `WebHandoffController.exchangeHandoff` и `AuthService.upgradeGuest` добавлена строгая проверка статуса `ACTIVE`.
+5. **Валидность действующих JWT у заблокированных пользователей — ✅ ИСПРАВЛЕНО:**
+   - `JwtAuthFilter` валидирует активность статуса пользователя (`userRepository.findById`) перед аутентификацией сессии.
+6. **Доступность экспорта VLESS-ссылок заблокированным пользователям — ✅ ИСПРАВЛЕНО:**
+   - В `SubscriptionController.exportSubscription` и `SubscriptionExportService` заблокированным пользователям закрыт доступ (403 Forbidden).
+7. **Риски HTTP 500 (NPE и NumberFormatException) из-за отсутствия `@ControllerAdvice` — ✅ ИСПРАВЛЕНО:**
+   - Добавлен `@RestControllerAdvice` (`GlobalExceptionHandler`), а в `UserController` и `AdminController` внедрен безопасный парсинг числовых параметров.
+8. **Утечка синтетического email (`device_<uuid>@device.local`) в UI — ✅ ИСПРАВЛЕНО:**
+   - Реализовано в рамках паритета гостевого профиля (Android & Desktop).
 9. **In-Memory хранилище в `WebHandoffService`:**
-   - Хранение handoff-кодов в `ConcurrentHashMap` вызовет сбои при горизонтальном масштабировании без липких сессий.
+   - Архитектурное замечание для этапа горизонтального масштабирования (Redis/PostgreSQL).
 10. **Несоответствие блокчейн-сетей между Admin UI и User UI:**
-    - В веб-интерфейсе пользователя доступны только Tron и Ethereum, тогда как админка поддерживает также сети L2 (Base, Arbitrum, Polygon).
+    - Замечание к UI (пользовательские чейны TRON/ETH vs админские L2).
+11. **Статический плейсхолдер Google Web Client ID в Android — ✅ ИСПРАВЛЕНО:**
+    - В `LoginActivity.java` добавлена проверка плейсхолдера с информативным уведомлением пользователя вместо сбоя Credential Manager.

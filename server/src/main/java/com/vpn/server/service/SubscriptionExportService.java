@@ -117,6 +117,9 @@ public class SubscriptionExportService {
     public List<RegionSummary> getAvailableRegions(Long userId) {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
+        if (!"ACTIVE".equals(sub.getUser().getStatus())) {
+            throw new IllegalStateException("Account is suspended or blocked");
+        }
         if (sub.getCurrentPeriodEnd().isBefore(Instant.now())) {
             throw new IllegalStateException("Subscription has expired");
         }
@@ -275,6 +278,10 @@ public class SubscriptionExportService {
     private RegionScopedLinks exportVlessLinks(Long userId, boolean restrictToPaidPlans, boolean autoCreatePrimaryDevice, String region) {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
+
+        if (!"ACTIVE".equals(sub.getUser().getStatus())) {
+            throw new IllegalStateException("Account is suspended or blocked");
+        }
 
         if (restrictToPaidPlans && "trial".equalsIgnoreCase(sub.getTariff().getId())) {
             throw new IllegalStateException("Subscription link export is available for paid plans only");

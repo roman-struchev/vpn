@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.text.TextUtils;
 import android.view.View;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -156,9 +157,15 @@ public class LoginActivity extends AppCompatActivity {
      * placeholder that needs a real value before this can work end-to-end.
      */
     private void signInWithGoogle() {
+        String clientId = getString(R.string.google_web_client_id);
+        if (clientId == null || clientId.isBlank() || "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID".equals(clientId)) {
+            Toast.makeText(this, "Google Sign-In is not configured", Toast.LENGTH_LONG).show();
+            return;
+        }
+
         GetGoogleIdOption googleIdOption = new GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(getString(R.string.google_web_client_id))
+                .setServerClientId(clientId)
                 .build();
 
         GetCredentialRequest request = new GetCredentialRequest.Builder()

@@ -43,6 +43,10 @@ public class SubscriptionController {
             return ResponseEntity.notFound().build();
         }
 
+        if (!"ACTIVE".equals(user.getStatus())) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN).body("Account suspended");
+        }
+
         antiEnumerationService.recordAccessAndEnforce(user.getId(), clientIp(request));
 
         try {

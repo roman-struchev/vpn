@@ -87,6 +87,11 @@ public class WebHandoffController {
             User user = userRepository.findById(userId)
                     .orElseThrow(() -> new IllegalStateException("User not found"));
 
+            if (!"ACTIVE".equals(user.getStatus())) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.FORBIDDEN)
+                        .body(Map.of("error", "Account is " + user.getStatus()));
+            }
+
             String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
             return ResponseEntity.ok(new AuthResponse(
                     token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode()

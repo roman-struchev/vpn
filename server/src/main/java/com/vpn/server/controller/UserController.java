@@ -251,7 +251,17 @@ public class UserController {
         Long userId = (Long) auth.getPrincipal();
         String chain = (String) req.getOrDefault("chain", "TRON");
         String txHash = (String) req.get("txHash");
-        Long amountMicro = Long.valueOf(req.get("amountMicro").toString());
+
+        Object amountObj = req.get("amountMicro");
+        if (amountObj == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "amountMicro is required"));
+        }
+        Long amountMicro;
+        try {
+            amountMicro = Long.valueOf(amountObj.toString());
+        } catch (NumberFormatException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid amountMicro format"));
+        }
 
         try {
             BalanceEntry entry = billingService.claimTransaction(userId, chain, txHash, amountMicro);

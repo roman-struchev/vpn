@@ -18,7 +18,8 @@
 
 ## 1. Критические уязвимости и риски биллинга
 
-### 1.1. Двойное зачисление депозита (Double-Crediting / Double-Spend)
+### 1.1. Двойное зачисление депозита (Double-Crediting / Double-Spend) — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (защита в `BillingService.creditInvoicePayment` и синхронизация инвойсов в `BillingService.claimTransaction`)
 - **Уровень критичности:** 🔴 Высокий
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/service/BillingService.java:133-165` (`creditInvoicePayment`)
@@ -53,7 +54,8 @@
 
 ---
 
-### 1.2. Асимметрия срока действия и автопродления триала (30 дней vs 3 дня)
+### 1.2. Асимметрия срока действия и автопродления триала (30 дней vs 3 дня) — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (в `BillingService.purchaseOrRenewSubscription` тариф `trial` ограничен 3 днями с `autoRenew = false`)
 - **Уровень критичности:** 🟡 Средний
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/service/BillingService.java:269-276`
@@ -76,7 +78,8 @@
 
 ---
 
-### 1.3. Отсутствие механизма автоматического списания/продления подписок
+### 1.3. Отсутствие механизма автоматического списания/продления подписок — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (в `QuotaEnforcementTask` добавлен вызов `billingService.purchaseOrRenewSubscription` при `autoRenew == true`)
 - **Уровень критичности:** 🟡 Средний
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/task/QuotaEnforcementTask.java:70-76`
@@ -99,7 +102,8 @@
 
 ## 2. Безопасность и контроль доступа
 
-### 2.1. Выпуск активных JWT-сессий заблокированным пользователям через Web Handoff
+### 2.1. Выпуск активных JWT-сессий заблокированным пользователям через Web Handoff — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (добавлена проверка `!"ACTIVE".equals(user.getStatus())` со статусом 403 Forbidden в `WebHandoffController.exchangeHandoff` и `AuthService.upgradeGuest`)
 - **Уровень критичности:** 🟠 Средний / Высокий
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/controller/WebHandoffController.java:87-93`
@@ -121,7 +125,8 @@
 
 ---
 
-### 2.2. Недействительность статуса блокировки для действующих JWT (`JwtAuthFilter`)
+### 2.2. Недействительность статуса блокировки для действующих JWT (`JwtAuthFilter`) — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (`JwtAuthFilter` проверяет существование и активность пользователя через `userRepository.findById`)
 - **Уровень критичности:** 🟡 Средний
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/config/JwtAuthFilter.java:32-45`
@@ -132,7 +137,8 @@
 
 ---
 
-### 2.3. Доступность экспорта VLESS-ссылок заблокированным пользователям
+### 2.3. Доступность экспорта VLESS-ссылок заблокированным пользователям — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (добавлена проверка `!"ACTIVE".equals(sub.getUser().getStatus())` в `SubscriptionExportService` и `SubscriptionController`)
 - **Уровень критичности:** 🟡 Средний
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/service/SubscriptionExportService.java:275-285`
@@ -151,7 +157,8 @@
 
 ## 3. Стабильность API и обработка ошибок
 
-### 3.1. Необработанные NullPointerException и NumberFormatException (HTTP 500)
+### 3.1. Необработанные NullPointerException и NumberFormatException (HTTP 500) — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (добавлен `@RestControllerAdvice` `GlobalExceptionHandler`, а в контроллерах внедрена безопасная валидация параметров перед парсингом)
 - **Уровень критичности:** 🟡 Средний
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/controller/UserController.java:246`
@@ -174,7 +181,7 @@
      ```java
      Long amountMicro = Long.valueOf(payload.get("amountMicro").toString()); // NPE
      ```
-  Поскольку в проекте **отсутствует `@ControllerAdvice`**, любые такие исключения приводят к возврату generic HTTP 500 Internal Server Error и засорению логов стектрейсами.
+  Поскольку в проекте **отсутствовал `@ControllerAdvice`**, любые такие исключения приводили к возврату generic HTTP 500 Internal Server Error и засорению логов стектрейсами.
 - **Рекомендация по исправлению:**
   1. Использовать строгие DTO-классы с аннотациями `@NotNull`, `@Min` вместо сырых `Map<String, Object>`.
   2. Добавить глобальный обработчик `@ControllerAdvice` (`GlobalExceptionHandler`), перехватывающий `IllegalArgumentException`, `IllegalStateException`, `NullPointerException` и валидационные ошибки Spring, возвращая понятный HTTP 400 Bad Request: `{"error": "..."}`.
@@ -183,7 +190,8 @@
 
 ## 4. Замечания к архитектуре и пользовательскому опыту (UX)
 
-### 4.1. Утечка синтетического email устройства в интерфейс клиентов
+### 4.1. Утечка синтетического email устройства в интерфейс клиентов — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (реализован паритет гостевого профиля в Android и Desktop с бейджами гостя и скрытием синтетического email)
 - **Уровень критичности:** 🟢 Низкий (UX)
 - **Локализация:**
   - `server/src/main/java/com/vpn/server/service/DeviceAuthService.java:114`
@@ -219,7 +227,8 @@
 
 ---
 
-### 4.4. Статический плейсхолдер Google Web Client ID в Android
+### 4.4. Статический плейсхолдер Google Web Client ID в Android — ✅ ИСПРАВЛЕНО
+- **Статус:** ✅ Исправлено (добавлена проверка `google_web_client_id` с информативным тостом вместо падения `GetCredentialException`)
 - **Уровень критичности:** 🟢 Эксплуатация
 - **Локализация:**
   - `android/app/src/main/res/values/strings.xml:13`

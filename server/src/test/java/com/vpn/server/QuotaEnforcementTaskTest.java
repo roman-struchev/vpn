@@ -34,6 +34,9 @@ class QuotaEnforcementTaskTest {
     @Mock
     private AgentStreamServiceImpl agentStreamService;
 
+    @Mock
+    private com.vpn.server.service.BillingService billingService;
+
     private QuotaEnforcementTask quotaEnforcementTask;
 
     @BeforeEach
@@ -41,7 +44,8 @@ class QuotaEnforcementTaskTest {
         quotaEnforcementTask = new QuotaEnforcementTask(
                 subscriptionRepository,
                 cryptoInvoiceRepository,
-                agentStreamService
+                agentStreamService,
+                billingService
         );
     }
 
@@ -115,6 +119,39 @@ class QuotaEnforcementTaskTest {
         assertEquals("EXPIRED", invoice.getStatus());
         verify(cryptoInvoiceRepository).save(invoice);
         // No subscription changed, so no push to nodes
+        verify(agentStreamService, never()).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testRunEnforcementWithAutoRenewalSuccess() {
+        User user = new User();
+        user.setId(30L);
+
+        com.vpn.server.entity.Tariff tariff = new com.vpn.server.entity.Tariff();
+        tariff.setId("standard");
+
+        Subscription expired = new Subscription();
+        expired.setId(3L);
+        expired.setUser(user);
+        expired.setTariff(tariff);
+        expired.setStatus("ACTIVE");
+        expired.setAutoRenew(true);
+        expired.setIsAnnual(false);
+        expired.setCurrentPeriodEnd(Instant.now().minus(1, ChronoUnit.HOURS));
+
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class)))
+                .thenReturn(List.of(expired));
+        when(subscriptionRepository.findQuotaExceededSubscriptions())
+                .thenReturn(Collections.emptyList());
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        verify(billingService).purchaseOrRenewSubscription(30L, "standard", false);
+        assertEquals("EXPIRED", expired.getStatus());
+        verify(subscriptionRepository).save(expired);
+        // Since it was renewed, stateChanged is false (user is still subscribed)
         verify(agentStreamService, never()).pushConfigSyncToAll();
     }
 }
