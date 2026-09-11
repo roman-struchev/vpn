@@ -21,7 +21,7 @@ export default function ProfilePage({ onLoggedOut }: { onLoggedOut: () => void }
   // required); fall back to composing it from the code for older servers.
   const referralLink =
     profile?.referralLink ||
-    (profile?.referralCode ? `https://nextgenvpn.app/?ref=${profile.referralCode}` : '');
+    (profile?.referralCode ? `https://vpn.struchev.site/?ref=${profile.referralCode}` : '');
 
   const copyReferral = async () => {
     if (!referralLink) return;

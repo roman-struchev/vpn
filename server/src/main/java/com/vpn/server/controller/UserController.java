@@ -54,8 +54,8 @@ public class UserController {
     }
 
     /** Public origin of the web dashboard, used to build shareable referral links. */
-    @Value("${vpn.public.web-base-url:https://nextgenvpn.app}")
-    private String publicWebBaseUrl = "https://nextgenvpn.app";
+    @Value("${vpn.public.web-base-url:https://vpn.struchev.site}")
+    private String publicWebBaseUrl = "https://vpn.struchev.site";
 
     @Value("${vpn.telegram.bot-username:MyVpnBot}")
     private String telegramBotUsername = "MyVpnBot";

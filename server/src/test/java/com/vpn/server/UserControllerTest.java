@@ -122,7 +122,7 @@ class UserControllerTest {
 
         Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
         assertEquals("ABC123", body.get("referralCode"));
-        assertEquals("https://nextgenvpn.app/?ref=ABC123", body.get("referralLink"));
+        assertEquals("https://vpn.struchev.site/?ref=ABC123", body.get("referralLink"));
         assertEquals("https://t.me/MyVpnBot?start=ABC123", body.get("referralTelegramLink"));
     }
 

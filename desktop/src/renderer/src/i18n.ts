@@ -42,6 +42,7 @@ const translations = {
     devicesTitle: 'Устройства',
     thisDeviceAutoAdded: 'Каждое устройство появляется здесь само — как только оно впервые подключится через это приложение, другое наше приложение или ссылку из личного кабинета на сайте (для v2rayTun, Hiddify и т. п.). Добавлять что-либо вручную не нужно.',
     revoke: 'Отозвать',
+    deviceAddedOn: 'добавлено',
 
     balance: 'Баланс',
     referralLink: 'Ваша ссылка для приглашения',
@@ -92,6 +93,7 @@ const translations = {
     devicesTitle: 'Devices',
     thisDeviceAutoAdded: 'Every device shows up here on its own — the first time it connects through this app, another of our apps, or a link from your web dashboard (for v2rayTun, Hiddify, etc). There\'s nothing to add manually.',
     revoke: 'Revoke',
+    deviceAddedOn: 'added',
 
     balance: 'Balance',
     referralLink: 'Your invite link',

@@ -29,7 +29,7 @@ android {
         // Public origin of the web dashboard — only used as a local fallback when
         // building the shareable referral link (`<site>/?ref=CODE`); normally the
         // server hands the finished link back in GET /api/v1/user/profile.
-        buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'https://nextgenvpn.app/'}\""
+        buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'https://vpn.struchev.site/'}\""
 
         // libXray bundles a Go runtime per ABI (~20-25MB each); drop legacy 32-bit x86.
         ndk {

@@ -37,7 +37,7 @@ vpn:
   # (`<web-base-url>/?ref=CODE`) handed to every client in GET /api/v1/user/profile —
   # a plain https link works for any invitee, unlike a Telegram-only deep link.
   public:
-    web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:https://nextgenvpn.app}
+    web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:https://vpn.struchev.site}
   reality:
     dest: ${VPN_REALITY_DEST:dl.google.com:443}
     server-names: ${VPN_REALITY_SNI:dl.google.com,gateway.icloud.com}

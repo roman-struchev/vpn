@@ -34,7 +34,9 @@ export default function DevicesPage() {
           <div key={d.id} className="flex items-center justify-between rounded-lg bg-dark-900 px-4 py-3">
             <div>
               <p className="text-sm font-medium">{d.deviceName}</p>
-              <p className="text-xs text-white/50">{d.platform}</p>
+              <p className="text-xs text-white/50">
+                {d.platform} · {t.deviceAddedOn} {new Date(d.createdAt).toLocaleDateString()}
+              </p>
             </div>
             <button className="text-xs text-state-error hover:underline" onClick={() => revoke(d.id)}>
               {t.revoke}
