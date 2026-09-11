@@ -10,6 +10,7 @@ import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
 import com.vpn.server.service.TelegramBotService;
+import com.vpn.server.service.TelegramLinkService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +22,8 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -48,6 +51,11 @@ class TelegramBotServiceTest {
     @Mock
     private BillingService billingService;
 
+    // Plain in-memory implementation (no external deps) rather than a mock --
+    // exercising the real code path is cheap and lets link-flow tests below
+    // actually create/consume codes instead of stubbing an opaque service.
+    private final TelegramLinkService telegramLinkService = new TelegramLinkService();
+
     private TelegramBotService botService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -60,7 +68,8 @@ class TelegramBotServiceTest {
                 balanceEntryRepository,
                 exportService,
                 deviceManagementService,
-                billingService
+                billingService,
+                telegramLinkService
         );
         botService.setBotToken("mock");
     }
@@ -215,6 +224,122 @@ class TelegramBotServiceTest {
                 """;
 
         botService.processUpdate(objectMapper.readTree(updateJson));
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void testStartWithLinkCodeAttachesTelegramAccountToExistingUser() throws Exception {
+        User webUser = new User();
+        webUser.setId(500L);
+        webUser.setEmail("web@example.com");
+
+        String code = telegramLinkService.createPendingLink(500L);
+
+        when(userRepository.findById(500L)).thenReturn(Optional.of(webUser));
+        when(userRepository.findByTelegramId(777888L)).thenReturn(Optional.empty());
+
+        String updateJson = String.format("""
+                {
+                    "update_id": 2001,
+                    "message": {
+                        "message_id": 10,
+                        "chat": {"id": 777888},
+                        "from": {"id": 777888, "first_name": "Web User"},
+                        "text": "/start link_%s"
+                    }
+                }
+                """, code);
+
+        botService.processUpdate(objectMapper.readTree(updateJson));
+
+        assertEquals(777888L, webUser.getTelegramId());
+        verify(userRepository).save(webUser);
+        // Must not have gone through the normal getOrCreateUser bot-signup path
+        // (trial grant / device creation) -- the deep link is meant to attach
+        // this Telegram identity to the *existing* web account, never spawn a
+        // second account for the same person.
+        verify(tariffRepository, never()).findById(anyString());
+        verify(deviceManagementService, never()).addDevice(anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void testStartWithLinkCodeRejectsWhenTelegramAlreadyLinkedElsewhere() throws Exception {
+        User webUser = new User();
+        webUser.setId(501L);
+
+        User otherTelegramUser = new User();
+        otherTelegramUser.setId(999L);
+        otherTelegramUser.setTelegramId(321321L);
+
+        String code = telegramLinkService.createPendingLink(501L);
+
+        when(userRepository.findById(501L)).thenReturn(Optional.of(webUser));
+        when(userRepository.findByTelegramId(321321L)).thenReturn(Optional.of(otherTelegramUser));
+
+        String updateJson = String.format("""
+                {
+                    "update_id": 2002,
+                    "message": {
+                        "message_id": 11,
+                        "chat": {"id": 321321},
+                        "from": {"id": 321321},
+                        "text": "/start link_%s"
+                    }
+                }
+                """, code);
+
+        botService.processUpdate(objectMapper.readTree(updateJson));
+
+        // Never overwritten/merged -- the code was consumed but rejected.
+        assertNull(webUser.getTelegramId());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void testStartWithUnknownLinkCodeIsRejected() throws Exception {
+        String updateJson = """
+                {
+                    "update_id": 2004,
+                    "message": {
+                        "message_id": 13,
+                        "chat": {"id": 654321},
+                        "from": {"id": 654321},
+                        "text": "/start link_doesnotexist"
+                    }
+                }
+                """;
+
+        botService.processUpdate(objectMapper.readTree(updateJson));
+
+        verify(userRepository, never()).save(any(User.class));
+        verify(userRepository, never()).findByTelegramId(anyLong());
+    }
+
+    @Test
+    void testStartWithStarsPayloadDoesNotFallBackToReferralLogic() throws Exception {
+        User user = new User();
+        user.setId(600L);
+        user.setTelegramId(444555L);
+
+        when(userRepository.findByTelegramId(444555L)).thenReturn(Optional.of(user));
+
+        String updateJson = """
+                {
+                    "update_id": 2003,
+                    "message": {
+                        "message_id": 12,
+                        "chat": {"id": 444555},
+                        "from": {"id": 444555},
+                        "text": "/start stars_250"
+                    }
+                }
+                """;
+
+        botService.processUpdate(objectMapper.readTree(updateJson));
+
+        // "stars_250" must never be misread as a referral code (it isn't one,
+        // and this user already has an account with no need to create one).
+        verify(userRepository, never()).findByReferralCode(anyString());
         verify(userRepository, never()).save(any(User.class));
     }
 }

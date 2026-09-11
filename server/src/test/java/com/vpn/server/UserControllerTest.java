@@ -15,6 +15,7 @@ import com.vpn.server.service.AntiEnumerationService;
 import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
+import com.vpn.server.service.TelegramLinkService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,11 @@ class UserControllerTest {
     @Mock
     private AntiEnumerationService antiEnumerationService;
 
+    // Plain in-memory implementation (no external deps), same as
+    // TelegramBotServiceTest -- cheaper and more meaningful than mocking a
+    // single-purpose code generator/store.
+    private final TelegramLinkService telegramLinkService = new TelegramLinkService();
+
     @Mock
     private Authentication auth;
 
@@ -78,7 +84,8 @@ class UserControllerTest {
                 cryptoInvoiceRepository,
                 exportService,
                 deviceManagementService,
-                antiEnumerationService
+                antiEnumerationService,
+                telegramLinkService
         );
         when(auth.getPrincipal()).thenReturn(10L);
     }
@@ -102,6 +109,33 @@ class UserControllerTest {
         assertEquals("user@example.com", body.get("email"));
         assertEquals(5_000_000L, body.get("balanceUsdtMicro"));
         assertEquals(false, body.get("hasActiveSubscription"));
+        assertEquals(false, body.get("telegramLinked"));
+    }
+
+    @Test
+    void testGetProfileTelegramLinkedTrueWhenTelegramIdSet() {
+        User user = new User();
+        user.setId(10L);
+        user.setEmail("user@example.com");
+        user.setTelegramId(123456L);
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+
+        Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
+        assertEquals(true, body.get("telegramLinked"));
+    }
+
+    @Test
+    void testCreateTelegramLinkReturnsCodeAndDeepLink() {
+        ResponseEntity<?> res = userController.createTelegramLink(auth);
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        String code = (String) body.get("code");
+        assertNotNull(code);
+        assertFalse(code.isBlank());
+        assertEquals("https://t.me/MyVpnBot?start=link_" + code, body.get("deepLink"));
     }
 
     /**

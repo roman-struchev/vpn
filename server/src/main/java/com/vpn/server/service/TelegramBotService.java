@@ -29,6 +29,12 @@ public class TelegramBotService {
     private static final Logger log = LoggerFactory.getLogger(TelegramBotService.class);
     private static final long STARS_TO_MICRO_USDT_RATE = 20_000L; // 1 Star = 0.02 USDT = 20,000 micro-USDT
 
+    // Same denominations offered by the /balance inline keyboard (sendBalanceMenu)
+    // -- also the whitelist for the "stars_<amount>" /start deep-link payload
+    // (see UserController's Stars top-up UI), so a tampered/arbitrary amount in
+    // a deep link can't be used to request an invoice for a made-up value.
+    private static final Set<Integer> ALLOWED_STAR_AMOUNTS = Set.of(50, 250, 500, 1000);
+
     private final UserRepository userRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final TariffRepository tariffRepository;
@@ -36,6 +42,7 @@ public class TelegramBotService {
     private final SubscriptionExportService exportService;
     private final DeviceManagementService deviceManagementService;
     private final BillingService billingService;
+    private final TelegramLinkService telegramLinkService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
     private final HttpClient httpClient;
@@ -56,7 +63,8 @@ public class TelegramBotService {
             BalanceEntryRepository balanceEntryRepository,
             SubscriptionExportService exportService,
             DeviceManagementService deviceManagementService,
-            BillingService billingService
+            BillingService billingService,
+            TelegramLinkService telegramLinkService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -65,6 +73,7 @@ public class TelegramBotService {
         this.exportService = exportService;
         this.deviceManagementService = deviceManagementService;
         this.billingService = billingService;
+        this.telegramLinkService = telegramLinkService;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -104,14 +113,39 @@ public class TelegramBotService {
         long telegramId = from.path("id").asLong();
         String text = message.path("text").asText("").trim();
 
+        // "/start link_<code>" attaches THIS Telegram account to an existing web
+        // account (see UserController#createTelegramLink). It has to be handled
+        // BEFORE getOrCreateUser() below: that call unconditionally creates (and
+        // persists, with a trial subscription + device) a brand-new bot user the
+        // first time it sees a telegramId, which is exactly wrong here -- the
+        // whole point of this payload is to attach this Telegram identity to the
+        // *existing* target user, not spawn a second account for the same
+        // person. It also must be checked before the generic referral-code
+        // fallback further down, or "link_<code>"/"stars_<amount>" would be
+        // misread as a referral code and silently ignored (and a spurious user
+        // would still get created).
+        if (text.startsWith("/start")) {
+            String[] startParts = text.split("\\s+");
+            String startPayload = startParts.length > 1 ? startParts[1] : null;
+            if (startPayload != null && startPayload.startsWith("link_")) {
+                handleAccountLinkStart(chatId, telegramId, startPayload.substring("link_".length()));
+                return;
+            }
+        }
+
         User user = getOrCreateUser(telegramId, from);
 
         if (text.startsWith("/start")) {
             String[] parts = text.split("\\s+");
-            if (parts.length > 1 && user.getReferredBy() == null) {
-                applyReferralCode(user, parts[1]);
+            String payload = parts.length > 1 ? parts[1] : null;
+            if (payload != null && payload.startsWith("stars_")) {
+                handleStarsStart(chatId, user, payload.substring("stars_".length()));
+            } else {
+                if (parts.length > 1 && user.getReferredBy() == null) {
+                    applyReferralCode(user, parts[1]);
+                }
+                sendWelcomeMessage(chatId, user);
             }
-            sendWelcomeMessage(chatId, user);
         } else if (text.equalsIgnoreCase("/vpn") || text.equalsIgnoreCase("/status")) {
             sendVpnStatus(chatId, user);
         } else if (text.equalsIgnoreCase("/balance")) {
@@ -261,6 +295,70 @@ public class TelegramBotService {
                 log.info("User #{} linked to referrer #{}", user.getId(), ref.getId());
             }
         });
+    }
+
+    /**
+     * Handles "/start link_&lt;code&gt;": attaches this Telegram chat to the web
+     * user that requested the pending link (see UserController#createTelegramLink).
+     * Never overwrites/merges an unrelated account -- if this Telegram identity
+     * is already linked to a *different* user, the request is rejected.
+     */
+    private void handleAccountLinkStart(long chatId, long telegramId, String code) {
+        Optional<Long> targetUserId = telegramLinkService.consume(code);
+        if (targetUserId.isEmpty()) {
+            sendTextMessage(chatId,
+                    "⚠️ <b>Ссылка для привязки недействительна или истекла.</b>\n\n" +
+                    "Запросите новую ссылку в личном кабинете на сайте.",
+                    null);
+            return;
+        }
+
+        User targetUser = userRepository.findById(targetUserId.get()).orElse(null);
+        if (targetUser == null) {
+            sendTextMessage(chatId, "⚠️ Не удалось найти аккаунт для привязки. Попробуйте ещё раз.", null);
+            return;
+        }
+
+        Optional<User> existingTelegramUser = userRepository.findByTelegramId(telegramId);
+        if (existingTelegramUser.isPresent() && !existingTelegramUser.get().getId().equals(targetUser.getId())) {
+            sendTextMessage(chatId,
+                    "⚠️ <b>Этот Telegram-аккаунт уже привязан к другому аккаунту.</b>\n\n" +
+                    "Если это ошибка, обратитесь в поддержку.",
+                    null);
+            return;
+        }
+
+        if (existingTelegramUser.isEmpty()) {
+            targetUser.setTelegramId(telegramId);
+            userRepository.save(targetUser);
+            log.info("Linked Telegram account {} to web user #{}", telegramId, targetUser.getId());
+        }
+
+        sendTextMessage(chatId,
+                "✅ <b>Telegram успешно привязан к вашему аккаунту!</b>\n\n" +
+                "Теперь вы можете пополнять баланс с помощью Telegram Stars прямо из личного кабинета на сайте.",
+                null);
+    }
+
+    /**
+     * Handles "/start stars_&lt;amount&gt;": same effect as tapping a "stars:&lt;n&gt;"
+     * button in the /balance menu, reachable via a deep link from the web
+     * dashboard (see DashboardView.tsx's Top Up modal). The amount is validated
+     * against the same denominations the bot menu offers.
+     */
+    private void handleStarsStart(long chatId, User user, String amountText) {
+        int stars;
+        try {
+            stars = Integer.parseInt(amountText);
+        } catch (NumberFormatException e) {
+            sendBalanceMenu(chatId, user);
+            return;
+        }
+        if (!ALLOWED_STAR_AMOUNTS.contains(stars)) {
+            sendBalanceMenu(chatId, user);
+            return;
+        }
+        sendStarsInvoice(chatId, user, stars);
     }
 
     private void sendWelcomeMessage(long chatId, User user) {
