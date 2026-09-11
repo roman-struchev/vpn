@@ -64,6 +64,7 @@
 
     <!-- Profile -->
     <string name="profile_balance">Баланс: %1$s USDT</string>
+    <string name="profile_manage_billing">Пополнить баланс</string>
     <string name="profile_sign_in_existing">Войти в другой аккаунт</string>
     <string name="profile_logout">Выйти</string>
     <string name="profile_referral">Ваша ссылка для приглашения</string>
@@ -76,4 +77,7 @@
 
     <!-- VPN permission -->
     <string name="vpn_permission_denied">Для подключения нужно разрешить создание VPN-соединения</string>
+
+    <!-- Web handoff (открыть веб-кабинет уже авторизованным) -->
+    <string name="web_handoff_error">Не удалось открыть веб-кабинет. Проверьте подключение и попробуйте снова.</string>
 </resources>
