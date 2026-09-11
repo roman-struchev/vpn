@@ -8,6 +8,11 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('auth:register', (_e, email: string, password: string, referralCode?: string) =>
     apiClient.register(email, password, referralCode)
   );
+  // No-signup trial flow: the device UUID lives in TokenStore, generated on
+  // first call, so the renderer never has to know or manage it.
+  ipcMain.handle('auth:deviceLogin', (_e, referralCode?: string) =>
+    apiClient.deviceLogin(apiClient.getOrCreateDeviceUuid(), referralCode)
+  );
   ipcMain.handle('auth:logout', () => {
     void vpn.disconnect();
     apiClient.logout();

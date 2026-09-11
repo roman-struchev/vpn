@@ -24,6 +24,13 @@ public class User {
     @Column(name = "google_sub", unique = true)
     private String googleSub;
 
+    // Stable per-install identifier for the desktop app's no-signup trial flow
+    // (see DeviceAuthService) — lets a fresh install start on the trial tariff
+    // immediately, then log the same install back into the same account on
+    // subsequent launches without double-granting a trial.
+    @Column(name = "device_uuid", unique = true)
+    private String deviceUuid;
+
     @Column(nullable = false, length = 32)
     private String role = "USER";
 
@@ -72,6 +79,9 @@ public class User {
 
     public String getGoogleSub() { return googleSub; }
     public void setGoogleSub(String googleSub) { this.googleSub = googleSub; }
+
+    public String getDeviceUuid() { return deviceUuid; }
+    public void setDeviceUuid(String deviceUuid) { this.deviceUuid = deviceUuid; }
 
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }

@@ -115,6 +115,23 @@ export class ApiClient {
     return resp;
   }
 
+  /**
+   * No-signup trial entry point: logs in with this install's stable device
+   * UUID (see TokenStore#getOrCreateDeviceUuid), which the server
+   * find-or-creates a User for and grants a 3-day trial to on first call —
+   * idempotent on subsequent calls (same account, no extra trial). Lets a
+   * fresh install land on the connect screen without ever seeing LoginPage.
+   */
+  async deviceLogin(deviceUuid: string, referralCode?: string): Promise<AuthResponse> {
+    const resp = await this.post<AuthResponse>('api/v1/auth/device', { deviceUuid, referralCode }, false);
+    this.tokenStore.save(resp.token, resp.userId);
+    return resp;
+  }
+
+  getOrCreateDeviceUuid(): string {
+    return this.tokenStore.getOrCreateDeviceUuid();
+  }
+
   getProfile(): Promise<UserProfile> {
     return this.get<UserProfile>('api/v1/user/profile');
   }

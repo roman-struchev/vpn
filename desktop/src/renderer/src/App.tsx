@@ -16,7 +16,17 @@ export default function App() {
     window.vpnApi
       .getProfile()
       .then(() => setPhase('loggedIn'))
-      .catch(() => setPhase('loggedOut'));
+      .catch(() =>
+        // No valid stored session — rather than forcing registration/login,
+        // silently log this install into its own (auto-created, trial-tariff)
+        // device account. LoginPage stays reachable via ProfilePage's "sign
+        // in with an existing account" for anyone who wants to keep their
+        // account across reinstalls/devices.
+        window.vpnApi
+          .deviceLogin()
+          .then(() => setPhase('loggedIn'))
+          .catch(() => setPhase('loggedOut'))
+      );
   }, []);
 
   if (phase === 'checking') {
@@ -32,7 +42,12 @@ export default function App() {
       <div className="flex-1 overflow-y-auto">
         {tab === 'connect' && <ConnectPage />}
         {tab === 'devices' && <DevicesPage />}
-        {tab === 'profile' && <ProfilePage onLoggedOut={() => setPhase('loggedOut')} />}
+        {tab === 'profile' && (
+          <ProfilePage
+            onLoggedOut={() => setPhase('loggedOut')}
+            onSwitchAccount={() => setPhase('loggedOut')}
+          />
+        )}
       </div>
 
       <nav className="flex border-t border-dark-800 bg-dark-900">

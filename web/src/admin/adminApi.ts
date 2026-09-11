@@ -42,6 +42,8 @@ export interface AdminUser {
   id: number;
   email: string;
   telegramId: string | null;
+  /** Set for accounts auto-created by the desktop app's no-signup trial flow (see AuthController#deviceAuth). */
+  deviceUuid: string | null;
   role: string;
   status: string;
   balanceUsdtMicro: number;

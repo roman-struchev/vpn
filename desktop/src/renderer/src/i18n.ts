@@ -50,6 +50,7 @@ const translations = {
     referralCodeLabel: 'Код',
     copy: 'Копировать',
     copied: 'Скопировано',
+    signInExistingAccount: 'Войти в другой аккаунт',
     logout: 'Выйти',
   },
   en: {
@@ -101,6 +102,7 @@ const translations = {
     referralCodeLabel: 'Code',
     copy: 'Copy',
     copied: 'Copied',
+    signInExistingAccount: 'Sign in with an existing account',
     logout: 'Sign out',
   },
 } satisfies Record<Lang, Record<string, string>>;
