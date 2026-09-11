@@ -29,6 +29,21 @@ export default function LoginPage({ onAuthenticated }: { onAuthenticated: () => 
     }
   };
 
+  const submitWithGoogle = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Opens the system browser for Google's consent screen and waits for
+      // the loopback callback — see main/auth/googleOAuth.ts.
+      await window.vpnApi.googleLogin();
+      onAuthenticated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 px-8">
       <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600/20 text-3xl">🛡</div>
@@ -63,6 +78,20 @@ export default function LoginPage({ onAuthenticated }: { onAuthenticated: () => 
         onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
       >
         {mode === 'login' ? t.toggleToRegister : t.toggleToLogin}
+      </button>
+
+      <div className="flex w-full items-center gap-3 text-xs text-white/40">
+        <div className="h-px flex-1 bg-dark-800" />
+        {t.orDivider}
+        <div className="h-px flex-1 bg-dark-800" />
+      </div>
+
+      <button
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-dark-800 bg-dark-900 py-2.5 text-sm font-semibold transition-colors hover:bg-dark-800 disabled:opacity-50"
+        disabled={loading}
+        onClick={submitWithGoogle}
+      >
+        {t.signInWithGoogle}
       </button>
 
       {error && <p className="text-center text-sm text-state-error">{error}</p>}

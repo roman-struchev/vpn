@@ -128,6 +128,13 @@ export class ApiClient {
     return resp;
   }
 
+  /** @param idToken Google ID token (JWT) obtained via the desktop OAuth loopback flow — see main/auth/googleOAuth.ts. */
+  async googleAuth(idToken: string, referralCode?: string): Promise<AuthResponse> {
+    const resp = await this.post<AuthResponse>('api/v1/auth/google', { idToken, referralCode }, false);
+    this.tokenStore.save(resp.token, resp.userId);
+    return resp;
+  }
+
   getOrCreateDeviceUuid(): string {
     return this.tokenStore.getOrCreateDeviceUuid();
   }

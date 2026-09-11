@@ -6,6 +6,13 @@ const vpnApi = {
   register: (email: string, password: string, referralCode?: string) =>
     ipcRenderer.invoke('auth:register', email, password, referralCode),
   deviceLogin: (referralCode?: string) => ipcRenderer.invoke('auth:deviceLogin', referralCode),
+  /**
+   * Runs the entire Google OAuth "installed app" loopback flow in the main
+   * process (opens the system browser, listens on 127.0.0.1 for the
+   * redirect, exchanges the code for an ID token, then logs in against the
+   * server) and resolves with the same AuthResponse shape as login/register.
+   */
+  googleLogin: (referralCode?: string) => ipcRenderer.invoke('auth:googleLogin', referralCode),
   logout: () => ipcRenderer.invoke('auth:logout'),
 
   getProfile: () => ipcRenderer.invoke('profile:get'),
