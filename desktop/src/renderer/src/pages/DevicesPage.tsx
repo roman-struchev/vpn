@@ -15,7 +15,8 @@ export default function DevicesPage() {
 
   useEffect(reload, []);
 
-  const revoke = async (id: number) => {
+  const revoke = async (id: number, deviceName: string) => {
+    if (!window.confirm(t.confirmRevokeDevice.replace('%s', deviceName))) return;
     try {
       await window.vpnApi.deleteDevice(id);
       reload();
@@ -38,7 +39,7 @@ export default function DevicesPage() {
                 {d.platform} · {t.deviceAddedOn} {new Date(d.createdAt).toLocaleDateString()}
               </p>
             </div>
-            <button className="text-xs text-state-error hover:underline" onClick={() => revoke(d.id)}>
+            <button className="text-xs text-state-error hover:underline" onClick={() => revoke(d.id, d.deviceName)}>
               {t.revoke}
             </button>
           </div>

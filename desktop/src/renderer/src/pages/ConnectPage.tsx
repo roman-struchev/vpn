@@ -75,6 +75,24 @@ export default function ConnectPage() {
 
   const selectedRegionInfo = selectedRegion ? regions.find((r) => r.region === selectedRegion) : undefined;
 
+  // There's no purchase/top-up UI in this app at all — billing only exists
+  // on the web dashboard. `referralLink` is already the server-built
+  // `<web-base-url>/?ref=CODE` (see apiClient.ts), so its origin is the web
+  // dashboard's base URL without having to plumb a separate config value
+  // through to the renderer. Falls back to the same default host the API
+  // client and ProfilePage's referral-link fallback use.
+  const openBilling = () => {
+    let base = 'https://vpn.struchev.site';
+    if (profile?.referralLink) {
+      try {
+        base = new URL(profile.referralLink).origin;
+      } catch {
+        // keep default
+      }
+    }
+    void window.vpnApi.openExternal(base);
+  };
+
   const sub = profile?.subscription;
   const usedGb = sub ? sub.trafficUsedBytes / 1024 ** 3 : 0;
   const limitGb = sub ? sub.trafficLimitBytes / 1024 ** 3 : 0;
@@ -139,7 +157,15 @@ export default function ConnectPage() {
             </p>
           </>
         ) : (
-          <p className="text-sm text-white/60">{t.noSubscription}</p>
+          <div className="flex flex-col items-start gap-2">
+            <p className="text-sm text-white/60">{t.noSubscription}</p>
+            <button
+              onClick={openBilling}
+              className="text-xs font-semibold text-brand-500 hover:underline"
+            >
+              {t.getPlan}
+            </button>
+          </div>
         )}
       </div>
     </div>

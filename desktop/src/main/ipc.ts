@@ -1,4 +1,4 @@
-import { ipcMain, type BrowserWindow } from 'electron';
+import { ipcMain, shell, type BrowserWindow } from 'electron';
 import type { ApiClient } from './api/apiClient';
 import { runGoogleLoginFlow } from './auth/googleOAuth';
 import type { VpnController } from './vpn/vpnController';
@@ -34,6 +34,12 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
 
   ipcMain.handle('devices:list', () => apiClient.getDevices());
   ipcMain.handle('devices:delete', (_e, deviceId: number) => apiClient.deleteDevice(deviceId));
+
+  // Renderer has no access to Node/Electron APIs (contextIsolation), so
+  // opening a link in the system browser — e.g. the web dashboard's billing
+  // page — has to be proxied through the main process, same as the
+  // setWindowOpenHandler in main/index.ts uses for in-app link clicks.
+  ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 
   ipcMain.handle('vpn:connect', () => vpn.connect());
   ipcMain.handle('vpn:disconnect', () => vpn.disconnect());
