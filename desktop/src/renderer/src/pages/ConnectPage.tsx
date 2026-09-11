@@ -33,7 +33,7 @@ const STATE_COLOR: Record<ConnectionState, string> = {
   ERROR: 'text-state-error',
 };
 
-export default function ConnectPage() {
+export default function ConnectPage({ isGuest }: { isGuest: boolean }) {
   const [state, setState] = useState<ConnectionState>('DISCONNECTED');
   const [region, setRegion] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -156,12 +156,18 @@ export default function ConnectPage() {
         ) : (
           <div className="flex flex-col items-start gap-2">
             <p className="text-sm text-white/60">{t.noSubscription}</p>
-            <button
-              onClick={() => void openBilling()}
-              className="text-xs font-semibold text-brand-500 hover:underline"
-            >
-              {t.getPlan}
-            </button>
+            {/* No billing entry point for a guest/trial profile — nothing to
+                manage yet (see GuestMergeService); the sign-in/register CTA
+                right below this page (App.tsx) is the actual way to raise
+                limits from here. */}
+            {!isGuest && (
+              <button
+                onClick={() => void openBilling()}
+                className="text-xs font-semibold text-brand-500 hover:underline"
+              >
+                {t.getPlan}
+              </button>
+            )}
             {billingError && <p className="text-xs text-state-error">{billingError}</p>}
           </div>
         )}

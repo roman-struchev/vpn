@@ -61,8 +61,6 @@ const translations = {
     guestProfileDesc:
       'Это временный профиль, привязанный только к этому устройству — он не сохранится при переустановке. Войдите или зарегистрируйтесь, чтобы сохранить доступ и увеличить лимиты.',
     signInOrRegister: 'Войти или зарегистрироваться',
-    devicesGuestNotice:
-      'На пробном доступе доступно только это устройство. Войдите или зарегистрируйтесь, чтобы пользоваться VPN на нескольких устройствах.',
   },
   en: {
     appName: 'NextGen VPN',
@@ -124,8 +122,6 @@ const translations = {
     guestProfileDesc:
       "This is a temporary profile tied only to this device — it won't survive a reinstall. Sign in or register to keep your access and raise your limits.",
     signInOrRegister: 'Sign in or register',
-    devicesGuestNotice:
-      'Trial access only covers this device. Sign in or register to use the VPN on multiple devices.',
   },
 } satisfies Record<Lang, Record<string, string>>;
 

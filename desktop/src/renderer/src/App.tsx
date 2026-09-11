@@ -11,10 +11,11 @@ type AuthPhase = 'checking' | 'loggedOut' | 'loggedIn';
 export default function App() {
   const [phase, setPhase] = useState<AuthPhase>('checking');
   // Guest = no-signup device-trial account (see deviceLogin), not one the
-  // user consciously created. Tracked at this level (not just inside
-  // ProfilePage) because it also decides which nav tabs make sense (no
-  // "Devices" for a single-device trial profile) and how LoginPage should
-  // handle "register" (upgrade this session in place vs. create a new one).
+  // user consciously created. Tracked at this level (not inside a page
+  // component) because it decides the whole screen: a guest gets one
+  // nav-less view (connect + a sign-in/register CTA, below) instead of the
+  // tabbed connect/devices/profile shell, and it changes how LoginPage
+  // handles "register" (upgrade this session in place vs. create a new one).
   const [isGuest, setIsGuest] = useState(false);
   const [tab, setTab] = useState<Tab>('connect');
 
@@ -50,30 +51,46 @@ export default function App() {
 
   if (phase === 'loggedOut') {
     // isGuest still reflects whatever session we had before landing here —
-    // set on a genuine guest→LoginPage handoff (ProfilePage's CTA doesn't
-    // clear the stored session), and false on a real logout or a first-run
+    // set on a genuine guest→LoginPage handoff below (which doesn't clear
+    // the stored session first), and false on a real logout or a first-run
     // deviceLogin failure, where there's no session to upgrade from.
     return <LoginPage isGuestSession={isGuest} onAuthenticated={checkAuth} />;
+  }
+
+  if (isGuest) {
+    // A trial/guest profile has nothing to navigate to besides "connect"
+    // and "sign in or register" (no devices, billing, or referrals — see
+    // ProfilePage/DevicesPage, both real-account-only now) — so instead of
+    // a Profile tab hiding that CTA behind a click, it sits directly below
+    // Connect on one nav-less screen.
+    return (
+      <div className="flex h-screen flex-col overflow-y-auto">
+        <ConnectPage isGuest />
+        <div className="flex flex-col gap-4 px-6 py-6">
+          <h1 className="text-lg font-semibold">{t.guestProfileTitle}</h1>
+          <p className="text-sm text-white/60">{t.guestProfileDesc}</p>
+          <button
+            className="rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+            onClick={() => setPhase('loggedOut')}
+          >
+            {t.signInOrRegister}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="flex h-screen flex-col">
       <div className="flex-1 overflow-y-auto">
-        {tab === 'connect' && <ConnectPage />}
-        {tab === 'devices' && <DevicesPage isGuest={isGuest} />}
-        {tab === 'profile' && (
-          <ProfilePage
-            onLoggedOut={() => setPhase('loggedOut')}
-            onSwitchAccount={() => setPhase('loggedOut')}
-          />
-        )}
+        {tab === 'connect' && <ConnectPage isGuest={false} />}
+        {tab === 'devices' && <DevicesPage />}
+        {tab === 'profile' && <ProfilePage onLoggedOut={() => setPhase('loggedOut')} />}
       </div>
 
       <nav className="flex border-t border-dark-800 bg-dark-900">
         <TabButton active={tab === 'connect'} label={t.navConnect} onClick={() => setTab('connect')} />
-        {!isGuest && (
-          <TabButton active={tab === 'devices'} label={t.navDevices} onClick={() => setTab('devices')} />
-        )}
+        <TabButton active={tab === 'devices'} label={t.navDevices} onClick={() => setTab('devices')} />
         <TabButton active={tab === 'profile'} label={t.navProfile} onClick={() => setTab('profile')} />
       </nav>
     </div>

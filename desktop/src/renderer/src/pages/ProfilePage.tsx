@@ -2,19 +2,9 @@ import { useEffect, useState } from 'react';
 import type { UserProfile } from '../types';
 import { t } from '../i18n';
 
-export default function ProfilePage({
-  onLoggedOut,
-  onSwitchAccount,
-}: {
-  onLoggedOut: () => void;
-  /**
-   * Sends the user to LoginPage without clearing the current session — for
-   * a trial device account that wants to register/sign in with a real
-   * account instead (e.g. to keep it across reinstalls/devices). Unlike
-   * logout(), this doesn't touch the stored token/device UUID.
-   */
-  onSwitchAccount: () => void;
-}) {
+// Only ever mounted for a registered account — a guest/trial profile gets
+// its own single, nav-less screen (see App.tsx) that never reaches this tab.
+export default function ProfilePage({ onLoggedOut }: { onLoggedOut: () => void }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [copied, setCopied] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
@@ -54,27 +44,6 @@ export default function ProfilePage({
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  // A trial/guest profile has no billing, balance or referral program of
-  // its own to manage — that's all real-account state, and none of it is
-  // "really theirs" yet (see AuthController#upgrade / GuestMergeService for
-  // what happens once it is). So the guest view is deliberately just the
-  // explanation plus one way out, not a stripped-down copy of the full
-  // profile.
-  if (profile?.isGuest) {
-    return (
-      <div className="flex flex-col gap-4 px-6 py-6">
-        <h1 className="text-lg font-semibold">{t.guestProfileTitle}</h1>
-        <p className="text-sm text-white/60">{t.guestProfileDesc}</p>
-        <button
-          className="mt-4 rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
-          onClick={onSwitchAccount}
-        >
-          {t.signInOrRegister}
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
