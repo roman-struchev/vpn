@@ -26,6 +26,7 @@
     <string name="state_error">Ошибка подключения</string>
     <string name="state_operator_blocked">Ограничение вашего оператора связи</string>
     <string name="state_no_subscription">Нет активной подписки</string>
+    <string name="get_plan_action">Выбрать тариф</string>
 
     <string name="connect_action">Подключить</string>
     <string name="disconnect_action">Отключить</string>
@@ -54,8 +55,11 @@
 
     <!-- Devices -->
     <string name="devices_title">Устройства</string>
+    <string name="device_auto_added_hint">Это устройство добавится сюда само, как только вы подключитесь. Кнопка «Добавить устройство» — для других ваших устройств (например, роутера или ссылки в v2rayTun, Hiddify), а не для этого телефона.</string>
     <string name="add_device_action">Добавить устройство</string>
     <string name="revoke_device_action">Отозвать</string>
+    <string name="revoke_device_confirm_title">Отозвать доступ устройства?</string>
+    <string name="confirm_revoke_device">Отозвать доступ для «%1$s»? Чтобы снова пользоваться VPN, устройству нужно будет подключиться заново.</string>
     <string name="device_name_hint">Название устройства</string>
 
     <!-- Profile -->
