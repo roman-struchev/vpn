@@ -29,6 +29,11 @@ export function App() {
 
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isTopUpOpen, setIsTopUpOpen] = useState(false);
+  // Tariff a visitor picked on the landing page before signing up (LandingView's
+  // "Choose Plan" button on a specific card, as opposed to the generic hero/
+  // closing CTAs) — carried through the auth modal and on to the dashboard so
+  // that choice isn't silently dropped. See UX_REVIEW.md Quick Win #9.
+  const [selectedTariffId, setSelectedTariffId] = useState<string | null>(null);
   // A referral link (?ref=CODE, or a forwarded Telegram ?start=CODE) opened
   // directly in a browser — not inside Telegram — should still land on a
   // pre-filled register form instead of silently dropping the code.
@@ -151,12 +156,16 @@ export function App() {
               onRefreshUser={refreshUser}
               openTopUp={isTopUpOpen}
               setOpenTopUp={setIsTopUpOpen}
+              highlightTariffId={selectedTariffId}
             />
           ) : (
             <LandingView
               lang={lang}
               tariffs={tariffs}
-              onGetStarted={() => setIsAuthOpen(true)}
+              onGetStarted={(tariffId) => {
+                setSelectedTariffId(tariffId ?? null);
+                setIsAuthOpen(true);
+              }}
             />
           )}
         </main>
@@ -172,6 +181,7 @@ export function App() {
         onClose={() => setIsAuthOpen(false)}
         onSuccess={refreshUser}
         initialReferralCode={referralCode}
+        initialTariffId={selectedTariffId}
       />
     </div>
   );

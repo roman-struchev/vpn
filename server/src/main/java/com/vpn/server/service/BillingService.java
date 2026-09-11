@@ -242,7 +242,7 @@ public class BillingService {
 
         if (price > 0) {
             if (user.getBalanceUsdtMicro() < price) {
-                throw new IllegalStateException("Insufficient balance. Required: " + price + ", current: " + user.getBalanceUsdtMicro());
+                throw new InsufficientBalanceException(price, user.getBalanceUsdtMicro());
             }
 
             long newBalance = user.getBalanceUsdtMicro() - price;

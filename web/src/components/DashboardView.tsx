@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
   Smartphone,
@@ -40,6 +40,14 @@ interface DashboardViewProps {
   onRefreshUser: () => void;
   openTopUp: boolean;
   setOpenTopUp: (open: boolean) => void;
+  /**
+   * Tariff id the visitor picked on the landing page before signing up (see
+   * LandingView's onGetStarted(tariffId) / App.tsx / AuthModal's
+   * initialTariffId) — scrolled to and briefly highlighted on mount so that
+   * choice is visibly carried through instead of silently dropped. See
+   * UX_REVIEW.md Quick Win #9.
+   */
+  highlightTariffId?: string | null;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -49,6 +57,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onRefreshUser,
   openTopUp,
   setOpenTopUp,
+  highlightTariffId,
 }) => {
   const t = translations[lang];
 
@@ -74,10 +83,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [purchasingTariffId, setPurchasingTariffId] = useState<string | null>(null);
   const [isAnnual, setIsAnnual] = useState(false);
   const [purchaseError, setPurchaseError] = useState<string | null>(null);
+  // Set alongside purchaseError only for an INSUFFICIENT_BALANCE failure, so the
+  // error banner can offer a one-click "top up the shortfall" action instead of
+  // just showing text. See handlePurchase / UX_REVIEW.md Quick Win #1.
+  const [purchaseShortfallMicro, setPurchaseShortfallMicro] = useState<number | null>(null);
+
+  // Tariff the visitor picked on the landing page pre-signup — scrolled to and
+  // briefly highlighted once it's actually on screen (UX_REVIEW.md Quick Win #9).
+  const [highlightedTariffId, setHighlightedTariffId] = useState<string | null>(null);
+  const tariffCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!highlightTariffId || !tariffs.some((tf) => tf.id === highlightTariffId)) return;
+    setHighlightedTariffId(highlightTariffId);
+    tariffCardRefs.current[highlightTariffId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timeout = setTimeout(() => setHighlightedTariffId(null), 4000);
+    return () => clearTimeout(timeout);
+  }, [highlightTariffId, tariffs]);
 
   const loadData = async () => {
     try {
@@ -158,13 +184,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const handlePurchase = async (tariffId: string) => {
     setPurchaseError(null);
+    setPurchaseShortfallMicro(null);
     setPurchasingTariffId(tariffId);
     try {
       await api.purchaseSubscription(tariffId, isAnnual);
       onRefreshUser();
       loadData();
     } catch (err: any) {
-      setPurchaseError(err.message);
+      // A raw "Required: 5000000, current: 0" string used to reach this banner
+      // verbatim — api.ts now surfaces this failure as structured micro-USDT
+      // fields instead, so it can be rendered as a proper localized message
+      // with a one-click way to close the gap. See UX_REVIEW.md Quick Win #1.
+      if (err.code === 'INSUFFICIENT_BALANCE' && typeof err.shortfallUsdtMicro === 'number') {
+        const shortfall = Math.max(0, err.shortfallUsdtMicro) / 1_000_000;
+        setPurchaseError(t.insufficientBalanceAmount.replace('{amount}', shortfall.toFixed(2)));
+        setPurchaseShortfallMicro(err.shortfallUsdtMicro);
+      } else {
+        setPurchaseError(err.message);
+      }
     } finally {
       setPurchasingTariffId(null);
     }
@@ -350,9 +387,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {purchaseError && (
-          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2">
+          <div className="mb-4 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-center gap-2 flex-wrap">
             <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{purchaseError}</span>
+            <span className="flex-1 min-w-[12rem]">{purchaseError}</span>
+            {purchaseShortfallMicro != null && (
+              <button
+                onClick={() => {
+                  setInvoiceAmount(String(Math.max(1, Math.ceil(purchaseShortfallMicro / 1_000_000))));
+                  setOpenTopUp(true);
+                }}
+                className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 font-bold whitespace-nowrap"
+              >
+                {t.topUp}
+              </button>
+            )}
           </div>
         )}
 
@@ -377,8 +425,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             return (
               <div
                 key={tariff.id}
-                className={`p-4 rounded-xl bg-dark-900 border flex flex-col justify-between ${
+                ref={(el) => {
+                  tariffCardRefs.current[tariff.id] = el;
+                }}
+                className={`p-4 rounded-xl bg-dark-900 border flex flex-col justify-between transition-shadow ${
                   isCurrent ? 'border-emerald-500/40' : 'border-dark-800'
+                } ${
+                  highlightedTariffId === tariff.id
+                    ? 'ring-2 ring-brand-500 ring-offset-2 ring-offset-dark-950'
+                    : ''
                 }`}
               >
                 <div>
@@ -403,7 +458,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-slate-400 mt-2">
-                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB/mo · {tariff.maxDevices} devices
+                    {isTrial && `${t.trialDurationLabel} · `}
+                    {Math.round(tariff.trafficQuotaBytes / (1024 * 1024 * 1024))} GB{isTrial ? '' : '/mo'} · {tariff.maxDevices} devices
                   </p>
                 </div>
 

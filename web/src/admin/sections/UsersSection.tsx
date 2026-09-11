@@ -248,11 +248,19 @@ function UserDetailDialog({
             />
             <button
               disabled={busy}
-              onClick={() =>
-                run(() =>
-                  adminApi.adjustBalance(user.id, Math.round(parseFloat(amount || '0') * 1_000_000), reason || undefined)
-                )
-              }
+              onClick={() => {
+                const amountMicro = Math.round(parseFloat(amount || '0') * 1_000_000);
+                // Confirm any non-zero adjustment — crediting/debiting arbitrary
+                // USDT is higher-stakes than the xray-restart action on the Nodes
+                // tab, which already gets a window.confirm guard. See
+                // UX_REVIEW.md Quick Win #3.
+                if (amountMicro !== 0) {
+                  const formatted = `${amountMicro > 0 ? '+' : ''}$${(amountMicro / 1_000_000).toFixed(2)}`;
+                  const msg = t.adjustBalanceConfirm.replace('{email}', user.email).replace('{amount}', formatted);
+                  if (!window.confirm(msg)) return;
+                }
+                run(() => adminApi.adjustBalance(user.id, amountMicro, reason || undefined));
+              }}
               className="px-3 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold disabled:opacity-50"
             >
               {t.apply}
@@ -283,9 +291,12 @@ function UserDetailDialog({
         <div className="pt-3 border-t border-dark-800">
           <button
             disabled={busy}
-            onClick={() =>
-              run(() => adminApi.setUserStatus(user.id, user.status === 'BLOCKED' ? 'ACTIVE' : 'BLOCKED'))
-            }
+            onClick={() => {
+              const isBlocking = user.status !== 'BLOCKED';
+              const msg = (isBlocking ? t.blockConfirm : t.unblockConfirm).replace('{email}', user.email);
+              if (!window.confirm(msg)) return;
+              run(() => adminApi.setUserStatus(user.id, isBlocking ? 'BLOCKED' : 'ACTIVE'));
+            }}
             className={`w-full py-2 rounded-xl font-bold disabled:opacity-50 ${
               user.status === 'BLOCKED'
                 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
