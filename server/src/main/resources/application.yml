@@ -38,6 +38,12 @@ vpn:
   # a plain https link works for any invitee, unlike a Telegram-only deep link.
   public:
     web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:https://vpn.struchev.site}
+  # Client -> web SSO handoff exchange-code lifetime (WebHandoffService).
+  # Deliberately short: the code is single-use and only needs to survive the
+  # few seconds between a client opening the browser and the web app's first
+  # exchange call.
+  web-handoff:
+    ttl-seconds: ${VPN_WEB_HANDOFF_TTL_SECONDS:60}
   reality:
     dest: ${VPN_REALITY_DEST:dl.google.com:443}
     server-names: ${VPN_REALITY_SNI:dl.google.com,gateway.icloud.com}

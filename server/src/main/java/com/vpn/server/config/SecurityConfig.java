@@ -34,6 +34,13 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // Carved out ahead of the /api/v1/auth/** permitAll wildcard below:
+                        // this is the one endpoint under that prefix that needs a real
+                        // session (it mints a web-handoff code for the *calling* user).
+                        // Matched as an exact path, so it doesn't also swallow
+                        // /api/v1/auth/web-handoff/exchange (which must stay public: the
+                        // whole point of that endpoint is the caller has no session yet).
+                        .requestMatchers("/api/v1/auth/web-handoff").authenticated()
                         .requestMatchers(
                                 "/",
                                 "/index.html",
