@@ -24,6 +24,9 @@ const vpnApi = {
   listDevices: () => ipcRenderer.invoke('devices:list'),
   deleteDevice: (deviceId: number) => ipcRenderer.invoke('devices:delete', deviceId),
 
+  /** Opens a URL in the system's default browser (e.g. the web dashboard). */
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+
   connect: () => ipcRenderer.invoke('vpn:connect'),
   disconnect: () => ipcRenderer.invoke('vpn:disconnect'),
   getConnectionState: (): Promise<ConnectionState> => ipcRenderer.invoke('vpn:getState'),

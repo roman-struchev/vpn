@@ -22,6 +22,7 @@ const translations = {
     stateOperatorBlocked: 'Ограничение вашего оператора связи',
     stateError: 'Ошибка подключения',
     noSubscription: 'Нет активной подписки',
+    getPlan: 'Выбрать тариф',
     expiresAt: 'Действует до',
     connect: 'Подключить',
     disconnect: 'Отключить',
@@ -45,6 +46,7 @@ const translations = {
     thisDeviceAutoAdded: 'Каждое устройство появляется здесь само — как только оно впервые подключится через это приложение, другое наше приложение или ссылку из личного кабинета на сайте (для v2rayTun, Hiddify и т. п.). Добавлять что-либо вручную не нужно.',
     revoke: 'Отозвать',
     deviceAddedOn: 'добавлено',
+    confirmRevokeDevice: 'Отозвать доступ для «%s»? Устройству потребуется подключиться заново, чтобы снова пользоваться VPN.',
 
     balance: 'Баланс',
     referralLink: 'Ваша ссылка для приглашения',
@@ -76,6 +78,7 @@ const translations = {
     stateOperatorBlocked: "Your carrier is restricting this",
     stateError: 'Connection error',
     noSubscription: 'No active subscription',
+    getPlan: 'Get a plan',
     expiresAt: 'Expires',
     connect: 'Connect',
     disconnect: 'Disconnect',
@@ -99,6 +102,7 @@ const translations = {
     thisDeviceAutoAdded: 'Every device shows up here on its own — the first time it connects through this app, another of our apps, or a link from your web dashboard (for v2rayTun, Hiddify, etc). There\'s nothing to add manually.',
     revoke: 'Revoke',
     deviceAddedOn: 'added',
+    confirmRevokeDevice: 'Revoke access for "%s"? It will need to reconnect to use the VPN again.',
 
     balance: 'Balance',
     referralLink: 'Your invite link',
