@@ -57,11 +57,22 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
     // (SubscriptionExportService.exportVlessLinks rejects tariff "trial").
   });
 
-  await test.step('adds and then revokes a device', async () => {
-    await page.getByRole('button', { name: 'Добавить устройство' }).click();
-    await page.getByPlaceholder('e.g. Phone, Laptop').fill('E2E Test Phone');
-    await page.getByRole('button', { name: 'Добавить устройство' }).last().click();
+  await test.step('a device that registered itself (no manual "add device" UI anymore — see 0a090ff/removal this session) shows up and can be revoked', async () => {
+    // Devices only ever appear here by actually connecting from a client
+    // (registerOrTouchDevice, native apps) — there's no web UI action left
+    // that creates one (the manual "Add Device" form was removed as a dead
+    // end: deviceName/platform were purely cosmetic and never wired to any
+    // usable vless link). Simulate that real registration the same way a
+    // native client would — a direct POST to the still-live server endpoint
+    // — so this step can still exercise the list/revoke UI.
+    const token = await page.evaluate(() => localStorage.getItem('vpn_auth_token'));
+    const addRes = await page.request.post('/api/v1/user/devices', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { deviceName: 'E2E Test Phone', platform: 'OTHER' },
+    });
+    expect(addRes.ok(), await addRes.text()).toBeTruthy();
 
+    await page.reload();
     await expect(page.getByText('E2E Test Phone')).toBeVisible();
     await expect(page.getByText('Active connections: 1')).toBeVisible();
 
@@ -89,7 +100,10 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
   await test.step('logs out and back in, session state persists', async () => {
     await page.getByTitle('Выйти').click();
     await expect(page.getByRole('button', { name: 'Войти' })).toBeVisible();
-    await expect(page.getByText('Пробный', { exact: false })).toBeVisible(); // back on the landing page
+    // Back on the landing page — the trial tariff card is the marker. Scoped to
+    // the card heading because the landing copy also says "Пробный тариф ..." in
+    // prose, which a loose getByText would match too.
+    await expect(page.getByRole('heading', { name: 'Пробный', exact: true })).toBeVisible();
 
     await openAuthModal(page);
     // AuthModal is always mounted (isOpen just toggles a null render), so its

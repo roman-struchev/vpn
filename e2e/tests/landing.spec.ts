@@ -9,10 +9,13 @@ test.describe('Landing page (anonymous visitor, no login)', () => {
   test('shows the public tariff list without authenticating', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page.getByText('Пробный', { exact: false })).toBeVisible();
+    // Every plan is asserted through its tariff-card heading, not a loose
+    // getByText: the landing copy legitimately contains these words in prose
+    // too ("Пробный тариф не требует карты", "...Pro"), so a substring match
+    // resolves to several elements and fails on strict mode instead of telling
+    // you whether the pricing section actually rendered.
+    await expect(page.getByRole('heading', { name: 'Пробный', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Basic', exact: true })).toBeVisible();
-    // Plain getByText('Pro') also matches "...Anti-DPI Protocol" elsewhere on
-    // the landing page (substring match) — scope to the tariff card heading.
     await expect(page.getByRole('heading', { name: 'Pro', exact: true })).toBeVisible();
   });
 
