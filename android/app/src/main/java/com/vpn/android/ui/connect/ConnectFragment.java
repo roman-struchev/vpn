@@ -2,9 +2,7 @@ package com.vpn.android.ui.connect;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ActivityNotFoundException;
 import android.content.Intent;
-import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -24,7 +22,6 @@ import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.snackbar.Snackbar;
-import com.vpn.android.BuildConfig;
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
@@ -32,6 +29,7 @@ import com.vpn.android.api.model.RegionInfo;
 import com.vpn.android.api.model.UserProfile;
 import com.vpn.android.databinding.FragmentConnectBinding;
 import com.vpn.android.util.Async;
+import com.vpn.android.util.WebHandoffLauncher;
 import com.vpn.android.vpn.VpnStatusBus;
 import com.vpn.android.vpn.XrayVpnService;
 import com.vpn.android.vpn.state.ConnectionState;
@@ -218,16 +216,14 @@ public class ConnectFragment extends Fragment {
     }
 
     // Neither this app nor the desktop client has any purchase/top-up UI of
-    // its own (buying a plan happens on the web dashboard's pricing section).
-    // Sending the user there in the system browser is a plain link, not any
-    // kind of cross-app login handoff — they'll sign in/register on the web
-    // like any other visitor.
+    // its own (buying a plan happens on the web dashboard). Rather than a
+    // plain marketing-site link that makes the user log in again, this mints
+    // a short-lived SSO exchange code and opens the dashboard already signed
+    // in (see WebHandoffLauncher / WEB_HANDOFF_RESEARCH.md). "/" is used as
+    // the landing destination because the web app has no dedicated /billing
+    // route yet — the pricing/top-up UI lives on its home screen.
     private void openBillingPage() {
-        try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.WEB_BASE_URL + "#pricing")));
-        } catch (ActivityNotFoundException e) {
-            Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG).show();
-        }
+        WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/");
     }
 
     private void renderState(ConnectionState state) {

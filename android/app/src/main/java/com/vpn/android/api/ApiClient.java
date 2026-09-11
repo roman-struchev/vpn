@@ -10,6 +10,7 @@ import com.vpn.android.api.model.RegionsResponse;
 import com.vpn.android.api.model.RoutingConfigResponse;
 import com.vpn.android.api.model.SubscriptionLinksResponse;
 import com.vpn.android.api.model.UserProfile;
+import com.vpn.android.api.model.WebHandoffResponse;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -217,6 +218,18 @@ public class ApiClient {
         } catch (Exception ignored) {
             // Telemetry is best-effort; never let it break the connection flow.
         }
+    }
+
+    /**
+     * Mints a short-lived, single-use exchange code the web dashboard can
+     * redeem for a full-privilege web session (see WEB_HANDOFF_RESEARCH.md)
+     * — lets a client that already holds a valid JWT send the user to the
+     * web dashboard (e.g. to manage billing) without asking them to log in
+     * again. {@code webUrl} in the response is the dashboard's base origin;
+     * callers should not hardcode it independently.
+     */
+    public WebHandoffResponse requestWebHandoff() throws ApiException, IOException {
+        return post("api/v1/auth/web-handoff", new JsonObject(), WebHandoffResponse.class, true);
     }
 
     public void logout() {

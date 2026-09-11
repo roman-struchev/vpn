@@ -21,6 +21,7 @@ import com.vpn.android.api.TokenStore;
 import com.vpn.android.databinding.FragmentProfileBinding;
 import com.vpn.android.ui.login.LoginActivity;
 import com.vpn.android.util.Async;
+import com.vpn.android.util.WebHandoffLauncher;
 import com.vpn.android.vpn.XrayVpnService;
 
 import java.util.Locale;
@@ -48,6 +49,7 @@ public class ProfileFragment extends Fragment {
         binding.signInExistingButton.setOnClickListener(v -> signInWithExistingAccount());
         binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
+        binding.manageBillingButton.setOnClickListener(v -> openBillingPage());
         loadProfile();
     }
 
@@ -86,6 +88,15 @@ public class ProfileFragment extends Fragment {
                 .setType("text/plain")
                 .putExtra(Intent.EXTRA_TEXT, referralLink);
         startActivity(Intent.createChooser(share, getString(R.string.profile_referral_share_title)));
+    }
+
+    // Persistent entry point into the web dashboard's billing/top-up UI
+    // (UX_REVIEW §B) — not just the dead-end "no subscription" state on the
+    // connect screen. Opens already signed in via the same SSO handoff as
+    // ConnectFragment's "Get a plan" action; "/" is used as the landing
+    // destination because the web app has no dedicated /billing route yet.
+    private void openBillingPage() {
+        WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/");
     }
 
     private void logout() {
