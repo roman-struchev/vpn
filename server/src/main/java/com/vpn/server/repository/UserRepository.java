@@ -12,6 +12,7 @@ import java.util.UUID;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
     Optional<User> findByTelegramId(Long telegramId);
+    Optional<User> findByGoogleSub(String googleSub);
     Optional<User> findByReferralCode(String referralCode);
     Optional<User> findBySubscriptionToken(UUID subscriptionToken);
     boolean existsByEmail(String email);

@@ -51,6 +51,18 @@ export const api = {
     return data;
   },
 
+  async googleAuth(idToken: string, referralCode?: string) {
+    const res = await fetch('/api/v1/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken, referralCode }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    setToken(data.token);
+    return data;
+  },
+
   async getProfile(): Promise<UserProfile> {
     const res = await fetch('/api/v1/user/profile', {
       headers: getAuthHeaders(),

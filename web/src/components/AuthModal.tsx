@@ -1,6 +1,52 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Lang, translations } from '../i18n';
 import { api } from '../api';
+
+// Google Identity Services client ID (see web/src/vite-env.d.ts for how to
+// set VITE_GOOGLE_CLIENT_ID). Left blank in dev/CI on purpose — the button
+// below simply doesn't render until it's configured for a build.
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+const GOOGLE_GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+const GOOGLE_GSI_SCRIPT_ID = 'google-gsi-client-script';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+          }) => void;
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
+        };
+      };
+    };
+  }
+}
+
+function loadGoogleGsiScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (window.google?.accounts?.id) {
+      resolve();
+      return;
+    }
+    const existing = document.getElementById(GOOGLE_GSI_SCRIPT_ID) as HTMLScriptElement | null;
+    if (existing) {
+      existing.addEventListener('load', () => resolve());
+      existing.addEventListener('error', () => reject(new Error('Failed to load Google script')));
+      return;
+    }
+    const script = document.createElement('script');
+    script.id = GOOGLE_GSI_SCRIPT_ID;
+    script.src = GOOGLE_GSI_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Google script'));
+    document.head.appendChild(script);
+  });
+}
 
 interface AuthModalProps {
   lang: Lang;
@@ -25,6 +71,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [referralApplied, setReferralApplied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+
+  // handleGoogleCredential is registered once with Google Identity Services
+  // (see the effect below) but must always see the latest referralCode /
+  // onSuccess / onClose, so it reads them off a ref rather than being
+  // re-registered on every keystroke.
+  const latestRef = useRef({ referralCode, onSuccess, onClose });
+  latestRef.current = { referralCode, onSuccess, onClose };
 
   // A referral link (?ref=CODE, or a forwarded Telegram-style ?start=CODE)
   // should land straight on a pre-filled register form — asking a new user
@@ -36,6 +90,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       setIsRegister(true);
     }
   }, [initialReferralCode]);
+
+  useEffect(() => {
+    if (!isOpen || !GOOGLE_CLIENT_ID || !googleButtonRef.current) return;
+
+    let cancelled = false;
+
+    loadGoogleGsiScript()
+      .then(() => {
+        if (cancelled || !window.google?.accounts?.id || !googleButtonRef.current) return;
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: async (response) => {
+            const { referralCode: code, onSuccess: success, onClose: close } = latestRef.current;
+            setError(null);
+            setLoading(true);
+            try {
+              await api.googleAuth(response.credential, code || undefined);
+              success();
+              close();
+            } catch (err: any) {
+              setError(err.message || 'Authentication error');
+            } finally {
+              setLoading(false);
+            }
+          },
+        });
+        googleButtonRef.current.innerHTML = '';
+        window.google.accounts.id.renderButton(googleButtonRef.current, {
+          theme: 'filled_black',
+          size: 'large',
+          shape: 'pill',
+          width: 300,
+          text: isRegister ? 'signup_with' : 'signin_with',
+        });
+      })
+      .catch((err) => {
+        console.error('Failed to load Google Sign-In', err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, isRegister]);
 
   if (!isOpen) return null;
 
@@ -78,6 +175,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
             {error}
           </div>
+        )}
+
+        {GOOGLE_CLIENT_ID && (
+          <>
+            <div className="flex justify-center" ref={googleButtonRef} />
+            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+              <div className="h-px flex-1 bg-dark-800" />
+              <span>{lang === 'ru' ? 'или' : 'or'}</span>
+              <div className="h-px flex-1 bg-dark-800" />
+            </div>
+          </>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-3">
