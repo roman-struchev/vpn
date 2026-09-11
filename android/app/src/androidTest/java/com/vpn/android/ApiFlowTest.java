@@ -150,4 +150,33 @@ public class ApiFlowTest {
             }
         }
     }
+
+    @Test
+    public void guestFlowWithUpgradeAndMerge() throws Exception {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        TokenStore tokenStore = new TokenStore(context);
+        ApiClient api = new ApiClient(tokenStore);
+
+        String deviceUuid = tokenStore.getOrCreateDeviceUuid();
+        assertNotNull(deviceUuid);
+
+        AuthResponse guestAuth = api.deviceAuth(deviceUuid, null);
+        assertNotNull(guestAuth.token);
+
+        UserProfile guestProfile = api.getProfile();
+        assertTrue("guest profile should report isGuest=true", guestProfile.isGuest);
+
+        String upgradeEmail = "e2e-android-upgrade-" + System.currentTimeMillis() + "@example.com";
+        String password = "Upgrade-Passw0rd!";
+
+        AuthResponse upgraded = api.upgradeGuest(upgradeEmail, password);
+        assertEquals(guestAuth.userId, upgraded.userId);
+
+        UserProfile upgradedProfile = api.getProfile();
+        assertFalse("upgraded profile should report isGuest=false", upgradedProfile.isGuest);
+        assertEquals(upgradeEmail, upgradedProfile.email);
+
+        tokenStore.clear();
+        assertEquals("deviceUuid must survive clear()", deviceUuid, tokenStore.getOrCreateDeviceUuid());
+    }
 }

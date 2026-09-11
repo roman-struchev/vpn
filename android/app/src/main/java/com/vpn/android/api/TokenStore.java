@@ -26,6 +26,10 @@ public class TokenStore {
         this.prefs = create(context.getApplicationContext());
     }
 
+    TokenStore(SharedPreferences prefs) {
+        this.prefs = prefs;
+    }
+
     private static SharedPreferences create(Context context) {
         try {
             MasterKey masterKey = new MasterKey.Builder(context)
@@ -113,7 +117,23 @@ public class TokenStore {
         return deviceUuid;
     }
 
+    /**
+     * Clears the session (token, userId, deviceId) but deliberately preserves
+     * deviceUuid and selectedRegion — same per-install fields save() preserves
+     * across a re-login. Wiping deviceUuid here allowed unlimited trial resets
+     * upon logout. Keeping it here is safe because the server guards against
+     * password-less re-entry into upgraded accounts.
+     */
     public void clear() {
-        prefs.edit().clear().apply();
+        String deviceUuid = prefs.getString(KEY_DEVICE_UUID, null);
+        String selectedRegion = prefs.getString(KEY_SELECTED_REGION, null);
+        SharedPreferences.Editor editor = prefs.edit().clear();
+        if (deviceUuid != null) {
+            editor.putString(KEY_DEVICE_UUID, deviceUuid);
+        }
+        if (selectedRegion != null) {
+            editor.putString(KEY_SELECTED_REGION, selectedRegion);
+        }
+        editor.apply();
     }
 }

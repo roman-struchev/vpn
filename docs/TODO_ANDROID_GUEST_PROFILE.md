@@ -1,6 +1,6 @@
 # TODO: bring Android to parity with desktop's guest/trial profile UX
 
-**Status:** not started. **Scope:** `android/` only — the server already supports
+**Status:** completed. **Scope:** `android/` only — the server already supports
 everything this needs (see "Already done server-side" below).
 
 ## Why this exists

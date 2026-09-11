@@ -18,6 +18,11 @@
          the backend's vpn.google.client-id property expects) — replace before release. -->
     <string name="google_web_client_id" translatable="false">REPLACE_WITH_GOOGLE_WEB_CLIENT_ID</string>
 
+    <!-- Guest profile -->
+    <string name="guest_profile_title">Пробный доступ</string>
+    <string name="guest_profile_desc">Вы пользуетесь временным профилем на этом устройстве. Зарегистрируйтесь или войдите, чтобы сохранить баланс, управлять устройствами и оплачивать подписку.</string>
+    <string name="sign_in_or_register">Войти или зарегистрироваться</string>
+
     <!-- Connect screen -->
     <string name="state_disconnected">Отключено</string>
     <string name="state_connecting">Подключение…</string>

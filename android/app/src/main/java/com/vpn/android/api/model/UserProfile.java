@@ -11,6 +11,7 @@ public class UserProfile {
     public String referralLink;
     public String referralTelegramLink;
     public boolean hasActiveSubscription;
+    public boolean isGuest;
     public SubscriptionInfo subscription;
 
     public static class SubscriptionInfo {

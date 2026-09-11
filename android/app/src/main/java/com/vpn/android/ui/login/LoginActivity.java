@@ -37,6 +37,7 @@ public class LoginActivity extends AppCompatActivity {
      * device auto-login.
      */
     public static final String EXTRA_FORCE_FORM = "force_form";
+    public static final String EXTRA_IS_GUEST_SESSION = "is_guest_session";
 
     private ActivityLoginBinding binding;
     private ApiClient apiClient;
@@ -45,8 +46,13 @@ public class LoginActivity extends AppCompatActivity {
 
     /** Explicit form-showing mode, for a user who wants to sign in/register instead of using the auto-created trial account. */
     public static Intent createShowFormIntent(Context context) {
+        return createShowFormIntent(context, false);
+    }
+
+    public static Intent createShowFormIntent(Context context, boolean isGuestSession) {
         Intent intent = new Intent(context, LoginActivity.class);
         intent.putExtra(EXTRA_FORCE_FORM, true);
+        intent.putExtra(EXTRA_IS_GUEST_SESSION, isGuestSession);
         return intent;
     }
 
@@ -118,9 +124,18 @@ public class LoginActivity extends AppCompatActivity {
             return;
         }
 
+        boolean isGuestSession = getIntent().getBooleanExtra(EXTRA_IS_GUEST_SESSION, false);
         setLoading(true);
         Async.run(
-                () -> registerMode ? apiClient.register(email, password, null) : apiClient.login(email, password),
+                () -> {
+                    if (registerMode) {
+                        return isGuestSession
+                                ? apiClient.upgradeGuest(email, password)
+                                : apiClient.register(email, password, null);
+                    } else {
+                        return apiClient.login(email, password);
+                    }
+                },
                 (AuthResponse resp) -> {
                     setLoading(false);
                     goToMain();
@@ -209,7 +224,9 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     private void goToMain() {
-        startActivity(new Intent(this, MainActivity.class));
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(intent);
         finish();
     }
 

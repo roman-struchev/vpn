@@ -32,15 +32,35 @@ import com.vpn.android.util.Async;
 import com.vpn.android.util.WebHandoffLauncher;
 import com.vpn.android.vpn.VpnStatusBus;
 import com.vpn.android.vpn.XrayVpnService;
+import com.vpn.android.ui.MainActivity;
+import com.vpn.android.ui.login.LoginActivity;
 import com.vpn.android.vpn.state.ConnectionState;
 
 public class ConnectFragment extends Fragment {
+
+    public static final String ARG_IS_GUEST = "is_guest";
 
     private FragmentConnectBinding binding;
     private ApiClient apiClient;
     private TokenStore tokenStore;
     private UserProfile latestProfile;
     private List<RegionInfo> availableRegions = new ArrayList<>();
+    private boolean isGuest = false;
+
+    public static ConnectFragment newInstance(boolean isGuest) {
+        ConnectFragment fragment = new ConnectFragment();
+        Bundle args = new Bundle();
+        args.putBoolean(ARG_IS_GUEST, isGuest);
+        fragment.setArguments(args);
+        return fragment;
+    }
+
+    public void setGuest(boolean isGuest) {
+        this.isGuest = isGuest;
+        if (binding != null) {
+            renderGuestCard();
+        }
+    }
 
     private final ActivityResultLauncher<Intent> vpnPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -55,6 +75,9 @@ public class ConnectFragment extends Fragment {
         binding = FragmentConnectBinding.inflate(inflater, container, false);
         tokenStore = new TokenStore(requireContext());
         apiClient = new ApiClient(tokenStore);
+        if (getArguments() != null) {
+            isGuest = getArguments().getBoolean(ARG_IS_GUEST, false);
+        }
         return binding.getRoot();
     }
 
@@ -64,6 +87,10 @@ public class ConnectFragment extends Fragment {
 
         binding.connectButton.setOnClickListener(v -> onConnectButtonClicked());
         binding.regionCard.setOnClickListener(v -> showRegionPicker());
+        binding.signInOrRegisterButton.setOnClickListener(v -> {
+            startActivity(LoginActivity.createShowFormIntent(requireContext(), true));
+        });
+        renderGuestCard();
 
         VpnStatusBus.state.observe(getViewLifecycleOwner(), this::renderState);
         VpnStatusBus.activeRegion.observe(getViewLifecycleOwner(), region -> {
@@ -140,11 +167,24 @@ public class ConnectFragment extends Fragment {
                 .show();
     }
 
+    private void renderGuestCard() {
+        if (binding != null) {
+            binding.guestCard.setVisibility(isGuest ? View.VISIBLE : View.GONE);
+        }
+    }
+
     private void loadProfile() {
         Async.run(
                 () -> apiClient.getProfile(),
                 profile -> {
                     latestProfile = profile;
+                    if (profile != null) {
+                        isGuest = profile.isGuest;
+                        renderGuestCard();
+                        if (getActivity() instanceof MainActivity) {
+                            ((MainActivity) getActivity()).setGuestMode(profile.isGuest);
+                        }
+                    }
                     bindProfile(profile);
                 },
                 error -> { /* keep last-known UI; the connect flow will surface auth errors */ });
@@ -191,9 +231,11 @@ public class ConnectFragment extends Fragment {
         }
 
         if (latestProfile != null && !latestProfile.hasActiveSubscription) {
-            Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG)
-                    .setAction(R.string.get_plan_action, v -> openBillingPage())
-                    .show();
+            Snackbar snackbar = Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG);
+            if (!isGuest) {
+                snackbar.setAction(R.string.get_plan_action, v -> openBillingPage());
+            }
+            snackbar.show();
             return;
         }
 

@@ -14,6 +14,11 @@
     <string name="login_google_action">Sign in with Google</string>
     <string name="google_signin_error">Could not sign in with Google. Please try again.</string>
 
+    <!-- Guest profile -->
+    <string name="guest_profile_title">Trial access</string>
+    <string name="guest_profile_desc">You are using a temporary profile on this device. Sign in or register to keep your balance, manage devices, and renew your subscription.</string>
+    <string name="sign_in_or_register">Sign in or register</string>
+
     <string name="state_disconnected">Disconnected</string>
     <string name="state_connecting">Connecting…</string>
     <string name="state_connected">Protected</string>

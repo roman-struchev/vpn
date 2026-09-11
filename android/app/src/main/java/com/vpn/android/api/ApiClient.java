@@ -49,6 +49,10 @@ public class ApiClient {
 
     /** @param baseUrls primary host first, then backup domains (Phase 10: "резервные домены API"). */
     public ApiClient(List<String> baseUrls, TokenStore tokenStore) {
+        this(baseUrls, tokenStore, null);
+    }
+
+    ApiClient(List<String> baseUrls, TokenStore tokenStore, OkHttpClient customHttp) {
         List<String> normalized = new ArrayList<>();
         for (String url : baseUrls) {
             normalized.add(url.endsWith("/") ? url : url + "/");
@@ -56,14 +60,18 @@ public class ApiClient {
         this.hostRotation = new ApiHostRotation(normalized);
         this.tokenStore = tokenStore;
 
-        OkHttpClient bootstrap = new OkHttpClient.Builder()
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .build();
-        this.http = bootstrap.newBuilder()
-                .dns(DohDns.create(bootstrap))
-                .connectTimeout(10, TimeUnit.SECONDS)
-                .readTimeout(15, TimeUnit.SECONDS)
-                .build();
+        if (customHttp != null) {
+            this.http = customHttp;
+        } else {
+            OkHttpClient bootstrap = new OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .build();
+            this.http = bootstrap.newBuilder()
+                    .dns(DohDns.create(bootstrap))
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .build();
+        }
     }
 
     private static List<String> hostsFromBuildConfig() {
@@ -81,8 +89,14 @@ public class ApiClient {
         JsonObject body = new JsonObject();
         body.addProperty("email", email);
         body.addProperty("password", password);
+        String deviceUuid = tokenStore != null ? tokenStore.getOrCreateDeviceUuid() : null;
+        if (deviceUuid != null && !deviceUuid.isBlank()) {
+            body.addProperty("deviceUuid", deviceUuid);
+        }
         AuthResponse resp = post("api/v1/auth/login", body, AuthResponse.class, false);
-        tokenStore.save(resp.token, resp.userId);
+        if (tokenStore != null) {
+            tokenStore.save(resp.token, resp.userId);
+        }
         return resp;
     }
 
@@ -92,7 +106,28 @@ public class ApiClient {
         body.addProperty("password", password);
         if (referralCode != null) body.addProperty("referralCode", referralCode);
         AuthResponse resp = post("api/v1/auth/register", body, AuthResponse.class, false);
-        tokenStore.save(resp.token, resp.userId);
+        if (tokenStore != null) {
+            tokenStore.save(resp.token, resp.userId);
+        }
+        return resp;
+    }
+
+    /**
+     * Converts the currently-signed-in guest/device-trial account into a
+     * real, credentialed one in place — same user id, balance, and active
+     * trial subscription, just adding an email+password so it survives
+     * logout/reinstall. The register-time counterpart to login()'s merge;
+     * must be called while still holding the guest's token (authenticated = true),
+     * not after switching away from it. See POST /api/v1/auth/upgrade.
+     */
+    public AuthResponse upgradeGuest(String email, String password) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("email", email);
+        body.addProperty("password", password);
+        AuthResponse resp = post("api/v1/auth/upgrade", body, AuthResponse.class, true);
+        if (tokenStore != null) {
+            tokenStore.save(resp.token, resp.userId);
+        }
         return resp;
     }
 
@@ -100,8 +135,14 @@ public class ApiClient {
         JsonObject body = new JsonObject();
         body.addProperty("idToken", idToken);
         if (referralCode != null) body.addProperty("referralCode", referralCode);
+        String deviceUuid = tokenStore != null ? tokenStore.getOrCreateDeviceUuid() : null;
+        if (deviceUuid != null && !deviceUuid.isBlank()) {
+            body.addProperty("deviceUuid", deviceUuid);
+        }
         AuthResponse resp = post("api/v1/auth/google", body, AuthResponse.class, false);
-        tokenStore.save(resp.token, resp.userId);
+        if (tokenStore != null) {
+            tokenStore.save(resp.token, resp.userId);
+        }
         return resp;
     }
 
@@ -117,7 +158,9 @@ public class ApiClient {
         body.addProperty("deviceUuid", deviceUuid);
         if (referralCode != null) body.addProperty("referralCode", referralCode);
         AuthResponse resp = post("api/v1/auth/device", body, AuthResponse.class, false);
-        tokenStore.save(resp.token, resp.userId);
+        if (tokenStore != null) {
+            tokenStore.save(resp.token, resp.userId);
+        }
         return resp;
     }
 
