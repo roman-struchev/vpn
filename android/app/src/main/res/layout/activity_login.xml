@@ -29,48 +29,62 @@
             android:textAppearance="?attr/textAppearanceHeadlineSmall"
             android:layout_marginBottom="24dp" />
 
-        <com.google.android.material.textfield.TextInputLayout
+        <!--
+        Hidden while LoginActivity silently attempts the no-signup device
+        trial login on launch; shown only as a fallback (that call failed)
+        or when explicitly requested via EXTRA_FORCE_FORM (see
+        ProfileFragment's "sign in with an existing account" action).
+        -->
+        <LinearLayout
+            android:id="@+id/formContainer"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+            android:orientation="vertical">
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/emailInput"
+            <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/login_email_hint"
-                android:inputType="textEmailAddress" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginBottom="12dp"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
 
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="20dp"
-            style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-            app:passwordToggleEnabled="true">
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/emailInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/login_email_hint"
+                    android:inputType="textEmailAddress" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/passwordInput"
+            <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/login_password_hint"
-                android:inputType="textPassword" />
-        </com.google.android.material.textfield.TextInputLayout>
+                android:layout_marginBottom="20dp"
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                app:passwordToggleEnabled="true">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/submitButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/login_action"
-            android:layout_marginBottom="12dp" />
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/passwordInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="@string/login_password_hint"
+                    android:inputType="textPassword" />
+            </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/toggleModeButton"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/register_toggle" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/submitButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/login_action"
+                android:layout_marginBottom="12dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/toggleModeButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/register_toggle" />
+
+        </LinearLayout>
 
         <ProgressBar
             android:id="@+id/progressBar"

@@ -95,6 +95,22 @@ public class ApiClient {
         return resp;
     }
 
+    /**
+     * No-signup trial login (see server DeviceAuthService): idempotent per
+     * deviceUuid — repeat calls just log the same auto-created account back
+     * in, granting a 3-day trial subscription on first creation. Used by
+     * LoginActivity's auto-login-on-launch flow so a fresh install can start
+     * using the app without registration.
+     */
+    public AuthResponse deviceAuth(String deviceUuid, String referralCode) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("deviceUuid", deviceUuid);
+        if (referralCode != null) body.addProperty("referralCode", referralCode);
+        AuthResponse resp = post("api/v1/auth/device", body, AuthResponse.class, false);
+        tokenStore.save(resp.token, resp.userId);
+        return resp;
+    }
+
     public UserProfile getProfile() throws ApiException, IOException {
         return get("api/v1/user/profile", UserProfile.class);
     }

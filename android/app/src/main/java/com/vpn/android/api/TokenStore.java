@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.UUID;
 
 /** Persists the JWT issued by /api/v1/auth/* in a Keystore-backed encrypted prefs file. */
 public class TokenStore {
@@ -17,6 +18,7 @@ public class TokenStore {
     private static final String KEY_USER_ID = "user_id";
     private static final String KEY_DEVICE_ID = "device_id";
     private static final String KEY_SELECTED_REGION = "selected_region";
+    private static final String KEY_DEVICE_UUID = "device_uuid";
 
     private final SharedPreferences prefs;
 
@@ -93,6 +95,22 @@ public class TokenStore {
         } else {
             prefs.edit().putString(KEY_SELECTED_REGION, region).apply();
         }
+    }
+
+    /**
+     * Stable per-install identifier, generated once and persisted on first
+     * access — works even before any login has ever happened, unlike the
+     * rest of this store. Sent to POST /api/v1/auth/device so a fresh install
+     * can start on the trial tariff without registration (see
+     * ApiClient#deviceAuth and LoginActivity's auto-login-on-launch flow).
+     * Mirrors desktop's TokenStore#getOrCreateDeviceUuid.
+     */
+    public String getOrCreateDeviceUuid() {
+        String existing = prefs.getString(KEY_DEVICE_UUID, null);
+        if (existing != null) return existing;
+        String deviceUuid = UUID.randomUUID().toString();
+        prefs.edit().putString(KEY_DEVICE_UUID, deviceUuid).apply();
+        return deviceUuid;
     }
 
     public void clear() {
