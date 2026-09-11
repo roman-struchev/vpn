@@ -79,6 +79,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [claimStatus, setClaimStatus] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
 
+  // Telegram Stars top-up: a Stars payment can only actually be completed
+  // inside Telegram (the Bot API can't push an invoice into an arbitrary web
+  // session), so this method needs an extra "connect Telegram" step before
+  // the usual amount buttons — see api.createTelegramLink / UserController's
+  // POST /telegram-link and TelegramBotService#handleAccountLinkStart.
+  const [topUpMethod, setTopUpMethod] = useState<'crypto' | 'stars'>('crypto');
+  const [telegramLinkDeepLink, setTelegramLinkDeepLink] = useState<string | null>(null);
+  const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
+  const [telegramLinkError, setTelegramLinkError] = useState<string | null>(null);
+
   // Selected tariff purchase
   const [purchasingTariffId, setPurchasingTariffId] = useState<string | null>(null);
   const [isAnnual, setIsAnnual] = useState(false);
@@ -156,6 +166,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       alert(err.message || 'Error revoking device');
     }
   };
+
+  // Poll the profile while the modal is open on the Stars method and the
+  // account isn't linked yet, so the view flips to the linked state on its
+  // own once the user taps Start in Telegram — no manual "check again" step.
+  useEffect(() => {
+    if (!openTopUp || topUpMethod !== 'stars' || user.telegramLinked) return;
+    const interval = setInterval(() => onRefreshUser(), 4000);
+    return () => clearInterval(interval);
+  }, [openTopUp, topUpMethod, user.telegramLinked, onRefreshUser]);
+
+  // Reset the connect-Telegram flow each time the modal is (re)opened, so a
+  // stale deep link/error from a previous visit never lingers.
+  useEffect(() => {
+    if (!openTopUp) {
+      setTelegramLinkDeepLink(null);
+      setTelegramLinkError(null);
+    }
+  }, [openTopUp]);
+
+  const handleConnectTelegram = async () => {
+    setTelegramLinkError(null);
+    setTelegramLinkLoading(true);
+    try {
+      const { deepLink } = await api.createTelegramLink();
+      setTelegramLinkDeepLink(deepLink);
+    } catch (err: any) {
+      setTelegramLinkError(err.message || t.starsConnectError);
+    } finally {
+      setTelegramLinkLoading(false);
+    }
+  };
+
+  // The bot username isn't otherwise sent to the client — rather than plumb a
+  // brand-new profile field, derive it from the Telegram referral link the
+  // profile already carries (both are built from the same
+  // vpn.telegram.bot-username server property, see UserController).
+  const telegramBotUsername = (() => {
+    if (!referralTelegramLink) return null;
+    try {
+      const url = new URL(referralTelegramLink);
+      return url.hostname === 't.me' ? url.pathname.replace(/^\//, '') : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  // Same denominations/prices as TelegramBotService's /balance inline
+  // keyboard (sendBalanceMenu) — kept in sync manually since the bot doesn't
+  // expose them over the API.
+  const STAR_DENOMINATIONS: { stars: number; usd: number }[] = [
+    { stars: 50, usd: 1 },
+    { stars: 250, usd: 5 },
+    { stars: 500, usd: 10 },
+    { stars: 1000, usd: 20 },
+  ];
 
   const handleCreateInvoice = async () => {
     try {
@@ -650,7 +715,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 py-10 overflow-y-auto">
           <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-md w-full space-y-6">
             <div className="sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3 bg-dark-850 rounded-t-3xl flex items-center justify-between z-10">
-              <h3 className="font-bold text-base">{t.topUp} (USDT)</h3>
+              <h3 className="font-bold text-base">{t.topUp}</h3>
               <button
                 onClick={() => setOpenTopUp(false)}
                 className="text-slate-400 hover:text-white text-xs"
@@ -659,24 +724,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </button>
             </div>
 
-            {/* Invoice Generator */}
+            {/* Payment method */}
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Network</label>
-              <div className="flex gap-2 mb-3">
+              <label className="block text-xs text-slate-400 mb-1">{t.topUpMethodLabel}</label>
+              <div className="flex gap-2">
                 {(
                   [
-                    { value: 'TRON' as const, label: 'TRC-20 (Tron)' },
-                    { value: 'ETHEREUM' as const, label: 'ERC-20 (Ethereum)' },
+                    { value: 'crypto' as const, label: t.topUpMethodCrypto },
+                    { value: 'stars' as const, label: t.topUpMethodStars },
                   ]
                 ).map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={() => {
-                      setDepositChain(opt.value);
-                      setInvoice(null);
-                    }}
+                    onClick={() => setTopUpMethod(opt.value)}
                     className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border ${
-                      depositChain === opt.value
+                      topUpMethod === opt.value
                         ? 'bg-brand-500 text-dark-950 border-brand-500'
                         : 'bg-dark-900 border-dark-700 text-slate-300'
                     }`}
@@ -685,94 +747,185 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </button>
                 ))}
               </div>
-              <label className="block text-xs text-slate-400 mb-1">Select Amount (USDT)</label>
-              <div className="flex gap-2 mb-3">
-                {['1', '5', '10', '20'].map((amt) => (
-                  <button
-                    key={amt}
-                    onClick={() => setInvoiceAmount(amt)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border ${
-                      invoiceAmount === amt
-                        ? 'bg-brand-500 text-dark-950 border-brand-500'
-                        : 'bg-dark-900 border-dark-700 text-slate-300'
-                    }`}
-                  >
-                    ${amt}
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={handleCreateInvoice}
-                className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs"
-              >
-                Get Deposit Address
-              </button>
             </div>
 
-            {invoice && (
-              <div className="p-4 rounded-xl bg-dark-900 border border-dark-700 space-y-3">
-                <div className="flex justify-center p-2 bg-white rounded-lg">
-                  <QRCodeSVG value={invoice.recipientAddress} size={140} />
-                </div>
+            {topUpMethod === 'crypto' && (
+              <>
+                {/* Invoice Generator */}
                 <div>
-                  <span className="text-[11px] text-slate-400">Exact amount to send:</span>
-                  <div className="text-base font-bold text-brand-400">
-                    {(invoice.expectedAmountUsdtMicro / 1_000_000).toFixed(6)} USDT
+                  <label className="block text-xs text-slate-400 mb-1">Network</label>
+                  <div className="flex gap-2 mb-3">
+                    {(
+                      [
+                        { value: 'TRON' as const, label: 'TRC-20 (Tron)' },
+                        { value: 'ETHEREUM' as const, label: 'ERC-20 (Ethereum)' },
+                      ]
+                    ).map((opt) => (
+                      <button
+                        key={opt.value}
+                        onClick={() => {
+                          setDepositChain(opt.value);
+                          setInvoice(null);
+                        }}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border ${
+                          depositChain === opt.value
+                            ? 'bg-brand-500 text-dark-950 border-brand-500'
+                            : 'bg-dark-900 border-dark-700 text-slate-300'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{t.depositAmountHint}</p>
-                  <span className="text-[10px] text-slate-500">
-                    Acceptable window: {(invoice.toleranceMinMicro / 1_000_000).toFixed(6)} - {(invoice.toleranceMaxMicro / 1_000_000).toFixed(6)}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[11px] text-slate-400">
-                    {invoice.chain === 'ETHEREUM' ? 'ERC-20 Address:' : 'TRC-20 Address:'}
-                  </span>
-                  <div className="text-xs font-mono break-all text-slate-200 mt-0.5">
-                    {invoice.recipientAddress}
+                  <label className="block text-xs text-slate-400 mb-1">Select Amount (USDT)</label>
+                  <div className="flex gap-2 mb-3">
+                    {['1', '5', '10', '20'].map((amt) => (
+                      <button
+                        key={amt}
+                        onClick={() => setInvoiceAmount(amt)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border ${
+                          invoiceAmount === amt
+                            ? 'bg-brand-500 text-dark-950 border-brand-500'
+                            : 'bg-dark-900 border-dark-700 text-slate-300'
+                        }`}
+                      >
+                        ${amt}
+                      </button>
+                    ))}
                   </div>
+                  <button
+                    onClick={handleCreateInvoice}
+                    className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs"
+                  >
+                    Get Deposit Address
+                  </button>
                 </div>
-              </div>
+
+                {invoice && (
+                  <div className="p-4 rounded-xl bg-dark-900 border border-dark-700 space-y-3">
+                    <div className="flex justify-center p-2 bg-white rounded-lg">
+                      <QRCodeSVG value={invoice.recipientAddress} size={140} />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400">Exact amount to send:</span>
+                      <div className="text-base font-bold text-brand-400">
+                        {(invoice.expectedAmountUsdtMicro / 1_000_000).toFixed(6)} USDT
+                      </div>
+                      <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{t.depositAmountHint}</p>
+                      <span className="text-[10px] text-slate-500">
+                        Acceptable window: {(invoice.toleranceMinMicro / 1_000_000).toFixed(6)} - {(invoice.toleranceMaxMicro / 1_000_000).toFixed(6)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-400">
+                        {invoice.chain === 'ETHEREUM' ? 'ERC-20 Address:' : 'TRC-20 Address:'}
+                      </span>
+                      <div className="text-xs font-mono break-all text-slate-200 mt-0.5">
+                        {invoice.recipientAddress}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* "I paid, here is the hash" form */}
+                <form onSubmit={handleClaimTx} className="pt-4 border-t border-dark-800 space-y-3">
+                  <h4 className="font-bold text-xs text-slate-300">{t.claimTxTitle}</h4>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">{t.claimTxDesc}</p>
+
+                  {claimStatus && (
+                    <p className="text-xs text-emerald-400">{claimStatus}</p>
+                  )}
+                  {claimError && (
+                    <p className="text-xs text-red-400">{claimError}</p>
+                  )}
+
+                  <input
+                    type="text"
+                    required
+                    placeholder="Transaction Hash (TxID)"
+                    value={claimTxHash}
+                    onChange={(e) => setClaimTxHash(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      placeholder="Amount in USDT"
+                      value={claimAmount}
+                      onChange={(e) => setClaimAmount(e.target.value)}
+                      className="w-32 px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
+                    />
+                    <button
+                      type="submit"
+                      className="flex-1 py-2 rounded-xl bg-dark-800 hover:bg-dark-700 text-xs font-semibold text-slate-200 border border-dark-700"
+                    >
+                      {t.claimBtn}
+                    </button>
+                  </div>
+                </form>
+              </>
             )}
 
-            {/* "I paid, here is the hash" form */}
-            <form onSubmit={handleClaimTx} className="pt-4 border-t border-dark-800 space-y-3">
-              <h4 className="font-bold text-xs text-slate-300">{t.claimTxTitle}</h4>
-              <p className="text-[11px] text-slate-400 leading-relaxed">{t.claimTxDesc}</p>
+            {topUpMethod === 'stars' && (
+              <div className="space-y-4">
+                <p className="text-[11px] text-slate-400 leading-relaxed">{t.starsIntro}</p>
 
-              {claimStatus && (
-                <p className="text-xs text-emerald-400">{claimStatus}</p>
-              )}
-              {claimError && (
-                <p className="text-xs text-red-400">{claimError}</p>
-              )}
-
-              <input
-                type="text"
-                required
-                placeholder="Transaction Hash (TxID)"
-                value={claimTxHash}
-                onChange={(e) => setClaimTxHash(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
-              />
-              <div className="flex gap-2">
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  placeholder="Amount in USDT"
-                  value={claimAmount}
-                  onChange={(e) => setClaimAmount(e.target.value)}
-                  className="w-32 px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
-                />
-                <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-xl bg-dark-800 hover:bg-dark-700 text-xs font-semibold text-slate-200 border border-dark-700"
-                >
-                  {t.claimBtn}
-                </button>
+                {!user.telegramLinked ? (
+                  <div className="p-4 rounded-xl bg-dark-900 border border-dark-700 space-y-3">
+                    {!telegramLinkDeepLink ? (
+                      <button
+                        onClick={handleConnectTelegram}
+                        disabled={telegramLinkLoading}
+                        className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs disabled:opacity-60"
+                      >
+                        {telegramLinkLoading ? '…' : t.starsConnectBtn}
+                      </button>
+                    ) : (
+                      <>
+                        <div className="flex justify-center p-2 bg-white rounded-lg">
+                          <QRCodeSVG value={telegramLinkDeepLink} size={140} />
+                        </div>
+                        <a
+                          href={telegramLinkDeepLink}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block w-full text-center py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs"
+                        >
+                          {t.starsOpenTelegramBtn}
+                        </a>
+                        <p className="text-[11px] text-slate-500 text-center">{t.starsWaitingConfirm}</p>
+                      </>
+                    )}
+                    {telegramLinkError && (
+                      <p className="text-xs text-red-400">{telegramLinkError}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-emerald-400">{t.starsLinkedHint}</p>
+                    {telegramBotUsername ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        {STAR_DENOMINATIONS.map((d) => (
+                          <a
+                            key={d.stars}
+                            href={`https://t.me/${telegramBotUsername}?start=stars_${d.stars}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="py-2.5 rounded-lg text-xs font-semibold border bg-dark-900 border-dark-700 text-slate-200 hover:border-brand-500 text-center transition-colors"
+                          >
+                            {`⭐️ ${d.stars} Stars ($${d.usd.toFixed(2)})`}
+                          </a>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-red-400">{t.starsNoBotUsername}</p>
+                    )}
+                  </div>
+                )}
               </div>
-            </form>
+            )}
           </div>
         </div>
       )}

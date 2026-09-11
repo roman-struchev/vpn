@@ -10,6 +10,7 @@ import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.InsufficientBalanceException;
 import com.vpn.server.service.SubscriptionExportService;
+import com.vpn.server.service.TelegramLinkService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,7 @@ public class UserController {
     private final SubscriptionExportService exportService;
     private final DeviceManagementService deviceManagementService;
     private final AntiEnumerationService antiEnumerationService;
+    private final TelegramLinkService telegramLinkService;
 
     public UserController(
             UserRepository userRepository,
@@ -42,7 +44,8 @@ public class UserController {
             CryptoInvoiceRepository cryptoInvoiceRepository,
             SubscriptionExportService exportService,
             DeviceManagementService deviceManagementService,
-            AntiEnumerationService antiEnumerationService
+            AntiEnumerationService antiEnumerationService,
+            TelegramLinkService telegramLinkService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -52,6 +55,7 @@ public class UserController {
         this.exportService = exportService;
         this.deviceManagementService = deviceManagementService;
         this.antiEnumerationService = antiEnumerationService;
+        this.telegramLinkService = telegramLinkService;
     }
 
     /** Public origin of the web dashboard, used to build shareable referral links. */
@@ -90,6 +94,14 @@ public class UserController {
         // what web/src/App.tsx reads to prefill the signup form's referral field.
         response.put("referralLink", buildReferralWebLink(user.getReferralCode()));
         response.put("referralTelegramLink", buildReferralTelegramLink(user.getReferralCode()));
+        // Lets the web dashboard's Top Up modal tell whether Telegram Stars is
+        // actually usable yet: a Stars payment can only be completed inside
+        // Telegram (the Bot API can't push an invoice into an arbitrary web
+        // session), so the client needs to know whether this account already
+        // has a Telegram chat attached (see POST /telegram-link) before it can
+        // offer the Stars denomination buttons instead of the "connect
+        // Telegram first" prompt.
+        response.put("telegramLinked", user.getTelegramId() != null);
         response.put("hasActiveSubscription", sub.isPresent());
         // So the client can hide/disable the trial tariff's action button once
         // it's been used — the trial is one-shot (see BillingService.
@@ -119,6 +131,30 @@ public class UserController {
         if (referralCode == null || referralCode.isBlank()) return "";
         if (telegramBotUsername == null || telegramBotUsername.isBlank()) return "";
         return "https://t.me/" + telegramBotUsername.trim().replaceFirst("^@", "") + "?start=" + referralCode;
+    }
+
+    /**
+     * Starts linking the caller's web account to a Telegram chat, so Telegram
+     * Stars top-ups (which can only be completed inside Telegram -- the Bot
+     * API can't push an invoice into an arbitrary web session) can be attached
+     * to this account. Returns a short-lived opaque code and the deep link
+     * that carries it; opening the link and hitting /start in the bot lets
+     * TelegramBotService#handleAccountLinkStart (see there) attach the chat
+     * that opened it to this user, once the user taps it.
+     */
+    @PostMapping("/telegram-link")
+    public ResponseEntity<?> createTelegramLink(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        String code = telegramLinkService.createPendingLink(userId);
+        return ResponseEntity.ok(Map.of(
+                "code", code,
+                "deepLink", buildTelegramLinkDeepLink(code)
+        ));
+    }
+
+    private String buildTelegramLinkDeepLink(String code) {
+        String username = telegramBotUsername == null ? "" : telegramBotUsername.trim().replaceFirst("^@", "");
+        return "https://t.me/" + username + "?start=link_" + code;
     }
 
     @GetMapping("/tariffs")

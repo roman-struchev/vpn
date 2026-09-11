@@ -8,6 +8,13 @@ export interface UserProfile {
   referralLink?: string;
   /** Optional extra channel — Telegram deep link, only useful to Telegram users. */
   referralTelegramLink?: string;
+  /**
+   * Whether this account already has a Telegram chat attached (telegramId set
+   * server-side). A Telegram Stars top-up can only be completed inside
+   * Telegram, so the dashboard's Top Up modal uses this to decide whether to
+   * show the "connect Telegram" step or the Stars denomination buttons.
+   */
+  telegramLinked?: boolean;
   hasActiveSubscription: boolean;
   hasUsedTrial: boolean;
   subscription?: {

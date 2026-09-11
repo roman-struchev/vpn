@@ -105,6 +105,20 @@ export const api = {
     return res.json();
   },
 
+  /**
+   * Starts linking this account to a Telegram chat, so Telegram Stars
+   * top-ups (only completable inside Telegram) can be attached to it. See
+   * DashboardView.tsx's Top Up modal.
+   */
+  async createTelegramLink(): Promise<{ code: string; deepLink: string }> {
+    const res = await fetch('/api/v1/user/telegram-link', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to create Telegram link');
+    return res.json();
+  },
+
   async getInvoiceHistory(): Promise<InvoiceHistoryEntry[]> {
     const res = await fetch('/api/v1/user/invoices', {
       headers: getAuthHeaders(),
