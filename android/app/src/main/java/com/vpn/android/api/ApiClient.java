@@ -95,6 +95,15 @@ public class ApiClient {
         return resp;
     }
 
+    public AuthResponse googleAuth(String idToken, String referralCode) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("idToken", idToken);
+        if (referralCode != null) body.addProperty("referralCode", referralCode);
+        AuthResponse resp = post("api/v1/auth/google", body, AuthResponse.class, false);
+        tokenStore.save(resp.token, resp.userId);
+        return resp;
+    }
+
     public UserProfile getProfile() throws ApiException, IOException {
         return get("api/v1/user/profile", UserProfile.class);
     }
