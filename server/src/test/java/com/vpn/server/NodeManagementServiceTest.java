@@ -19,6 +19,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class NodeManagementServiceTest {
@@ -258,5 +260,136 @@ class NodeManagementServiceTest {
         assertEquals(1, sync.getClientsCount());
         assertFalse(sync.getClients(0).getIsActive(),
                 "a BLOCKED user must lose VPN access even with an unexpired subscription");
+    }
+
+    @Test
+    void testProcessTrafficStatsComputesRecentBytesPerSec() {
+        // Regression for the "region load ignores actual throughput" gap: bytes
+        // reported this round, divided by elapsed time since the previous
+        // report, should give a bytes/sec figure the region picker can use
+        // (SubscriptionExportService#loadLevelFor) — a far more honest "is this
+        // node busy" signal for a proxy than CPU alone.
+        Node node = new Node();
+        node.setId(30L);
+        node.setTotalBytesServed(1_000L);
+        // A wide, fixed window (100s) keeps the expected rate stable regardless
+        // of how long this test itself takes to run.
+        Instant previousReportAt = Instant.now().minusSeconds(100);
+        node.setLastTrafficStatsAt(previousReportAt);
+
+        when(nodeRepository.findById(30L)).thenReturn(Optional.of(node));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(anyLong(), eq("ACTIVE")))
+                .thenReturn(Optional.empty());
+
+        TrafficStatsReport report = TrafficStatsReport.newBuilder()
+                .addDeltas(ClientTrafficDelta.newBuilder()
+                        .setUserId(1L)
+                        .setDeviceId(1L)
+                        .setUplinkBytes(300_000L)
+                        .setDownlinkBytes(200_000L)
+                        .build())
+                .build();
+
+        nodeManagementService.processTrafficStats(30L, report);
+
+        ArgumentCaptor<Node> nodeCaptor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(nodeCaptor.capture());
+        Node saved = nodeCaptor.getValue();
+
+        assertEquals(501_000L, saved.getTotalBytesServed());
+        assertNotNull(saved.getRecentBytesPerSec());
+        // ~500000 bytes / ~100s == ~5000 bytes/sec; generous tolerance for the
+        // few ms of real wall-clock time this test itself takes.
+        assertEquals(5000.0, saved.getRecentBytesPerSec(), 50.0);
+        assertTrue(saved.getLastTrafficStatsAt().isAfter(previousReportAt));
+    }
+
+    @Test
+    void testProcessTrafficStatsFirstReportSkipsRateButRecordsTimestamp() {
+        // No prior timestamp to diff against yet — must not crash or invent a
+        // rate; recentBytesPerSec should simply stay whatever it was (null on a
+        // brand-new node) until the next report can compute a real one.
+        Node node = new Node();
+        node.setId(31L);
+        node.setTotalBytesServed(0L);
+        node.setLastTrafficStatsAt(null);
+
+        when(nodeRepository.findById(31L)).thenReturn(Optional.of(node));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(anyLong(), eq("ACTIVE")))
+                .thenReturn(Optional.empty());
+
+        TrafficStatsReport report = TrafficStatsReport.newBuilder()
+                .addDeltas(ClientTrafficDelta.newBuilder()
+                        .setUserId(2L)
+                        .setDeviceId(2L)
+                        .setUplinkBytes(1_000L)
+                        .setDownlinkBytes(1_000L)
+                        .build())
+                .build();
+
+        nodeManagementService.processTrafficStats(31L, report);
+
+        ArgumentCaptor<Node> nodeCaptor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(nodeCaptor.capture());
+        Node saved = nodeCaptor.getValue();
+
+        assertEquals(2_000L, saved.getTotalBytesServed());
+        assertNull(saved.getRecentBytesPerSec());
+        assertNotNull(saved.getLastTrafficStatsAt());
+    }
+
+    @Test
+    void testProcessHeartbeatZeroesRecentBytesPerSecWhenNoActiveConnections() {
+        // Regression: the agent only ever sends a traffic-stats report while it
+        // has connected users (AgentGrpcClient#sendTrafficStats), so once
+        // connections drop to zero, recentBytesPerSec would otherwise keep
+        // showing stale throughput forever — the same "smeared stale history"
+        // failure mode the CPU load-average bug had, just for throughput.
+        Node node = new Node();
+        node.setId(32L);
+        node.setRecentBytesPerSec(12_345.0);
+
+        when(nodeRepository.findById(32L)).thenReturn(Optional.of(node));
+
+        Heartbeat heartbeat = Heartbeat.newBuilder()
+                .setCpuPercent(5.0)
+                .setCpuCount(4)
+                .setMemoryUsedBytes(100L)
+                .setMemoryTotalBytes(200L)
+                .setActiveConnections(0)
+                .build();
+
+        nodeManagementService.processHeartbeat(32L, heartbeat);
+
+        ArgumentCaptor<Node> nodeCaptor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(nodeCaptor.capture());
+        Node saved = nodeCaptor.getValue();
+
+        assertEquals(0.0, saved.getRecentBytesPerSec());
+    }
+
+    @Test
+    void testProcessHeartbeatPreservesRecentBytesPerSecWhenConnectionsPresent() {
+        Node node = new Node();
+        node.setId(33L);
+        node.setRecentBytesPerSec(12_345.0);
+
+        when(nodeRepository.findById(33L)).thenReturn(Optional.of(node));
+
+        Heartbeat heartbeat = Heartbeat.newBuilder()
+                .setCpuPercent(5.0)
+                .setCpuCount(4)
+                .setMemoryUsedBytes(100L)
+                .setMemoryTotalBytes(200L)
+                .setActiveConnections(3)
+                .build();
+
+        nodeManagementService.processHeartbeat(33L, heartbeat);
+
+        ArgumentCaptor<Node> nodeCaptor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(nodeCaptor.capture());
+        Node saved = nodeCaptor.getValue();
+
+        assertEquals(12_345.0, saved.getRecentBytesPerSec());
     }
 }
