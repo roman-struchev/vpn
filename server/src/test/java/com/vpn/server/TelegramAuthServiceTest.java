@@ -14,6 +14,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -42,6 +45,12 @@ class TelegramAuthServiceTest {
     @Mock
     private JwtUtil jwtUtil;
 
+    @Mock
+    private PlatformTransactionManager transactionManager;
+
+    @Mock
+    private TransactionStatus transactionStatus;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private TelegramAuthService telegramAuthService;
@@ -54,7 +63,8 @@ class TelegramAuthServiceTest {
                 userRepository,
                 subscriptionRepository,
                 tariffRepository,
-                jwtUtil
+                jwtUtil,
+                transactionManager
         );
         telegramAuthService.setBotToken(testBotToken);
     }
@@ -132,12 +142,56 @@ class TelegramAuthServiceTest {
         when(userRepository.save(any(User.class))).thenReturn(newUser);
         when(tariffRepository.findById("trial")).thenReturn(Optional.of(trial));
         when(jwtUtil.generateToken(any(), any(), any())).thenReturn("jwt_new_token");
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
 
         AuthResponse resp = telegramAuthService.authenticateTelegram(initData, null);
 
         assertNotNull(resp);
         assertEquals("jwt_new_token", resp.token());
         verify(subscriptionRepository).save(any());
+    }
+
+    /**
+     * Regression test for the create-race that produced an unhandled 500 in
+     * production (duplicate key on users_email_key/telegram_id): two
+     * concurrent first-time logins for the same telegramId can both see "no
+     * user found" and both attempt to INSERT. The loser must recover by
+     * re-reading the winner's row instead of letting the constraint violation
+     * bubble up. Simulated here by making the first findByTelegramId() call
+     * report "not found", the save() attempt fail as if it lost the DB race,
+     * and the retry findByTelegramId() call (post-catch) return the winner's
+     * already-committed row.
+     */
+    @Test
+    void testConcurrentNewUserRaceRecoversWinnerRow() throws Exception {
+        long tgId = 777888999L;
+        long nowEpoch = Instant.now().getEpochSecond();
+        String initData = generateValidInitData(tgId, "racer", nowEpoch);
+
+        User winner = new User();
+        winner.setId(200L);
+        winner.setTelegramId(tgId);
+        winner.setEmail("tg_777888999@t.me");
+        winner.setRole("USER");
+        winner.setStatus("ACTIVE");
+        winner.setReferralCode("TGWIN");
+
+        when(userRepository.findByTelegramId(tgId))
+                .thenReturn(Optional.empty(), Optional.of(winner));
+        when(transactionManager.getTransaction(any())).thenReturn(transactionStatus);
+        when(userRepository.save(any(User.class)))
+                .thenThrow(new DataIntegrityViolationException(
+                        "duplicate key value violates unique constraint \"users_telegram_id_key\""));
+        when(jwtUtil.generateToken(200L, "tg_777888999@t.me", "USER")).thenReturn("jwt_winner_token");
+
+        AuthResponse resp = telegramAuthService.authenticateTelegram(initData, null);
+
+        assertNotNull(resp);
+        assertEquals("jwt_winner_token", resp.token());
+        assertEquals(200L, resp.userId());
+        // The loser must never grant its own trial subscription for a user it
+        // never actually created.
+        verify(subscriptionRepository, never()).save(any());
     }
 
     @Test

@@ -13,8 +13,11 @@ import com.vpn.server.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -38,6 +41,11 @@ public class TelegramAuthService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
 
+    // See DeviceAuthService's newUserTransactionTemplate for why the "create
+    // new user" insert needs its own REQUIRES_NEW transaction rather than a
+    // plain @Transactional method called from within this same class.
+    private final TransactionTemplate newUserTransactionTemplate;
+
     @Value("${vpn.telegram.bot-token:}")
     private String botToken;
 
@@ -45,12 +53,15 @@ public class TelegramAuthService {
             UserRepository userRepository,
             SubscriptionRepository subscriptionRepository,
             TariffRepository tariffRepository,
-            JwtUtil jwtUtil
+            JwtUtil jwtUtil,
+            PlatformTransactionManager transactionManager
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.tariffRepository = tariffRepository;
         this.jwtUtil = jwtUtil;
+        this.newUserTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.newUserTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     public void setBotToken(String botToken) {
@@ -65,12 +76,10 @@ public class TelegramAuthService {
             String languageCode
     ) {}
 
-    @Transactional
     public AuthResponse authenticateTelegram(String initData, String referralCode) {
         TelegramUser tgUser = validateAndParseInitData(initData);
 
-        User user = userRepository.findByTelegramId(tgUser.id())
-                .orElseGet(() -> createNewTelegramUser(tgUser, referralCode));
+        User user = findOrCreateTelegramUser(tgUser, referralCode);
 
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new IllegalStateException("Account is suspended or blocked");
@@ -78,6 +87,23 @@ public class TelegramAuthService {
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
         return new AuthResponse(token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode());
+    }
+
+    /**
+     * Find-or-create keyed by telegramId, resilient to two concurrent
+     * requests racing to create the same never-before-seen telegramId (see
+     * DeviceAuthService#findOrCreateDeviceUser for the full race explanation).
+     */
+    private User findOrCreateTelegramUser(TelegramUser tgUser, String referralCode) {
+        Optional<User> existing = userRepository.findByTelegramId(tgUser.id());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        try {
+            return newUserTransactionTemplate.execute(status -> createNewTelegramUser(tgUser, referralCode));
+        } catch (DataIntegrityViolationException e) {
+            return userRepository.findByTelegramId(tgUser.id()).orElseThrow(() -> e);
+        }
     }
 
     public TelegramUser validateAndParseInitData(String initData) {
