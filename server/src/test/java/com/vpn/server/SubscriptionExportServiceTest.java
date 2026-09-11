@@ -329,6 +329,45 @@ class SubscriptionExportServiceTest {
     }
 
     @Test
+    void testGetAvailableRegionsWithZeroConnectionsNeverReportsHigh() {
+        // Regression for the "idle node shown as loaded" bug: a node with zero
+        // active connections has nothing to do with VPN traffic, but stale/
+        // unrelated host CPU (OS housekeeping, monitoring agents, a residual
+        // reading right after some unrelated burst) could still read fairly
+        // high. Zero connections should cap the result at MEDIUM, never HIGH.
+        User user = new User();
+        user.setId(27L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node idleButCpuHigh = new Node();
+        idleButCpuHigh.setId(9L);
+        idleButCpuHigh.setRegion("eu-fra");
+        idleButCpuHigh.setStatus("ONLINE");
+        idleButCpuHigh.setPool("paid");
+        idleButCpuHigh.setCpuPercent(new java.math.BigDecimal("90.0"));
+        idleButCpuHigh.setActiveConnections(0);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(27L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(idleButCpuHigh));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(27L);
+
+        SubscriptionExportService.RegionSummary fra = regions.stream()
+                .filter(r -> r.region().equals("eu-fra")).findFirst().orElseThrow();
+        assertEquals(0L, fra.avgActiveConnections());
+        assertEquals("MEDIUM", fra.loadLevel());
+    }
+
+    @Test
     void testGetAvailableRegionsNoActiveSubscriptionThrows() {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(26L, "ACTIVE"))
                 .thenReturn(Optional.empty());

@@ -160,11 +160,21 @@ public class SubscriptionExportService {
      * for nodes that don't report CPU. Deliberately not a real capacity model
      * (no per-node bandwidth/connection ceiling is tracked) — just enough for a
      * user to pick a less-congested region at a glance, per the product ask.
+     *
+     * When avgActiveConnections is 0, CPU is capped from pushing the result past
+     * MEDIUM: zero connected users is an unambiguous "nobody is using this
+     * region right now" signal, and host CPU can still read nonzero from things
+     * with nothing to do with VPN traffic (OS housekeeping, monitoring agents,
+     * a residual reading right after a burst of unrelated activity, etc.) — an
+     * idle-of-traffic region should never look like the busiest choice.
      */
     private static String loadLevelFor(Double avgCpuPercent, long avgActiveConnections) {
         double score = avgCpuPercent != null
                 ? avgCpuPercent
                 : Math.min(100.0, avgActiveConnections / 2.0);
+        if (avgActiveConnections == 0) {
+            score = Math.min(score, 74.0);
+        }
         if (score < 40) return "LOW";
         if (score < 75) return "MEDIUM";
         return "HIGH";

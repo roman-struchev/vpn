@@ -22,6 +22,12 @@ export class AgentGrpcClient {
   // the next sendHeartbeat() as a "recently active" proxy (see Heartbeat.
   // active_connections in agent.proto for why this isn't a literal live count).
   private lastActiveUserCount: number = 0;
+  // Previous os.cpus() snapshot (summed across all cores), used to derive an
+  // actual CPU-busy percentage over the last heartbeat interval by diffing
+  // cumulative tick counters — see sendHeartbeat() for why this replaced
+  // os.loadavg()[0], which is a decaying ~1-minute average, not an
+  // instantaneous "percent busy right now" figure.
+  private lastCpuSnapshot: { idle: number; total: number } | null = null;
 
   constructor(config: AgentConfig, xraySupervisor: XraySupervisor, statsCollector: StatsCollector) {
     this.config = config;
@@ -143,15 +149,50 @@ export class AgentGrpcClient {
     }, delay);
   }
 
+  // Snapshots and sums os.cpus()' cumulative per-core tick counters (ms since
+  // boot). Diffing two snapshots taken heartbeatIntervalMs apart gives the
+  // fraction of that interval the CPU was actually busy, which — unlike
+  // os.loadavg()[0] (an exponentially-decaying ~1-minute average that keeps
+  // reporting elevated load for a while after a burst of activity has
+  // already ended) — reflects only what happened since the last heartbeat.
+  private static snapshotCpuTimes(): { idle: number; total: number } {
+    let idle = 0;
+    let total = 0;
+    for (const cpu of os.cpus()) {
+      idle += cpu.times.idle;
+      for (const t of Object.values(cpu.times)) {
+        total += t;
+      }
+    }
+    return { idle, total };
+  }
+
+  private computeCpuPercent(): number {
+    const snapshot = AgentGrpcClient.snapshotCpuTimes();
+    const previous = this.lastCpuSnapshot;
+    this.lastCpuSnapshot = snapshot;
+
+    // First heartbeat has nothing to diff against yet — report 0 rather than
+    // a misleading reading (and definitely not a crash from dividing by the
+    // still-unknown interval delta).
+    if (!previous) return 0;
+
+    const idleDelta = snapshot.idle - previous.idle;
+    const totalDelta = snapshot.total - previous.total;
+    if (totalDelta <= 0) return 0;
+
+    const busyPercent = 100 * (1 - idleDelta / totalDelta);
+    return Math.min(100, Math.max(0, Math.round(busyPercent * 10) / 10));
+  }
+
   private sendHeartbeat(): void {
     if (!this.activeStream || !this.config.nodeId || !this.config.nodeToken) return;
 
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
-    const loadAvg = os.loadavg();
     const cpuCount = os.cpus().length || 1;
-    const cpuPercent = Math.min(100, Math.round((loadAvg[0] / cpuCount) * 100 * 10) / 10);
+    const cpuPercent = this.computeCpuPercent();
     const xrayStatus = this.xraySupervisor.getStatus();
 
     const msg = {
