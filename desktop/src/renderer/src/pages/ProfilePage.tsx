@@ -55,16 +55,30 @@ export default function ProfilePage({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // A trial/guest profile has no billing, balance or referral program of
+  // its own to manage — that's all real-account state, and none of it is
+  // "really theirs" yet (see AuthController#upgrade / GuestMergeService for
+  // what happens once it is). So the guest view is deliberately just the
+  // explanation plus one way out, not a stripped-down copy of the full
+  // profile.
+  if (profile?.isGuest) {
+    return (
+      <div className="flex flex-col gap-4 px-6 py-6">
+        <h1 className="text-lg font-semibold">{t.guestProfileTitle}</h1>
+        <p className="text-sm text-white/60">{t.guestProfileDesc}</p>
+        <button
+          className="mt-4 rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
+          onClick={onSwitchAccount}
+        >
+          {t.signInOrRegister}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4 px-6 py-6">
-      {profile?.isGuest ? (
-        <>
-          <h1 className="text-lg font-semibold">{t.guestProfileTitle}</h1>
-          <p className="text-sm text-white/60">{t.guestProfileDesc}</p>
-        </>
-      ) : (
-        <h1 className="text-lg font-semibold">{profile?.email}</h1>
-      )}
+      <h1 className="text-lg font-semibold">{profile?.email}</h1>
       <p className="text-sm text-white/70">
         {t.balance}: {profile ? (profile.balanceUsdtMicro / 1_000_000).toFixed(2) : '—'} USDT
       </p>
@@ -98,27 +112,12 @@ export default function ProfilePage({
         {t.manageBilling}
       </button>
       {billingError && <p className="text-xs text-state-error">{billingError}</p>}
-      {profile?.isGuest ? (
-        // No logout here: this profile isn't something the user consciously
-        // created, so "logging out" of it has no useful meaning — the only
-        // exit that makes sense is signing into (or creating) a real
-        // account. onSwitchAccount does that without clearing the trial
-        // session first, so its balance/remaining trial can be carried over
-        // (see GuestMergeService / AuthController#upgrade on the server).
-        <button
-          className="rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white hover:bg-brand-700"
-          onClick={onSwitchAccount}
-        >
-          {t.signInOrRegister}
-        </button>
-      ) : (
-        <button
-          className="rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
-          onClick={logout}
-        >
-          {t.logout}
-        </button>
-      )}
+      <button
+        className="rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
+        onClick={logout}
+      >
+        {t.logout}
+      </button>
     </div>
   );
 }
