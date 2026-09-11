@@ -68,7 +68,11 @@ test.describe('Admin panel', () => {
     await page.getByPlaceholder('Сумма (USDT, может быть отрицательной)').fill('7.5');
     await page.getByPlaceholder('Причина').fill('e2e test credit');
     // Two "Применить" buttons exist in the dialog (balance + subscription
-    // extend) — the balance one comes first in DOM order.
+    // extend) — the balance one comes first in DOM order. A non-zero balance
+    // adjustment now asks window.confirm(...) first (added to guard against a
+    // misclick — see UX_REVIEW.md #3); Playwright dismisses an unhandled
+    // confirm() by default, so accept it explicitly or the apply never fires.
+    page.once('dialog', (dialog) => dialog.accept());
     await page.getByRole('button', { name: 'Применить', exact: true }).first().click();
 
     // Dialog closes and the table reloads with the updated balance.

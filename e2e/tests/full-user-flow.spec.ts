@@ -74,18 +74,25 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
 
     await page.reload();
     await expect(page.getByText('E2E Test Phone')).toBeVisible();
-    await expect(page.getByText('Active connections: 1')).toBeVisible();
+    // The "Active connections: N" label this used to assert on was removed
+    // from DashboardView before this test was last touched — the device
+    // section header now just shows a plain "count / maxDevices" figure.
+    await expect(page.getByTestId('device-count')).toHaveText(/^1/);
 
     page.once('dialog', (dialog) => dialog.accept());
     await page.getByTitle('Отозвать доступ').click();
 
     await expect(page.getByText('E2E Test Phone')).toHaveCount(0);
-    await expect(page.getByText('Active connections: 0')).toBeVisible();
+    await expect(page.getByTestId('device-count')).toHaveText(/^0/);
   });
 
   await test.step('generates a TRC-20 deposit invoice', async () => {
     await page.getByRole('button', { name: /USDT/ }).click(); // navbar balance button opens top-up
-    await expect(page.getByText('Пополнить баланс (USDT)')).toBeVisible();
+    // Modal title dropped its "(USDT)" suffix once Telegram Stars became a
+    // second payment method alongside crypto — check the modal opened via
+    // the payment-method toggle instead, and that Crypto is the default tab.
+    await expect(page.getByText('Пополнить баланс')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Network' })).toHaveCount(0); // sanity: not asserting on removed copy
     // TRON is the default network in the selector added alongside ERC-20 support.
 
     await page.getByRole('button', { name: '$10', exact: true }).click();

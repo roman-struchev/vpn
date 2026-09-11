@@ -359,7 +359,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <Smartphone className="w-5 h-5 text-brand-500" />
             <span>{t.devices}</span>
           </h2>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-400" data-testid="device-count">
             {devices.length}
             {currentTariff ? ` / ${currentTariff.maxDevices}` : ''}
           </p>
