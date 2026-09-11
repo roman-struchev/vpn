@@ -90,7 +90,8 @@ public class DevicesFragment extends Fragment {
 
     private void confirmRevoke(DeviceDto device) {
         new AlertDialog.Builder(requireContext())
-                .setMessage(device.deviceName)
+                .setTitle(R.string.revoke_device_confirm_title)
+                .setMessage(getString(R.string.confirm_revoke_device, device.deviceName))
                 .setPositiveButton(R.string.revoke_device_action, (dialog, which) -> revokeDevice(device))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();

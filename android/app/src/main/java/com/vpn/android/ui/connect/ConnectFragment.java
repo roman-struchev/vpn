@@ -2,7 +2,9 @@ package com.vpn.android.ui.connect;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.net.Uri;
 import android.net.VpnService;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -22,6 +24,7 @@ import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.snackbar.Snackbar;
+import com.vpn.android.BuildConfig;
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
@@ -190,7 +193,9 @@ public class ConnectFragment extends Fragment {
         }
 
         if (latestProfile != null && !latestProfile.hasActiveSubscription) {
-            Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG).show();
+            Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG)
+                    .setAction(R.string.get_plan_action, v -> openBillingPage())
+                    .show();
             return;
         }
 
@@ -210,6 +215,19 @@ public class ConnectFragment extends Fragment {
     private void stopVpn() {
         Intent intent = new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT);
         requireContext().startService(intent);
+    }
+
+    // Neither this app nor the desktop client has any purchase/top-up UI of
+    // its own (buying a plan happens on the web dashboard's pricing section).
+    // Sending the user there in the system browser is a plain link, not any
+    // kind of cross-app login handoff — they'll sign in/register on the web
+    // like any other visitor.
+    private void openBillingPage() {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.WEB_BASE_URL + "#pricing")));
+        } catch (ActivityNotFoundException e) {
+            Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG).show();
+        }
     }
 
     private void renderState(ConnectionState state) {
