@@ -584,8 +584,66 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Billing History — makes the dashboard show something actually
-          happened, not just static plan/device management chrome. */}
+      {/* Referral & Diagnostics Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Referral */}
+        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
+          <h3 className="font-bold text-base mb-2 flex items-center gap-2">
+            <Share2 className="w-4 h-4 text-brand-500" />
+            <span>{t.referralProgram}</span>
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed mb-4">
+            {t.referralDesc}
+          </p>
+          <div className="flex items-center gap-2 p-2 rounded-xl bg-dark-900 border border-dark-800 text-xs">
+            <input
+              type="text"
+              readOnly
+              value={referralWebLink}
+              onFocus={(e) => e.currentTarget.select()}
+              className="bg-transparent flex-1 outline-none text-slate-300 select-all"
+            />
+            <button
+              type="button"
+              onClick={handleCopyReferral}
+              title={t.copyLink}
+              className="p-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-slate-300"
+            >
+              {copiedReferral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-slate-500">
+              {t.referralCodeLabel}: <span className="font-mono text-slate-300">{user.referralCode}</span>
+            </span>
+            {referralTelegramLink && (
+              <a
+                href={referralTelegramLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-500 hover:underline whitespace-nowrap"
+              >
+                {t.referralTelegramLink}
+              </a>
+            )}
+          </div>
+        </div>
+
+        {/* Diagnostics */}
+        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
+          <h3 className="font-bold text-base mb-2 flex items-center gap-2">
+            <HelpCircle className="w-4 h-4 text-brand-500" />
+            <span>{t.diagnostics}</span>
+          </h3>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            {t.diagnosticsText}
+          </p>
+        </div>
+      </div>
+
+      {/* Billing History — moved to the bottom of the page: it's a reference
+          list people scroll to occasionally, not something that needs to
+          compete with plan/device management for top-of-page attention. */}
       <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
         <h3 className="font-bold text-base mb-4 flex items-center gap-2">
           <Receipt className="w-4 h-4 text-brand-500" />
@@ -594,8 +652,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         {mergedHistory.length === 0 ? (
           <p className="text-xs text-slate-500 text-center py-4">{t.noInvoicesYet}</p>
         ) : (
-          <div className="divide-y divide-dark-800">
-            {mergedHistory.slice(0, 5).map((row) => {
+          <div className="divide-y divide-dark-800 max-h-[28rem] overflow-y-auto">
+            {mergedHistory.map((row) => {
               if (row.kind === 'ledger') {
                 const entry = row.data;
                 const amount = entry.amountUsdtMicro / 1_000_000;
@@ -664,63 +722,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             })}
           </div>
         )}
-      </div>
-
-      {/* Referral & Diagnostics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Referral */}
-        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-          <h3 className="font-bold text-base mb-2 flex items-center gap-2">
-            <Share2 className="w-4 h-4 text-brand-500" />
-            <span>{t.referralProgram}</span>
-          </h3>
-          <p className="text-xs text-slate-400 leading-relaxed mb-4">
-            {t.referralDesc}
-          </p>
-          <div className="flex items-center gap-2 p-2 rounded-xl bg-dark-900 border border-dark-800 text-xs">
-            <input
-              type="text"
-              readOnly
-              value={referralWebLink}
-              onFocus={(e) => e.currentTarget.select()}
-              className="bg-transparent flex-1 outline-none text-slate-300 select-all"
-            />
-            <button
-              type="button"
-              onClick={handleCopyReferral}
-              title={t.copyLink}
-              className="p-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-slate-300"
-            >
-              {copiedReferral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
-            <span className="text-slate-500">
-              {t.referralCodeLabel}: <span className="font-mono text-slate-300">{user.referralCode}</span>
-            </span>
-            {referralTelegramLink && (
-              <a
-                href={referralTelegramLink}
-                target="_blank"
-                rel="noreferrer"
-                className="text-brand-500 hover:underline whitespace-nowrap"
-              >
-                {t.referralTelegramLink}
-              </a>
-            )}
-          </div>
-        </div>
-
-        {/* Diagnostics */}
-        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-          <h3 className="font-bold text-base mb-2 flex items-center gap-2">
-            <HelpCircle className="w-4 h-4 text-brand-500" />
-            <span>{t.diagnostics}</span>
-          </h3>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            {t.diagnosticsText}
-          </p>
-        </div>
       </div>
 
       {/* QR Code Modal */}
