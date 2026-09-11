@@ -161,9 +161,20 @@ export class ApiClient {
     return resp;
   }
 
-  /** @param idToken Google ID token (JWT) obtained via the desktop OAuth loopback flow — see main/auth/googleOAuth.ts. */
+  /**
+   * @param idToken Google ID token (JWT) obtained via the desktop OAuth loopback flow — see main/auth/googleOAuth.ts.
+   * Also attaches this install's deviceUuid, same as login() above, so a
+   * guest/trial account still sitting on this device gets folded into
+   * whichever Google account this signs into instead of orphaned — see
+   * GuestMergeService. Applies whether that Google account already existed
+   * or gets created fresh by this very call.
+   */
   async googleAuth(idToken: string, referralCode?: string): Promise<AuthResponse> {
-    const resp = await this.post<AuthResponse>('api/v1/auth/google', { idToken, referralCode }, false);
+    const resp = await this.post<AuthResponse>(
+      'api/v1/auth/google',
+      { idToken, referralCode, deviceUuid: this.tokenStore.getOrCreateDeviceUuid() },
+      false
+    );
     this.tokenStore.save(resp.token, resp.userId);
     return resp;
   }

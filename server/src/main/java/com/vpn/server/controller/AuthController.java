@@ -93,7 +93,18 @@ public class AuthController {
 
     @PostMapping("/google")
     public ResponseEntity<AuthResponse> googleAuth(@RequestBody GoogleAuthRequest request) {
-        return ResponseEntity.ok(googleAuthService.authenticateGoogle(request.idToken(), request.referralCode()));
+        AuthResponse response = googleAuthService.authenticateGoogle(request.idToken(), request.referralCode());
+        // Same merge as /login above, and it applies equally whether this
+        // call found an existing Google-linked account or just created a
+        // brand new one: either way the guest row on this device is now
+        // redundant with a real, credentialed account and should fold into
+        // it rather than sit around orphaned. A newly-created Google account
+        // always already has its own fresh trial (see GoogleAuthService#
+        // createNewGoogleUser), so GuestMergeService correctly leaves the
+        // guest's trial behind in that case and only carries over its
+        // balance — no double-trial risk.
+        mergeGuestIfPresent(request.deviceUuid(), response.userId());
+        return ResponseEntity.ok(response);
     }
 
     /**
