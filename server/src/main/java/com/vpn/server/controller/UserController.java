@@ -1,6 +1,8 @@
 package com.vpn.server.controller;
 
+import com.vpn.server.dto.BalanceHistoryEntryResponse;
 import com.vpn.server.entity.*;
+import com.vpn.server.repository.BalanceEntryRepository;
 import com.vpn.server.repository.CryptoInvoiceRepository;
 import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
@@ -31,6 +33,7 @@ public class UserController {
     private final TariffRepository tariffRepository;
     private final BillingService billingService;
     private final CryptoInvoiceRepository cryptoInvoiceRepository;
+    private final BalanceEntryRepository balanceEntryRepository;
     private final SubscriptionExportService exportService;
     private final DeviceManagementService deviceManagementService;
     private final AntiEnumerationService antiEnumerationService;
@@ -42,6 +45,7 @@ public class UserController {
             TariffRepository tariffRepository,
             BillingService billingService,
             CryptoInvoiceRepository cryptoInvoiceRepository,
+            BalanceEntryRepository balanceEntryRepository,
             SubscriptionExportService exportService,
             DeviceManagementService deviceManagementService,
             AntiEnumerationService antiEnumerationService,
@@ -52,6 +56,7 @@ public class UserController {
         this.tariffRepository = tariffRepository;
         this.billingService = billingService;
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
+        this.balanceEntryRepository = balanceEntryRepository;
         this.exportService = exportService;
         this.deviceManagementService = deviceManagementService;
         this.antiEnumerationService = antiEnumerationService;
@@ -257,6 +262,26 @@ public class UserController {
     public ResponseEntity<List<CryptoInvoice>> getUserInvoices(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
         return ResponseEntity.ok(cryptoInvoiceRepository.findByUserIdOrderByCreatedAtDesc(userId));
+    }
+
+    /**
+     * The user's own balance-ledger history -- every actual fund movement
+     * (deposits, subscription debits, referral bonuses, refunds, manual
+     * adjustments), not just crypto deposit invoices like GET /invoices above.
+     * The web dashboard merges this with /invoices into one "billing history"
+     * card. Capped rather than paginated: this codebase has no list-endpoint
+     * pagination convention to follow, and 100 rows is already far more than
+     * the dashboard displays at once.
+     */
+    @GetMapping("/balance-history")
+    public ResponseEntity<List<BalanceHistoryEntryResponse>> getBalanceHistory(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        List<BalanceHistoryEntryResponse> history = balanceEntryRepository.findByUserIdOrderByCreatedAtDesc(userId)
+                .stream()
+                .limit(100)
+                .map(BalanceHistoryEntryResponse::from)
+                .toList();
+        return ResponseEntity.ok(history);
     }
 
     /**

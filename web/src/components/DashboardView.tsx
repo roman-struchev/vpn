@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Lang, translations } from '../i18n';
-import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, RegionInfo } from '../types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo } from '../types';
 import { api } from '../api';
 
 const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
@@ -69,6 +69,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [showQr, setShowQr] = useState(false);
 
   const [invoiceHistory, setInvoiceHistory] = useState<InvoiceHistoryEntry[]>([]);
+  const [balanceHistory, setBalanceHistory] = useState<BalanceHistoryEntry[]>([]);
 
   // Top-up modal states
   const [invoice, setInvoice] = useState<CryptoInvoice | null>(null);
@@ -117,15 +118,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const loadData = async () => {
     try {
-      const [devs, vlessLinks, invoices, regionList] = await Promise.all([
+      const [devs, vlessLinks, invoices, balanceEntries, regionList] = await Promise.all([
         api.getDevices(),
         api.getSubscriptionLinks(),
         api.getInvoiceHistory(),
+        api.getBalanceHistory(),
         api.getRegions(),
       ]);
       setDevices(devs);
       setLinks(vlessLinks);
       setInvoiceHistory(invoices);
+      setBalanceHistory(balanceEntries);
       setRegions(regionList);
     } catch (err) {
       console.error('Failed to load dashboard data', err);
@@ -281,6 +284,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const usedGb = sub ? sub.trafficUsedBytes / (1024 * 1024 * 1024) : 0;
   const limitGb = sub ? sub.trafficLimitBytes / (1024 * 1024 * 1024) : 0;
   const trafficPercent = limitGb > 0 ? Math.min(100, Math.round((usedGb / limitGb) * 100)) : 0;
+
+  // Merged, chronologically sorted "fund movements" for the Billing History
+  // card -- real balance-ledger rows (deposits, subscription debits, referral
+  // bonuses, refunds, manual adjustments) plus crypto invoices that haven't
+  // resolved into a ledger row yet (pending/expired/cancelled). A PAID
+  // invoice is deliberately left out here: BillingService.creditInvoicePayment
+  // writes both a PAID CryptoInvoice *and* a DEPOSIT BalanceEntry for the same
+  // real-world deposit, so showing both would list the same event twice --
+  // the DEPOSIT ledger row already says "money arrived" and carries the same
+  // (friendlier) description text.
+  type HistoryRow =
+    | { kind: 'invoice'; createdAt: string; data: InvoiceHistoryEntry }
+    | { kind: 'ledger'; createdAt: string; data: BalanceHistoryEntry };
+
+  const mergedHistory: HistoryRow[] = [
+    ...invoiceHistory
+      .filter((inv) => inv.status !== 'PAID')
+      .map((inv): HistoryRow => ({ kind: 'invoice', createdAt: inv.createdAt, data: inv })),
+    ...balanceHistory.map((entry): HistoryRow => ({ kind: 'ledger', createdAt: entry.createdAt, data: entry })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-8 space-y-8">
@@ -568,24 +591,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <Receipt className="w-4 h-4 text-brand-500" />
           <span>{t.billingHistory}</span>
         </h3>
-        {invoiceHistory.length === 0 ? (
+        {mergedHistory.length === 0 ? (
           <p className="text-xs text-slate-500 text-center py-4">{t.noInvoicesYet}</p>
         ) : (
           <div className="divide-y divide-dark-800">
-            {invoiceHistory.slice(0, 5).map((inv) => {
+            {mergedHistory.slice(0, 5).map((row) => {
+              if (row.kind === 'ledger') {
+                const entry = row.data;
+                const amount = entry.amountUsdtMicro / 1_000_000;
+                const isCredit = entry.amountUsdtMicro >= 0;
+                return (
+                  <div key={`ledger-${entry.id}`} className="py-2.5 flex items-center justify-between text-xs gap-3">
+                    <div className="min-w-0">
+                      <span className={`font-semibold ${isCredit ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {isCredit ? '+' : ''}${amount.toFixed(2)}
+                      </span>
+                      <span className="text-slate-500 ml-2 truncate">{entry.description}</span>
+                    </div>
+                    <span className="text-slate-500 shrink-0">{new Date(entry.createdAt).toLocaleDateString()}</span>
+                  </div>
+                );
+              }
+
+              const inv = row.data;
               const amount = (inv.actualAmountUsdtMicro ?? inv.expectedAmountUsdtMicro) / 1_000_000;
               const statusKey = `invoiceStatus_${inv.status}` as keyof typeof t;
               const statusLabel = t[statusKey] ?? inv.status;
               const statusClass =
-                inv.status === 'PAID'
-                  ? 'bg-emerald-500/10 text-emerald-400'
-                  : inv.status === 'PENDING'
-                    ? 'bg-amber-500/10 text-amber-400'
-                    : 'bg-dark-800 text-slate-500';
+                inv.status === 'PENDING'
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : 'bg-dark-800 text-slate-500';
               const isPending = inv.status === 'PENDING';
               return (
                 <div
-                  key={inv.id}
+                  key={`invoice-${inv.id}`}
                   onClick={
                     isPending
                       ? () => {

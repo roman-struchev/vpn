@@ -7,6 +7,7 @@ import com.vpn.server.entity.Device;
 import com.vpn.server.entity.Subscription;
 import com.vpn.server.entity.Tariff;
 import com.vpn.server.entity.User;
+import com.vpn.server.repository.BalanceEntryRepository;
 import com.vpn.server.repository.CryptoInvoiceRepository;
 import com.vpn.server.repository.SubscriptionRepository;
 import com.vpn.server.repository.TariffRepository;
@@ -53,6 +54,9 @@ class UserControllerTest {
     private CryptoInvoiceRepository cryptoInvoiceRepository;
 
     @Mock
+    private BalanceEntryRepository balanceEntryRepository;
+
+    @Mock
     private SubscriptionExportService exportService;
 
     @Mock
@@ -82,6 +86,7 @@ class UserControllerTest {
                 tariffRepository,
                 billingService,
                 cryptoInvoiceRepository,
+                balanceEntryRepository,
                 exportService,
                 deviceManagementService,
                 antiEnumerationService,
@@ -385,5 +390,38 @@ class UserControllerTest {
         assertEquals("CLAIMED", body.get("status"));
         assertEquals(5_000_000L, body.get("amountMicro"));
         assertEquals("0xabc", body.get("txHash"));
+    }
+
+    @Test
+    void testGetBalanceHistoryReturnsMappedEntries() {
+        BalanceEntry deposit = new BalanceEntry();
+        deposit.setId(1L);
+        deposit.setType("DEPOSIT");
+        deposit.setAmountUsdtMicro(5_000_000L);
+        deposit.setBalanceAfterMicro(5_000_000L);
+        deposit.setDescription("Deposit via TRON (invoice #1)");
+        deposit.setCreatedAt(Instant.now());
+
+        BalanceEntry debit = new BalanceEntry();
+        debit.setId(2L);
+        debit.setType("SUBSCRIPTION_DEBIT");
+        debit.setAmountUsdtMicro(-2_000_000L);
+        debit.setBalanceAfterMicro(3_000_000L);
+        debit.setDescription("Subscription Basic (Monthly)");
+        debit.setCreatedAt(Instant.now());
+
+        when(balanceEntryRepository.findByUserIdOrderByCreatedAtDesc(10L))
+                .thenReturn(List.of(debit, deposit));
+
+        ResponseEntity<List<com.vpn.server.dto.BalanceHistoryEntryResponse>> res =
+                userController.getBalanceHistory(auth);
+        assertEquals(200, res.getStatusCode().value());
+        List<com.vpn.server.dto.BalanceHistoryEntryResponse> body = res.getBody();
+        assertEquals(2, body.size());
+        assertEquals("SUBSCRIPTION_DEBIT", body.get(0).type());
+        assertEquals(-2_000_000L, body.get(0).amountUsdtMicro());
+        assertEquals("Subscription Basic (Monthly)", body.get(0).description());
+        assertEquals("DEPOSIT", body.get(1).type());
+        assertEquals(5_000_000L, body.get(1).amountUsdtMicro());
     }
 }
