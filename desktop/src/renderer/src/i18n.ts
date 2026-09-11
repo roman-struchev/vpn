@@ -12,6 +12,8 @@ const translations = {
     toggleToRegister: 'Нет аккаунта? Создать',
     toggleToLogin: 'Уже есть аккаунт? Войти',
     fieldRequired: 'Заполните это поле',
+    orDivider: 'или',
+    signInWithGoogle: 'Войти через Google',
 
     stateDisconnected: 'Отключено',
     stateConnecting: 'Подключение…',
@@ -63,6 +65,8 @@ const translations = {
     toggleToRegister: 'No account? Create one',
     toggleToLogin: 'Already have an account? Sign in',
     fieldRequired: 'This field is required',
+    orDivider: 'or',
+    signInWithGoogle: 'Sign in with Google',
 
     stateDisconnected: 'Disconnected',
     stateConnecting: 'Connecting…',

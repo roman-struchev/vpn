@@ -1,5 +1,6 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import type { ApiClient } from './api/apiClient';
+import { runGoogleLoginFlow } from './auth/googleOAuth';
 import type { VpnController } from './vpn/vpnController';
 
 /** All main<->renderer channels in one place; preload/index.ts exposes a matching typed surface. */
@@ -8,6 +9,13 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('auth:register', (_e, email: string, password: string, referralCode?: string) =>
     apiClient.register(email, password, referralCode)
   );
+  ipcMain.handle('auth:googleLogin', async (_e, referralCode?: string) => {
+    // Runs the full loopback flow (opens system browser, listens on
+    // 127.0.0.1, exchanges the code for an ID token) then hands the ID
+    // token to the server, same as login()/register() above.
+    const idToken = await runGoogleLoginFlow();
+    return apiClient.googleAuth(idToken, referralCode);
+  });
   ipcMain.handle('auth:logout', () => {
     void vpn.disconnect();
     apiClient.logout();
