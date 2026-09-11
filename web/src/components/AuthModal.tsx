@@ -54,6 +54,14 @@ interface AuthModalProps {
   onClose: () => void;
   onSuccess: () => void;
   initialReferralCode?: string | null;
+  /**
+   * The tariff id the visitor clicked "Choose Plan" on from the landing page
+   * (see LandingView's onGetStarted(tariffId) / App.tsx), carried through the
+   * modal the same way initialReferralCode is — so the choice they made isn't
+   * silently dropped by the time they land on the dashboard. See UX_REVIEW.md
+   * Quick Win #9.
+   */
+  initialTariffId?: string | null;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -62,6 +70,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   onSuccess,
   initialReferralCode,
+  initialTariffId,
 }) => {
   const t = translations[lang];
   const [isRegister, setIsRegister] = useState(false);
@@ -161,7 +170,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-sm w-full space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="font-bold text-base">
-            {isRegister ? 'Регистрация' : t.login}
+            {isRegister ? t.register : t.login}
           </h3>
           <button
             onClick={onClose}
@@ -170,6 +179,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             ✕
           </button>
         </div>
+
+        {initialTariffId && (
+          <p className="-mt-2 text-[11px] font-semibold text-brand-400">
+            {t.signingUpForPlan.replace('{plan}', initialTariffId.toUpperCase())}
+          </p>
+        )}
 
         {error && (
           <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
@@ -215,7 +230,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
           {isRegister && (
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Referral Code (Optional)</label>
+              <label className="block text-xs text-slate-400 mb-1">{t.referralCodeOptional}</label>
               <input
                 type="text"
                 placeholder="ABCD1234"
@@ -241,7 +256,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             disabled={loading}
             className="w-full mt-2 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs transition-colors"
           >
-            {loading ? '...' : isRegister ? 'Создать аккаунт' : t.login}
+            {loading ? '...' : isRegister ? t.createAccount : t.login}
           </button>
         </form>
 
@@ -253,9 +268,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             }}
             className="text-xs text-slate-400 hover:text-white"
           >
-            {isRegister
-              ? 'Уже есть аккаунт? Войти'
-              : 'Нет аккаунта? Зарегистрироваться'}
+            {isRegister ? t.alreadyHaveAccount : t.noAccountRegister}
           </button>
         </div>
       </div>

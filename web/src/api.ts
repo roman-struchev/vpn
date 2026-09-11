@@ -134,6 +134,19 @@ export const api = {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Purchase failed' }));
+      // The server returns error: "INSUFFICIENT_BALANCE" plus structured
+      // *UsdtMicro fields (not a formatted sentence) for this specific failure,
+      // so the caller can render its own localized "top up $X.XX more" message
+      // instead of showing a raw internal string — see DashboardView.tsx's
+      // handlePurchase / UX_REVIEW.md Quick Win #1.
+      if (err.error === 'INSUFFICIENT_BALANCE') {
+        throw Object.assign(new Error(err.error), {
+          code: 'INSUFFICIENT_BALANCE',
+          shortfallUsdtMicro: err.shortfallUsdtMicro,
+          requiredUsdtMicro: err.requiredUsdtMicro,
+          currentUsdtMicro: err.currentUsdtMicro,
+        });
+      }
       throw new Error(err.error || 'Purchase failed');
     }
     return res.json();

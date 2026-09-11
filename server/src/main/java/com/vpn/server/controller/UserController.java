@@ -8,6 +8,7 @@ import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.AntiEnumerationService;
 import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
+import com.vpn.server.service.InsufficientBalanceException;
 import com.vpn.server.service.SubscriptionExportService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
@@ -177,6 +178,18 @@ public class UserController {
                     "expiresAt", sub.getCurrentPeriodEnd().toString(),
                     "trafficLimitBytes", sub.getTrafficLimitBytes()
             ));
+        } catch (InsufficientBalanceException e) {
+            // Structured shortfall instead of the raw "Required: 5000000, current: 0"
+            // message (which is still set as `error` for any caller that only reads
+            // that field, e.g. a stale client build) — the web dashboard uses the
+            // *Micro fields to render its own localized "top up $X.XX more" copy
+            // rather than showing this sentence verbatim. See UX_REVIEW.md Quick Win #1.
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("error", "INSUFFICIENT_BALANCE");
+            body.put("requiredUsdtMicro", e.getRequiredUsdtMicro());
+            body.put("currentUsdtMicro", e.getCurrentUsdtMicro());
+            body.put("shortfallUsdtMicro", e.getShortfallUsdtMicro());
+            return ResponseEntity.badRequest().body(body);
         } catch (IllegalArgumentException | IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }

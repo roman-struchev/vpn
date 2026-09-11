@@ -14,7 +14,14 @@ import { Tariff } from '../types';
 interface LandingViewProps {
   lang: Lang;
   tariffs: Tariff[];
-  onGetStarted: () => void;
+  /**
+   * Called with the clicked tariff's id when a visitor uses a specific plan
+   * card's "Choose Plan" button, so that choice survives signup instead of
+   * being dropped (see App.tsx / AuthModal's initialTariffId / DashboardView's
+   * highlightTariffId). Called with no argument from the generic hero/closing
+   * CTAs, which aren't tied to any one plan. See UX_REVIEW.md Quick Win #9.
+   */
+  onGetStarted: (tariffId?: string) => void;
 }
 
 /**
@@ -115,7 +122,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
           <div className="mt-9 flex w-full flex-col items-center gap-3 sm:w-auto sm:flex-row">
             <button
-              onClick={onGetStarted}
+              onClick={() => onGetStarted()}
               className={`flex w-full items-center justify-center gap-2 rounded-xl bg-brand-500 px-7 py-3.5 text-sm font-bold text-dark-950 shadow-xl shadow-brand-500/20 transition-all hover:bg-brand-600 active:scale-[0.98] sm:w-auto ${focusRing}`}
             >
               <span>{t.getStarted}</span>
@@ -262,7 +269,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   </ul>
 
                   <button
-                    onClick={onGetStarted}
+                    onClick={() => onGetStarted(tariff.id)}
                     className={`mt-8 w-full rounded-xl py-3 text-sm font-bold transition-all active:scale-[0.99] ${focusRing} ${
                       isFeatured
                         ? 'bg-brand-500 text-dark-950 shadow-md shadow-brand-500/10 hover:bg-brand-600'
@@ -343,7 +350,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
               {t.finalCtaText}
             </p>
             <button
-              onClick={onGetStarted}
+              onClick={() => onGetStarted()}
               className={`mt-7 inline-flex items-center justify-center gap-2 rounded-xl bg-brand-500 px-7 py-3.5 text-sm font-bold text-dark-950 shadow-xl shadow-brand-500/20 transition-all hover:bg-brand-600 active:scale-[0.98] ${focusRing}`}
             >
               <span>{t.getStarted}</span>

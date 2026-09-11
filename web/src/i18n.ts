@@ -64,7 +64,7 @@ export const translations = {
     perYear: "/ год",
     planTraffic: "{n} ГБ трафика в месяц",
     planDevicesSuffix: "одновременно",
-    planTrialPerk: "Без карты — просто попробовать",
+    planTrialPerk: "3 дня пробного периода — без карты",
     planPaidPerk: "Приоритетные серверы",
     popularBadge: "Популярный",
     choosePlan: "Выбрать",
@@ -93,6 +93,7 @@ export const translations = {
     freeLabel: "Бесплатно",
     depositAmountHint: "Сумма чуть больше выбранной — так мы точно определяем именно ваш платёж, без отдельного кошелька на каждого пользователя. Разница не более 10 центов.",
     insufficientBalance: "Недостаточно средств. Пополните баланс.",
+    insufficientBalanceAmount: "Не хватает ${amount} — пополните баланс, чтобы продолжить.",
     close: "Закрыть",
     success: "Успешно!",
     billingHistory: "История пополнений",
@@ -102,6 +103,15 @@ export const translations = {
     invoiceStatus_PAID: "Зачислено",
     invoiceStatus_EXPIRED: "Истёк",
     invoiceStatus_CANCELLED: "Отменён",
+    // --- Auth modal ---
+    register: "Регистрация",
+    createAccount: "Создать аккаунт",
+    alreadyHaveAccount: "Уже есть аккаунт? Войти",
+    noAccountRegister: "Нет аккаунта? Зарегистрироваться",
+    referralCodeOptional: "Реферальный код (необязательно)",
+    signingUpForPlan: "Регистрация — тариф {plan}",
+    // --- Trial duration (Quick Win #8) ---
+    trialDurationLabel: "Пробный период 3 дня",
   },
   en: {
     brandName: "NextGen VPN",
@@ -166,7 +176,7 @@ export const translations = {
     perYear: "/ yr",
     planTraffic: "{n} GB of traffic per month",
     planDevicesSuffix: "at once",
-    planTrialPerk: "No card — just try it",
+    planTrialPerk: "3-day trial, no card needed",
     planPaidPerk: "Priority servers",
     popularBadge: "Popular",
     choosePlan: "Choose",
@@ -195,6 +205,7 @@ export const translations = {
     freeLabel: "Free",
     depositAmountHint: "Slightly more than you selected — this is how we match the deposit to your account without a separate wallet per user. The difference is never more than 10 cents.",
     insufficientBalance: "Insufficient balance. Please top up.",
+    insufficientBalanceAmount: "You need ${amount} more — top up now.",
     close: "Close",
     success: "Success!",
     billingHistory: "Top-up History",
@@ -204,5 +215,14 @@ export const translations = {
     invoiceStatus_PAID: "Credited",
     invoiceStatus_EXPIRED: "Expired",
     invoiceStatus_CANCELLED: "Cancelled",
+    // --- Auth modal ---
+    register: "Register",
+    createAccount: "Create Account",
+    alreadyHaveAccount: "Already have an account? Log in",
+    noAccountRegister: "No account? Register",
+    referralCodeOptional: "Referral Code (Optional)",
+    signingUpForPlan: "Signing up for the {plan} plan",
+    // --- Trial duration (Quick Win #8) ---
+    trialDurationLabel: "3-day trial",
   }
 };
