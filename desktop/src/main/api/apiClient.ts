@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import { ApiHostRotation } from '../../shared/apiHostRotation';
 import type { TokenStore } from './tokenStore';
 
@@ -290,7 +291,15 @@ export class ApiClient {
 }
 
 function hostsFromEnv(): string[] {
-  const isDev = process.env.NODE_ENV !== 'production';
+  // NOTE: this used to check `process.env.NODE_ENV !== 'production'`, but
+  // Electron never sets NODE_ENV for a packaged app (and electron-builder
+  // doesn't either) — so a real, installed build defaulted to the dev-only
+  // `http://localhost:8080/` base URL for every user who didn't happen to
+  // have NODE_ENV=production in their shell, instead of the real production
+  // domain. `app.isPackaged` is the correct, already-used-elsewhere
+  // (autoUpdater.ts, tray.ts, binaryManager.ts) way to tell a packaged build
+  // from a dev run.
+  const isDev = !app.isPackaged;
   const defaultUrl = isDev ? DEV_DEFAULT_BASE_URL : DEFAULT_BASE_URL;
   const hosts = [process.env.VPN_API_BASE_URL || defaultUrl];
   const backups = process.env.VPN_API_BASE_URLS_BACKUP;
