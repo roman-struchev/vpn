@@ -726,7 +726,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* QR Code Modal */}
       {showQr && links.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        // !mt-0: this div is a sibling of the page's content sections inside
+        // the parent's `space-y-8`, which puts a 2rem margin-top on every
+        // non-first child — including this one, despite it being `fixed`.
+        // That margin offsets the "fixed inset-0" backdrop 32px down from
+        // the real viewport top, leaving a sliver of the navbar undimmed
+        // (looked like the backdrop "half-covered" the navbar). Force it back to 0.
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 !mt-0">
           <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-sm w-full flex flex-col items-center">
             <h3 className="font-bold text-base mb-4">{t.qrCode}</h3>
             <div className="p-4 bg-white rounded-2xl mb-4">
@@ -752,7 +758,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         // it), and centering a too-tall flex child clips its top equally off
         // both ends of the screen — the close button used to scroll out of
         // reach above the viewport with no way back to it without ESC/reload.
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 py-10 overflow-y-auto">
+        // !mt-0: see the QR modal comment above — this overlay is also a
+        // sibling inside the parent's `space-y-8` and inherits an unwanted
+        // 2rem margin-top otherwise, which is what caused the backdrop to
+        // not fully cover the navbar.
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-4 py-10 overflow-y-auto !mt-0">
           <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-md w-full space-y-6">
             <div className="sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3 bg-dark-850 rounded-t-3xl flex items-center justify-between z-10">
               <h3 className="font-bold text-base">{t.topUp}</h3>
