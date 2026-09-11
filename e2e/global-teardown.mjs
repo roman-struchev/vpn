@@ -67,4 +67,18 @@ export default async function globalTeardown() {
   } catch (e) {
     console.warn('[global-teardown] could not clean up e2e test nodes:', e.message);
   }
+
+  try {
+    const output = execFileSync(
+      'docker',
+      ['exec', container, 'psql', '-U', user, '-d', db, '-t', '-c',
+        "DELETE FROM promo_codes WHERE code LIKE 'E2E%' RETURNING id;"],
+      { encoding: 'utf-8' }
+    );
+    const deleted = output.split('\n').map((l) => l.trim()).filter(Boolean).length;
+    console.log(`[global-teardown] removed ${deleted} e2e test promo code(s) from ${db}`);
+  } catch (e) {
+    console.warn('[global-teardown] could not clean up e2e test promo codes:', e.message);
+  }
 }
+

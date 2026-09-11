@@ -59,13 +59,8 @@ export class XraySupervisor {
       if (!this.isRunning) {
         await this.start();
       } else {
-        const structural = hasStructuralChanges(this.lastConfigSync, syncPayload);
-        if (structural) {
-          logger.info('Structural inbound or transport changes detected, performing graceful Xray restart');
-          await this.restart();
-        } else {
-          logger.info('Only client/credential changes detected; applied to disk without dropping active tunnels');
-        }
+        logger.info(`Applying updated configuration (version ${syncPayload.configVersion}), restarting Xray...`);
+        await this.restart();
       }
 
       this.lastConfigSync = syncPayload;
