@@ -69,9 +69,10 @@ Requires a `GH_TOKEN` with repo access in the environment — see
 ## What this talks to
 
 Same server contract as `web/src/api.ts` and the Android client:
-`POST /api/v1/auth/{register,login}`, `GET /api/v1/user/profile`,
-`GET|POST|DELETE /api/v1/user/devices`, `GET /api/v1/user/subscription/links`,
-`GET /api/v1/client/config`, `POST /api/v1/client/telemetry` (best-effort).
+`POST /api/v1/auth/{register,login}`, `POST /api/v1/auth/google` (loopback OAuth),
+`POST /api/v1/auth/device` (1-click anonymous trial), `POST /api/v1/auth/web-handoff` (SSO to web billing),
+`GET /api/v1/user/profile`, `GET|POST|DELETE /api/v1/user/devices`, `GET /api/v1/user/regions` (regions & load score),
+`GET /api/v1/user/subscription/links`, `GET /api/v1/client/config`, `POST /api/v1/client/telemetry`.
 
 ## Architecture notes
 
@@ -116,21 +117,16 @@ Same server contract as `web/src/api.ts` and the Android client:
 - No TUN mode (out of scope for this MVP per docs/PLAN.md §5 — a later,
   separate task, and it reintroduces the code-signing requirement this
   scheme was chosen to avoid).
-- No custom app icon yet (`build.directories.buildResources` = `build/`, but
-  it's empty — electron-builder falls back to its default Electron icon).
+- System tray icon and menu are implemented (`src/main/tray.ts`, with state icons in
+  `resources/tray`), but main window app icon still uses electron default in package config.
 - Linux system-proxy support only covers GNOME (`gsettings`); KDE and others
   need manual proxy configuration pointed at `127.0.0.1:10809` (HTTP) /
   `127.0.0.1:10808` (SOCKS5).
-- No instrumented UI tests — verified by `npm run typecheck` + `npm test` +
-  manually launching both the dev build and an unsigned packaged
-  `electron-builder --mac --dir` build on this machine (window opens,
-  renders, IPC round-trips to a real — if unreachable — API host).
+- Authentication supports Email/password, Google Sign-In (loopback OAuth on `http://127.0.0.1:*`),
+  and 1-click anonymous device trial (`POST /api/v1/auth/device`).
 - Auto-update is wired but unverified against a real GitHub Releases feed
   (no release has been published yet).
 - Telemetry reports (`submitTelemetry`) carry a real `nodeId`, resolved by
   matching the currently-active node's host against
-  `RoutingConfigResponse.nodes[].publicIp` (same host-keyed correlation
-  already used for the gRPC fallback map) — feeds both the admin degradation
-  dashboard and `DynamicRoutingService`'s auto-quarantine. `connectTimeMs` is
-  still always sent as `0` (never measured) since telemetry is only reported
-  on failure, not on a successful connect.
+  `RoutingConfigResponse.nodes[].publicIp`. Successful connects report `TUNNEL_UP`
+  with measured `connectTimeMs`, while connection failures report `FAILURE`.

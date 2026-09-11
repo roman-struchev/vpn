@@ -32,11 +32,12 @@ JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew build
 ## What this talks to
 
 Server endpoints consumed (see `server/src/main/java/com/vpn/server/controller`):
-`POST /api/v1/auth/{register,login}`, `GET /api/v1/user/profile`,
-`GET|POST|DELETE /api/v1/user/devices`, `GET /api/v1/user/subscription/links`
-(VLESS URIs, paid plans only — see `SubscriptionExportService`),
-`GET /api/v1/client/config` (transport policy: fingerprint, backoff timing,
-node list), `POST /api/v1/client/telemetry` (best-effort).
+`POST /api/v1/auth/{register,login}`, `POST /api/v1/auth/google` (Google Sign-In),
+`POST /api/v1/auth/device` (1-click anonymous trial), `POST /api/v1/auth/web-handoff` (SSO to web billing),
+`GET /api/v1/user/profile`, `GET|POST|DELETE /api/v1/user/devices`, `GET /api/v1/user/regions` (regions & load score),
+`GET /api/v1/user/subscription/links` (VLESS URIs for active subscriptions, including trials),
+`GET /api/v1/client/config` (transport policy: fingerprint, backoff timing, node list),
+`POST /api/v1/client/telemetry` (failure and connect time telemetry).
 
 `BuildConfig.API_BASE_URL` defaults to the production server (`https://vpn.struchev.site/`);
 override per environment with `-PapiBaseUrl=https://...`. Phase 10: comma-separated
@@ -48,9 +49,9 @@ backup domains, tried in order on a network-level (not HTTP-error) failure —
 
 - `vpn/state/ConnectionStateMachine` — pure Java, the
   Disconnected/Connecting/Connected/Reconnecting/Error/OperatorBlocked states
-  from docs/PLAN.md §9.
+  from docs/ARCHITECTURE.md §8.1.
 - `vpn/ReconnectBackoffPolicy` — Smart Reconnect Backoff invariants from
-  docs/ROADMAP_PROGRESS.md §1.5 (15-20s first pause, node switch only after
+  docs/ARCHITECTURE.md §2 and §4 (15-20s first pause, node switch only after
   2-3 consecutive failures, fingerprint fixed for the session).
 - `vpn/CensorshipVerdict` + `CensorshipProbeService` — the honest
   "ограничение оператора" screen: probes a whitelisted RU host and a foreign
@@ -89,15 +90,13 @@ backup domains, tried in order on a network-level (not HTTP-error) failure —
   exercised by code review and the unit tests around their pure-logic pieces,
   not by running the app; this hasn't been verified on a real device or
   emulator.
-- No Telegram-native login (the Mini App's `initData` HMAC flow is
-  Telegram-WebView-specific); the app uses the same email/password
-  `POST /api/v1/auth/{register,login}` the web client uses.
+- Authentication options: Email/password, Google Sign-In (Credential Manager),
+  and 1-click anonymous device trial (`POST /api/v1/auth/device`). Telegram login is only
+  available on the Web / Telegram Mini App, but accounts can be linked.
 - Telemetry reports (`POST /api/v1/client/telemetry`) carry a real `nodeId`,
   resolved by matching the currently-active `VlessUri` host against
-  `RoutingConfigResponse.NodeInfo.publicIp` (same host-keyed correlation
-  already used for the gRPC fallback port/service-name maps) — feeds both the
-  admin degradation dashboard and `DynamicRoutingService`'s auto-quarantine.
-  `connectTimeMs` is still always sent as `0` (never measured) since
-  telemetry is only reported on failure, not on a successful connect.
+  `RoutingConfigResponse.NodeInfo.publicIp`. Successful connects report `TUNNEL_UP`
+  with measured `connectTimeMs`, while connection failures report `FAILURE`.
 - Release signing / Play Store listing (docs/stores-and-liability.md) is out
-  of scope for this MVP pass.
+  of scope for this MVP pass. Note that `google_web_client_id` in `strings.xml`
+  requires configuring your Web OAuth Client ID from Google Cloud Console.
