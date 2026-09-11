@@ -52,6 +52,7 @@
     <string name="device_name_hint">Device name</string>
 
     <string name="profile_balance">Balance: %1$s USDT</string>
+    <string name="profile_sign_in_existing">Sign in with an existing account</string>
     <string name="profile_logout">Sign out</string>
     <string name="profile_referral">Your invite link</string>
     <string name="profile_referral_code">Code: %1$s</string>

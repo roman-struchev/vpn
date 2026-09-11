@@ -45,6 +45,7 @@ public class ProfileFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         binding.logoutButton.setOnClickListener(v -> logout());
+        binding.signInExistingButton.setOnClickListener(v -> signInWithExistingAccount());
         binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
         loadProfile();
@@ -92,6 +93,23 @@ public class ProfileFragment extends Fragment {
                 new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT));
         apiClient.logout();
         Intent intent = new Intent(requireContext(), LoginActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+    }
+
+    /**
+     * For a user who wants to actually sign in with an existing account (to
+     * sync across devices, or after registering elsewhere) instead of the
+     * auto-created trial device account they're currently on. Sends them to
+     * LoginActivity's explicit form-showing mode without clearing the
+     * current session first — unlike logout(), this doesn't touch the
+     * stored token/device UUID; a successful login/register there simply
+     * overwrites the token in place.
+     */
+    private void signInWithExistingAccount() {
+        requireContext().startService(
+                new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT));
+        Intent intent = LoginActivity.createShowFormIntent(requireContext());
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
     }

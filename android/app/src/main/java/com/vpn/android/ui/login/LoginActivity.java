@@ -1,5 +1,6 @@
 package com.vpn.android.ui.login;
 
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.CancellationSignal;
@@ -28,10 +29,26 @@ import com.vpn.android.util.Async;
 
 public class LoginActivity extends AppCompatActivity {
 
+    /**
+     * When set, the login/register form is shown immediately instead of
+     * silently attempting the no-signup device trial login first. Used by
+     * ProfileFragment's "sign in with an existing account" action so a user
+     * who explicitly wants to authenticate isn't looped back into the
+     * device auto-login.
+     */
+    public static final String EXTRA_FORCE_FORM = "force_form";
+
     private ActivityLoginBinding binding;
     private ApiClient apiClient;
     private TokenStore tokenStore;
     private boolean registerMode = false;
+
+    /** Explicit form-showing mode, for a user who wants to sign in/register instead of using the auto-created trial account. */
+    public static Intent createShowFormIntent(Context context) {
+        Intent intent = new Intent(context, LoginActivity.class);
+        intent.putExtra(EXTRA_FORCE_FORM, true);
+        return intent;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,7 +59,9 @@ public class LoginActivity extends AppCompatActivity {
         tokenStore = new TokenStore(this);
         apiClient = new ApiClient(tokenStore);
 
-        if (tokenStore.isLoggedIn()) {
+        boolean forceForm = getIntent().getBooleanExtra(EXTRA_FORCE_FORM, false);
+
+        if (tokenStore.isLoggedIn() && !forceForm) {
             goToMain();
             return;
         }
@@ -51,6 +70,33 @@ public class LoginActivity extends AppCompatActivity {
         binding.toggleModeButton.setOnClickListener(v -> toggleMode());
         binding.googleSignInButton.setOnClickListener(v -> signInWithGoogle());
         applyMode();
+
+        if (forceForm) {
+            binding.formContainer.setVisibility(View.VISIBLE);
+        } else {
+            // Fresh install (or a device-login that never completed): rather
+            // than forcing registration/login, silently log this install
+            // into its own auto-created, trial-tariff device account. The
+            // form stays reachable via ProfileFragment's "sign in with an
+            // existing account" for anyone who wants to keep their account
+            // across reinstalls/devices.
+            binding.formContainer.setVisibility(View.GONE);
+            attemptDeviceLogin();
+        }
+    }
+
+    private void attemptDeviceLogin() {
+        setLoading(true);
+        String deviceUuid = tokenStore.getOrCreateDeviceUuid();
+        Async.run(
+                () -> apiClient.deviceAuth(deviceUuid, null),
+                (AuthResponse resp) -> goToMain(),
+                error -> {
+                    // No network / server unreachable — fall back to the
+                    // manual login/register form so the app isn't unusable.
+                    setLoading(false);
+                    binding.formContainer.setVisibility(View.VISIBLE);
+                });
     }
 
     private void toggleMode() {
