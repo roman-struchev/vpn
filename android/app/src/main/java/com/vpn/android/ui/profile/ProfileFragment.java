@@ -68,8 +68,13 @@ public class ProfileFragment extends Fragment {
                     binding.referralCodeText.setText(
                             getString(R.string.profile_referral_code,
                                     profile.referralCode == null ? "" : profile.referralCode));
+                    binding.referralStatsText.setText(
+                            getString(R.string.profile_referral_stats,
+                                    profile.referralCount,
+                                    profile.referralEarningsUsdtMicro / 1_000_000.0));
                 },
                 error -> { /* keep placeholders on failure */ });
+
     }
 
     private void copyReferralLink() {

@@ -15,7 +15,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Component
@@ -53,6 +55,11 @@ public class BlockchainScannerTask {
 
     @Value("${vpn.blockchain.evm.rpc-url:}")
     private String evmRpcUrl;
+
+    @Value("${vpn.blockchain.evm.rpc-urls:}")
+    private String evmRpcUrlsFallback;
+
+    private int currentEvmRpcIndex = 0;
 
     @Value("${vpn.blockchain.evm.usdt-contract:0xdAC17F958D2ee523a2206206994597C13D831ec7}")
     private String evmUsdtContract;
@@ -93,6 +100,27 @@ public class BlockchainScannerTask {
 
     public void setEvmRpcUrl(String evmRpcUrl) {
         this.evmRpcUrl = evmRpcUrl;
+    }
+
+    public void setEvmRpcUrlsFallback(String evmRpcUrlsFallback) {
+        this.evmRpcUrlsFallback = evmRpcUrlsFallback;
+    }
+
+    public List<String> getEvmRpcEndpoints() {
+        List<String> list = new ArrayList<>();
+        if (evmRpcUrl != null && !evmRpcUrl.isBlank()) {
+            for (String u : evmRpcUrl.split(",")) {
+                String trimmed = u.trim();
+                if (!trimmed.isEmpty() && !list.contains(trimmed)) list.add(trimmed);
+            }
+        }
+        if (evmRpcUrlsFallback != null && !evmRpcUrlsFallback.isBlank()) {
+            for (String u : evmRpcUrlsFallback.split(",")) {
+                String trimmed = u.trim();
+                if (!trimmed.isEmpty() && !list.contains(trimmed)) list.add(trimmed);
+            }
+        }
+        return list;
     }
 
     @Scheduled(fixedDelay = 30000, initialDelay = 15000)
@@ -260,30 +288,48 @@ public class BlockchainScannerTask {
     }
 
     private JsonNode evmRpcCall(String method, JsonNode params) throws Exception {
-        var body = objectMapper.createObjectNode();
-        body.put("jsonrpc", "2.0");
-        body.put("id", 1);
-        body.put("method", method);
-        body.set("params", params);
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(evmRpcUrl))
-                .timeout(Duration.ofSeconds(15))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException("EVM RPC " + method + " returned HTTP " + response.statusCode() + ": " + response.body());
+        List<String> endpoints = getEvmRpcEndpoints();
+        if (endpoints.isEmpty()) {
+            throw new IllegalStateException("No EVM RPC endpoints configured");
         }
 
-        JsonNode root = objectMapper.readTree(response.body());
-        if (root.has("error")) {
-            throw new IllegalStateException("EVM RPC " + method + " error: " + root.path("error"));
+        Exception lastException = null;
+        for (int attempt = 0; attempt < endpoints.size(); attempt++) {
+            int index = (currentEvmRpcIndex + attempt) % endpoints.size();
+            String targetUrl = endpoints.get(index);
+            try {
+                var body = objectMapper.createObjectNode();
+                body.put("jsonrpc", "2.0");
+                body.put("id", 1);
+                body.put("method", method);
+                body.set("params", params);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(targetUrl))
+                        .timeout(Duration.ofSeconds(12))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                        .build();
+
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() != 200) {
+                    throw new IllegalStateException("EVM RPC " + method + " returned HTTP " + response.statusCode() + ": " + response.body());
+                }
+
+                JsonNode root = objectMapper.readTree(response.body());
+                if (root.has("error")) {
+                    throw new IllegalStateException("EVM RPC " + method + " error: " + root.path("error"));
+                }
+                currentEvmRpcIndex = index;
+                return root.path("result");
+            } catch (Exception e) {
+                lastException = e;
+                log.warn("EVM RPC call {} failed against {}: {}. Trying next endpoint...", method, targetUrl, e.getMessage());
+            }
         }
-        return root.path("result");
+        throw lastException != null ? lastException : new IllegalStateException("All EVM RPC endpoints failed");
     }
+
 
     /** Left-pads a 20-byte 0x address into the 32-byte word shape eth_getLogs topics require. */
     public static String addressToTopic(String address) {

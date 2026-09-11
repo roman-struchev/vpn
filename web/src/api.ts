@@ -145,6 +145,20 @@ export const api = {
     return res.json();
   },
 
+  async applyPromoCode(code: string): Promise<{ success: boolean; bonusUsdtMicro: number; newBalanceUsdtMicro: number; code: string }> {
+    const res = await fetch('/api/v1/user/promo/apply', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to apply promo code' }));
+      throw new Error(err.error || 'Failed to apply promo code');
+    }
+    return res.json();
+  },
+
+
   /** Every actual balance-ledger movement -- deposits, subscription debits,
    *  referral bonuses, refunds, manual adjustments -- not just crypto deposit
    *  invoices like getInvoiceHistory() above. See DashboardView's merged

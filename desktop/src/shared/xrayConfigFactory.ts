@@ -28,11 +28,16 @@ export interface GrpcFallback {
   serviceName?: string;
 }
 
+export interface XrayConfigOptions {
+  bypassRussianTraffic?: boolean;
+}
+
 export function buildXrayConfig(
   vless: ParsedVlessUri,
   fingerprint: Fingerprint,
   transport: Transport = 'XHTTP',
-  grpcFallback?: GrpcFallback
+  grpcFallback?: GrpcFallback,
+  options?: XrayConfigOptions
 ): object {
   if (fingerprint !== 'firefox' && fingerprint !== 'edge') {
     throw new Error(`fingerprint must be firefox or edge, got: ${fingerprint}`);
@@ -42,6 +47,36 @@ export function buildXrayConfig(
   }
 
   const reality = vlessParam(vless, 'security', 'none').toLowerCase() === 'reality';
+
+  const rules: object[] = [
+    {
+      type: 'field',
+      inboundTag: ['socks-in', 'http-in'],
+      port: '53',
+      network: 'udp',
+      outboundTag: DNS_OUTBOUND_TAG,
+    },
+    {
+      type: 'field',
+      ip: ['geoip:private'],
+      outboundTag: BLOCK_OUTBOUND_TAG,
+    },
+  ];
+
+  if (options?.bypassRussianTraffic) {
+    rules.push(
+      {
+        type: 'field',
+        domain: ['geosite:category-ru', 'domain:ru'],
+        outboundTag: 'direct',
+      },
+      {
+        type: 'field',
+        ip: ['geoip:ru'],
+        outboundTag: 'direct',
+      }
+    );
+  }
 
   return {
     log: { loglevel: 'warning' },
@@ -79,24 +114,12 @@ export function buildXrayConfig(
       buildProxyOutbound(vless, fingerprint, reality, transport, grpcFallback),
       { tag: DNS_OUTBOUND_TAG, protocol: 'dns' },
       { tag: BLOCK_OUTBOUND_TAG, protocol: 'blackhole' },
+      { tag: 'direct', protocol: 'freedom' },
     ],
 
     routing: {
       domainStrategy: 'IPIfNonMatch',
-      rules: [
-        {
-          type: 'field',
-          inboundTag: ['socks-in', 'http-in'],
-          port: '53',
-          network: 'udp',
-          outboundTag: DNS_OUTBOUND_TAG,
-        },
-        {
-          type: 'field',
-          ip: ['geoip:private'],
-          outboundTag: BLOCK_OUTBOUND_TAG,
-        },
-      ],
+      rules,
     },
   };
 }

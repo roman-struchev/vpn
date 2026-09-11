@@ -40,6 +40,16 @@
         android:layout_marginTop="4dp" />
 
     <TextView
+        android:id="@+id/referralStatsText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?attr/colorPrimary"
+        android:textStyle="bold"
+        android:layout_marginTop="6dp" />
+
+
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/profile_referral_desc"

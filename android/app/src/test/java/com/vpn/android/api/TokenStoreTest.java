@@ -64,4 +64,29 @@ public class TokenStoreTest {
         assertEquals("deviceUuid must be preserved across clear()", uuid, tokenStore.getOrCreateDeviceUuid());
         assertEquals("selectedRegion must be preserved across clear()", "nl", tokenStore.getSelectedRegion());
     }
+
+    @Test
+    public void bypassRussianTrafficSetting() {
+        assertFalse(tokenStore.isBypassRussianTraffic());
+        tokenStore.setBypassRussianTraffic(true);
+        assertTrue(tokenStore.isBypassRussianTraffic());
+        tokenStore.setBypassRussianTraffic(false);
+        assertFalse(tokenStore.isBypassRussianTraffic());
+    }
+
+    @Test
+    public void autoConnectOnBootSetting() {
+        assertFalse(tokenStore.isAutoConnectOnBoot());
+        tokenStore.setAutoConnectOnBoot(true);
+        assertTrue(tokenStore.isAutoConnectOnBoot());
+    }
+
+    @Test
+    public void disallowedAppsSetting() {
+        assertTrue(tokenStore.getDisallowedApps().isEmpty());
+        java.util.Set<String> apps = java.util.Set.of("com.example.bank", "com.example.maps");
+        tokenStore.setDisallowedApps(apps);
+        assertEquals(apps, tokenStore.getDisallowedApps());
+    }
 }
+

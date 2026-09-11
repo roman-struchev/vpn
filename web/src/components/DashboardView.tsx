@@ -74,20 +74,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Top-up modal states
   const [invoice, setInvoice] = useState<CryptoInvoice | null>(null);
   const [invoiceAmount, setInvoiceAmount] = useState('5');
-  const [depositChain, setDepositChain] = useState<'TRON' | 'ETHEREUM'>('TRON');
+  const [depositChain, setDepositChain] = useState<'TRON' | 'BASE' | 'ARBITRUM' | 'POLYGON' | 'ETHEREUM'>('TRON');
   const [claimTxHash, setClaimTxHash] = useState('');
   const [claimAmount, setClaimAmount] = useState('5');
   const [claimStatus, setClaimStatus] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
+
+  // Promo code states
+  const [promoInput, setPromoInput] = useState('');
+  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [applyingPromo, setApplyingPromo] = useState(false);
 
   // Telegram Stars top-up: a Stars payment can only actually be completed
   // inside Telegram (the Bot API can't push an invoice into an arbitrary web
   // session), so this method needs an extra "connect Telegram" step before
   // the usual amount buttons — see api.createTelegramLink / UserController's
   // POST /telegram-link and TelegramBotService#handleAccountLinkStart.
-  const [topUpMethod, setTopUpMethod] = useState<'crypto' | 'stars'>('crypto');
+  const [topUpMethod, setTopUpMethod] = useState<'crypto' | 'stars' | 'promo'>('crypto');
   const [telegramLinkDeepLink, setTelegramLinkDeepLink] = useState<string | null>(null);
   const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
+
   const [telegramLinkError, setTelegramLinkError] = useState<string | null>(null);
 
   // Selected tariff purchase
@@ -247,6 +254,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       onRefreshUser();
     } catch (err: any) {
       setClaimError(err.message || 'Failed to claim transaction');
+    }
+  };
+
+  const handleApplyPromo = async () => {
+    if (!promoInput.trim()) return;
+    setPromoError(null);
+    setPromoSuccess(null);
+    setApplyingPromo(true);
+    try {
+      const res = await api.applyPromoCode(promoInput.trim());
+      const bonus = (res.bonusUsdtMicro / 1_000_000).toFixed(2);
+      setPromoSuccess(lang === 'ru' ? `Промокод активирован! +$${bonus} USDT` : `Promo code applied! +$${bonus} USDT credited`);
+      setPromoInput('');
+      onRefreshUser();
+      loadData();
+    } catch (e: any) {
+      setPromoError(e.message || 'Failed to apply promo code');
+    } finally {
+      setApplyingPromo(false);
     }
   };
 
@@ -627,7 +653,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </a>
             )}
           </div>
+          {user.referralCount !== undefined && (
+            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+              <div className="p-2.5 rounded-xl bg-dark-900 border border-dark-800">
+                <span className="block text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                  {lang === 'ru' ? 'Друзей' : 'Friends'}
+                </span>
+                <span className="text-base font-bold text-white mt-0.5 block">
+                  {user.referralCount}
+                </span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-dark-900 border border-dark-800">
+                <span className="block text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                  {lang === 'ru' ? 'Заработано' : 'Earned'}
+                </span>
+                <span className="text-base font-bold text-brand-400 mt-0.5 block">
+                  ${((user.referralEarningsUsdtMicro || 0) / 1_000_000).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
+
 
         {/* Diagnostics */}
         <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
@@ -782,6 +829,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   [
                     { value: 'crypto' as const, label: t.topUpMethodCrypto },
                     { value: 'stars' as const, label: t.topUpMethodStars },
+                    { value: 'promo' as const, label: lang === 'ru' ? 'Промокод' : 'Promo Code' },
                   ]
                 ).map((opt) => (
                   <button
@@ -804,11 +852,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 {/* Invoice Generator */}
                 <div>
                   <label className="block text-xs text-slate-400 mb-1">Network</label>
-                  <div className="flex gap-2 mb-3">
+                  <div className="flex flex-wrap gap-2 mb-3">
                     {(
                       [
                         { value: 'TRON' as const, label: 'TRC-20 (Tron)' },
-                        { value: 'ETHEREUM' as const, label: 'ERC-20 (Ethereum)' },
+                        { value: 'BASE' as const, label: 'Base' },
+                        { value: 'ARBITRUM' as const, label: 'Arbitrum' },
+                        { value: 'POLYGON' as const, label: 'Polygon' },
+                        { value: 'ETHEREUM' as const, label: 'Ethereum' },
                       ]
                     ).map((opt) => (
                       <button
@@ -817,7 +868,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           setDepositChain(opt.value);
                           setInvoice(null);
                         }}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-semibold border ${
+                        className={`flex-1 min-w-[70px] py-1.5 px-2 rounded-lg text-xs font-semibold border text-center ${
                           depositChain === opt.value
                             ? 'bg-brand-500 text-dark-950 border-brand-500'
                             : 'bg-dark-900 border-dark-700 text-slate-300'
@@ -976,8 +1027,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 )}
               </div>
             )}
+
+            {topUpMethod === 'promo' && (
+              <div className="space-y-4">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  {lang === 'ru'
+                    ? 'Введите промокод для мгновенного начисления бонусных средств на баланс.'
+                    : 'Enter your promo code to instantly credit bonus funds to your balance.'}
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={promoInput}
+                    onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                    placeholder="PROMOCODE"
+                    className="flex-1 px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs font-mono uppercase text-white outline-none focus:border-brand-500"
+                  />
+                  <button
+                    onClick={handleApplyPromo}
+                    disabled={!promoInput.trim() || applyingPromo}
+                    className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-dark-950 font-bold text-xs"
+                  >
+                    {applyingPromo ? '…' : (lang === 'ru' ? 'Применить' : 'Apply')}
+                  </button>
+                </div>
+                {promoSuccess && (
+                  <p className="text-xs text-emerald-400 font-medium">{promoSuccess}</p>
+                )}
+                {promoError && (
+                  <p className="text-xs text-red-400 font-medium">{promoError}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
+
       )}
     </div>
   );

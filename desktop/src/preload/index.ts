@@ -20,8 +20,12 @@ const vpnApi = {
   getProfile: () => ipcRenderer.invoke('profile:get'),
 
   getRegions: () => ipcRenderer.invoke('regions:list'),
+  pingRegions: (): Promise<Record<string, number>> => ipcRenderer.invoke('regions:ping'),
   getSelectedRegion: (): Promise<string | null> => ipcRenderer.invoke('region:get'),
   setSelectedRegion: (region: string | null) => ipcRenderer.invoke('region:set', region),
+
+  getBypassRussianTraffic: (): Promise<boolean> => ipcRenderer.invoke('vpn:getBypassRu'),
+  setBypassRussianTraffic: (enabled: boolean): Promise<void> => ipcRenderer.invoke('vpn:setBypassRu', enabled),
 
   listDevices: () => ipcRenderer.invoke('devices:list'),
   deleteDevice: (deviceId: number) => ipcRenderer.invoke('devices:delete', deviceId),

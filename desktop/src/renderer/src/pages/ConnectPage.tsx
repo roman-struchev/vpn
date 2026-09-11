@@ -47,12 +47,16 @@ export default function ConnectPage({
   const [selectedRegion, setSelectedRegionState] = useState<string | null>(null);
   const [regionFallback, setRegionFallback] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [pings, setPings] = useState<Record<string, number>>({});
+  const [bypassRu, setBypassRu] = useState<boolean>(true);
 
   useEffect(() => {
     window.vpnApi.getConnectionState().then(setState);
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
     window.vpnApi.getRegions().then(setRegions).catch(() => undefined);
     window.vpnApi.getSelectedRegion().then(setSelectedRegionState).catch(() => undefined);
+    window.vpnApi.getBypassRussianTraffic().then(setBypassRu).catch(() => undefined);
+    window.vpnApi.pingRegions().then(setPings).catch(() => undefined);
 
     const offState = window.vpnApi.onStateChange(setState);
     const offRegion = window.vpnApi.onRegionChange(setRegion);
@@ -119,17 +123,48 @@ export default function ConnectPage({
           className="w-full rounded-lg bg-dark-800 px-3 py-2 text-sm text-white outline-none"
         >
           <option value="">{t.regionAuto}</option>
-          {regions.map((r) => (
-            <option key={r.region} value={r.region}>
-              {r.region} — {LOAD_LABEL[r.loadLevel]} ({r.nodeCount} {t.regionNodeCountSuffix})
-            </option>
-          ))}
+          {regions.map((r) => {
+            const ping = pings[r.region];
+            const pingText = ping !== undefined ? ` · ${ping} ${t.pingMs}` : '';
+            return (
+              <option key={r.region} value={r.region}>
+                {r.region} — {LOAD_LABEL[r.loadLevel]} ({r.nodeCount} {t.regionNodeCountSuffix}){pingText}
+              </option>
+            );
+          })}
         </select>
         {selectedRegionInfo && (
-          <p className={`mt-2 text-xs ${LOAD_COLOR[selectedRegionInfo.loadLevel]}`}>{LOAD_LABEL[selectedRegionInfo.loadLevel]}</p>
+          <div className="mt-2 flex items-center justify-between text-xs">
+            <span className={LOAD_COLOR[selectedRegionInfo.loadLevel]}>{LOAD_LABEL[selectedRegionInfo.loadLevel]}</span>
+            {pings[selectedRegionInfo.region] !== undefined && (
+              <span className="font-mono text-state-connected">
+                ⚡ {pings[selectedRegionInfo.region]} {t.pingMs}
+              </span>
+            )}
+          </div>
         )}
         {regionFallback && <p className="mt-2 text-xs text-state-connecting">{t.regionUnavailableNotice}</p>}
       </div>
+
+      <div className="w-full rounded-xl bg-dark-900 p-4">
+        <label className="flex items-center justify-between cursor-pointer select-none">
+          <div className="pr-3">
+            <span className="text-xs font-semibold text-white/90 block">{t.bypassRuTitle}</span>
+            <span className="text-[11px] text-white/50 block mt-0.5 leading-snug">{t.bypassRuDesc}</span>
+          </div>
+          <input
+            type="checkbox"
+            checked={bypassRu}
+            onChange={(e) => {
+              const val = e.target.checked;
+              setBypassRu(val);
+              void window.vpnApi.setBypassRussianTraffic(val);
+            }}
+            className="h-4 w-4 rounded accent-brand-500 cursor-pointer"
+          />
+        </label>
+      </div>
+
 
       <button
         onClick={onToggle}

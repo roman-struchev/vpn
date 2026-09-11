@@ -92,4 +92,17 @@ class BlockchainScannerTaskTest {
         assertEquals(66, topic.length());
         assertEquals("0x" + "0".repeat(24) + "abcdef0000000000000000000000000000000001", topic);
     }
+
+    @Test
+    void testEvmRpcEndpointsFallbackParsing() {
+        task.setEvmRpcUrl("https://rpc1.example.com, https://rpc2.example.com ");
+        task.setEvmRpcUrlsFallback("https://fallback.example.com,https://rpc1.example.com");
+
+        var endpoints = task.getEvmRpcEndpoints();
+        assertEquals(3, endpoints.size());
+        assertEquals("https://rpc1.example.com", endpoints.get(0));
+        assertEquals("https://rpc2.example.com", endpoints.get(1));
+        assertEquals("https://fallback.example.com", endpoints.get(2));
+    }
 }
+

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, shell, powerMonitor } from 'electron';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initAutoUpdater } from './autoUpdater';
@@ -15,6 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let vpnController: VpnController | null = null;
 let trayHandle: TrayHandle | null = null;
+
 
 // Now that a tray icon exists, the main window's "X" (or the red traffic
 // light on macOS) hides the window instead of quitting the whole app — the
@@ -85,17 +86,31 @@ app.whenReady().then(() => {
 
   const tokenStore = new TokenStore();
   const apiClient = new ApiClient(tokenStore);
-  vpnController = new VpnController(apiClient, createSystemProxyManager());
+  const systemProxyManager = createSystemProxyManager();
+
+  // Clean up any stale system proxy setting from previous crashes/force quits (Stability 2.5)
+  void systemProxyManager.disable().catch((err) => {
+    console.warn('Failed to clean up stale system proxy on startup:', err);
+  });
+
+  vpnController = new VpnController(apiClient, systemProxyManager);
 
   registerIpcHandlers(mainWindow, apiClient, vpnController);
   initAutoUpdater();
   trayHandle = createAppTray(vpnController, showMainWindow);
 
+  powerMonitor.on('suspend', () => {
+    console.log('System is suspending. Proxy safety active.');
+  });
+  powerMonitor.on('resume', () => {
+    console.log('System resumed. Verifying connection state...');
+    if (vpnController && vpnController.getState() === 'CONNECTED') {
+      // Re-verify port or refresh connection if network interface changed during sleep
+      void vpnController.checkLiveness();
+    }
+  });
+
   app.on('activate', () => {
-    // On macOS, clicking the Dock icon with the window hidden (per the
-    // close-to-tray behavior above) should bring it back, not spawn a
-    // second one — hence showMainWindow() rather than an unconditional
-    // createWindow() here.
     showMainWindow();
   });
 });

@@ -6,12 +6,16 @@ server/build/
 
 # Node.js
 node_modules/
-agent/node_modules/
-agent/dist/
+**/node_modules/
+dist/
+**/dist/
+.vitepress/cache/
+**/.vitepress/cache/
+.vitepress/dist/
+**/.vitepress/dist/
+
 agent/.agent-state.json
 agent/xray-config.json
-web/node_modules/
-web/dist/
 
 # IDE
 .idea/

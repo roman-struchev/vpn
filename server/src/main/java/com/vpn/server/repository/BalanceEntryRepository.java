@@ -33,4 +33,9 @@ public interface BalanceEntryRepository extends JpaRepository<BalanceEntry, Long
     @Query("SELECT b.user.id, COALESCE(SUM(b.amountUsdtMicro), 0) FROM BalanceEntry b "
             + "WHERE b.type IN ('REFERRAL_BONUS', 'REFERRAL_WELCOME_BONUS') GROUP BY b.user.id")
     List<Object[]> sumReferralPayoutsGroupedByUser();
+
+    @Query("SELECT COALESCE(SUM(b.amountUsdtMicro), 0) FROM BalanceEntry b "
+            + "WHERE b.user.id = :userId AND b.type = 'REFERRAL_BONUS'")
+    long sumReferralEarningsByUserId(@org.springframework.data.repository.query.Param("userId") Long userId);
 }
+

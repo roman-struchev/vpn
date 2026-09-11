@@ -10,6 +10,8 @@ public class UserProfile {
     /** Ready-to-share plain web link built by the server ({@code <site>/?ref=CODE}). */
     public String referralLink;
     public String referralTelegramLink;
+    public long referralCount;
+    public long referralEarningsUsdtMicro;
     public boolean hasActiveSubscription;
     public boolean isGuest;
     public SubscriptionInfo subscription;

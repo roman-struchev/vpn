@@ -72,8 +72,16 @@ export default function ProfilePage({ onLoggedOut }: { onLoggedOut: () => void }
         <p className="mt-1 text-[11px] text-white/40">
           {t.referralCodeLabel}: {profile?.referralCode ?? '—'}
         </p>
+        {profile?.referralCount !== undefined && (
+          <p className="mt-2 rounded-lg bg-dark-900 border border-dark-800 px-3 py-1.5 text-xs text-brand-400 font-medium">
+            {t.referralStats
+              .replace('%s', String(profile.referralCount))
+              .replace('%s', ((profile.referralEarningsUsdtMicro ?? 0) / 1_000_000).toFixed(2))}
+          </p>
+        )}
         <p className="mt-2 text-[11px] leading-relaxed text-white/50">{t.referralDesc}</p>
       </div>
+
       <button
         className="mt-4 rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
         onClick={() => void openBilling()}

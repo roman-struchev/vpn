@@ -40,10 +40,18 @@
     <string name="region_picker_title">Connection region</string>
     <string name="region_auto">Auto (best available)</string>
     <string name="region_row_format">%1$s — %2$s (%3$d nodes)</string>
+    <string name="region_row_with_ping">%1$s — ⚡ %2$d ms • %3$s (%4$d nodes)</string>
     <string name="region_load_low">low load</string>
     <string name="region_load_medium">medium load</string>
     <string name="region_load_high">high load</string>
     <string name="region_unavailable_notice">The selected region is unavailable right now — using automatic selection</string>
+
+    <string name="settings_section_title">Connection settings</string>
+    <string name="bypass_ru_title">Bypass Russian services</string>
+    <string name="bypass_ru_desc">Banks, Gosuslugi and RU apps bypass VPN directly</string>
+    <string name="auto_boot_title">Connect on boot</string>
+    <string name="auto_boot_desc">Automatically start VPN when device turns on</string>
+
 
     <string name="notif_channel_name">VPN status</string>
     <string name="notif_disconnect_action">Disconnect</string>
@@ -65,6 +73,7 @@
     <string name="profile_sign_in_existing">Sign in with an existing account</string>
     <string name="profile_logout">Sign out</string>
     <string name="profile_referral">Your invite link</string>
+    <string name="profile_referral_stats">Referred friends: %1$d • Earned: $%2$.2f USDT</string>
     <string name="profile_referral_code">Code: %1$s</string>
     <string name="profile_referral_desc" formatted="false">You get 15% to your balance on every deposit your invited friend makes; they get a 10% bonus on their first deposit. The link opens in a browser on any platform.</string>
     <string name="profile_referral_copy">Copy</string>

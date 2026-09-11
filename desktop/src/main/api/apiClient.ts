@@ -1,5 +1,7 @@
 import { app } from 'electron';
 import { ApiHostRotation } from '../../shared/apiHostRotation';
+import { parseVlessUri } from '../../shared/vlessUri';
+import { pingTcp } from '../vpn/pingUtil';
 import type { TokenStore } from './tokenStore';
 
 const DEFAULT_BASE_URL = 'https://vpn.struchev.site/';
@@ -19,6 +21,8 @@ export interface UserProfile {
   role: string;
   balanceUsdtMicro: number;
   referralCode: string;
+  referralCount?: number;
+  referralEarningsUsdtMicro?: number;
   /** Ready-to-share plain web link built by the server (`<site>/?ref=CODE`). */
   referralLink?: string;
   referralTelegramLink?: string;
@@ -230,6 +234,35 @@ export class ApiClient {
   async getRegions(): Promise<RegionInfo[]> {
     const resp = await this.get<{ regions: RegionInfo[] }>('api/v1/user/regions');
     return resp.regions ?? [];
+  }
+
+  /** Measures round-trip latency to each available region's primary node. */
+  async pingRegions(): Promise<Record<string, number>> {
+    try {
+      const resp = await this.getSubscriptionLinks();
+      const results: Record<string, number> = {};
+      const links = resp.links || [];
+      await Promise.all(
+        links.map(async (link) => {
+          try {
+            const parsed = parseVlessUri(link);
+            const key = parsed.remark || parsed.host;
+            if (results[key] === undefined) {
+              const latency = await pingTcp(parsed.host, parsed.port, 2000);
+              if (latency !== null) {
+                results[key] = latency;
+              }
+            }
+          } catch {
+            // ignore malformed link
+          }
+        })
+      );
+      return results;
+    } catch (e) {
+      console.warn('Failed to ping regions:', e);
+      return {};
+    }
   }
 
   /** Persisted per-install region preference (null = "auto"/best-available, today's implicit behavior). */

@@ -13,9 +13,15 @@ import com.vpn.android.api.model.UserProfile;
 import com.vpn.android.api.model.WebHandoffResponse;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+
+import com.vpn.android.vpn.xray.VlessUri;
 
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -235,7 +241,46 @@ public class ApiClient {
         return resp.regions != null ? resp.regions : List.of();
     }
 
+    /**
+     * Measures TCP connect latency across subscription node endpoints.
+     * Returns a map of region/remark to latency in milliseconds.
+     */
+    public Map<String, Integer> pingRegions() {
+        Map<String, Integer> results = new ConcurrentHashMap<>();
+        try {
+            SubscriptionLinksResponse resp = getSubscriptionLinks();
+            if (resp != null && resp.links != null) {
+                for (String link : resp.links) {
+                    try {
+                        VlessUri uri = VlessUri.parse(link);
+                        String key = (uri.getRemark() != null && !uri.getRemark().isBlank()) ? uri.getRemark() : uri.getHost();
+                        if (!results.containsKey(key)) {
+                            int latency = measureTcpLatency(uri.getHost(), uri.getPort(), 2000);
+                            if (latency >= 0) {
+                                results.put(key, latency);
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return results;
+    }
+
+    public static int measureTcpLatency(String host, int port, int timeoutMs) {
+        long start = System.currentTimeMillis();
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(host, port), timeoutMs);
+            return (int) (System.currentTimeMillis() - start);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     public RoutingConfigResponse getRoutingConfig(String operator, String region) throws ApiException, IOException {
+
         return executeWithHostRotation(host -> {
             HttpUrl.Builder url = HttpUrl.parse(host + "api/v1/client/config").newBuilder();
             if (operator != null) url.addQueryParameter("operator", operator);

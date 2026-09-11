@@ -6,6 +6,8 @@ export interface UserProfile {
   role: string;
   balanceUsdtMicro: number;
   referralCode: string;
+  referralCount?: number;
+  referralEarningsUsdtMicro?: number;
   /** Ready-to-share plain web link built by the server (`<site>/?ref=CODE`). */
   referralLink?: string;
   referralTelegramLink?: string;

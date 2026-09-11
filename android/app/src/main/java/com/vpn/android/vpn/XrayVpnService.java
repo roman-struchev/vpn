@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -59,6 +60,21 @@ public class XrayVpnService extends VpnService implements DialerController {
 
     public static final String ACTION_CONNECT = "com.vpn.android.vpn.action.CONNECT";
     public static final String ACTION_DISCONNECT = "com.vpn.android.vpn.action.DISCONNECT";
+
+    public static final List<String> RUSSIAN_APP_PACKAGES = List.of(
+            "ru.sberbankmobile",
+            "com.idamob.tinkoff.android",
+            "ru.alfabank.mobile.android",
+            "ru.vtb24.mobilebanking",
+            "ru.yandex.searchplugin",
+            "ru.yandex.yandexmaps",
+            "ru.yandex.taxi",
+            "com.vkontakte.android",
+            "ru.gosuslugi.gostop",
+            "ru.nspk.mirpay",
+            "com.ozon.app.android",
+            "ru.wildberries.wildberries"
+    );
 
     private final ConnectionStateMachine stateMachine = new ConnectionStateMachine();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -360,11 +376,31 @@ public class XrayVpnService extends VpnService implements DialerController {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false);
         }
+
+        if (tokenStore.isBypassRussianTraffic()) {
+            for (String pkg : RUSSIAN_APP_PACKAGES) {
+                try {
+                    builder.addDisallowedApplication(pkg);
+                } catch (PackageManager.NameNotFoundException ignored) {
+                }
+            }
+        }
+        Set<String> disallowed = tokenStore.getDisallowedApps();
+        if (disallowed != null) {
+            for (String pkg : disallowed) {
+                try {
+                    builder.addDisallowedApplication(pkg);
+                } catch (PackageManager.NameNotFoundException ignored) {
+                }
+            }
+        }
+
         tunInterface = builder.establish();
         if (tunInterface == null) {
             throw new IllegalStateException("VpnService.Builder#establish() returned null (permission revoked?)");
         }
     }
+
 
     private void disconnect() {
         stopping = true;

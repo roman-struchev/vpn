@@ -61,7 +61,13 @@ const translations = {
     guestProfileDesc:
       'Это временный профиль, привязанный только к этому устройству — он не сохранится при переустановке. Войдите или зарегистрируйтесь, чтобы сохранить доступ и увеличить лимиты.',
     signInOrRegister: 'Войти или зарегистрироваться',
+    bypassRuTitle: 'Обход российских сайтов',
+    bypassRuDesc: 'Банки, Госуслуги и сервисы РФ работают напрямую без VPN',
+    pingMs: 'мс',
+    pingChecking: 'пинг…',
+    referralStats: 'Приглашено: %s друзей · Заработано: %s USDT',
   },
+
   en: {
     appName: 'NextGen VPN',
     loginTitle: 'Sign in',
@@ -122,8 +128,14 @@ const translations = {
     guestProfileDesc:
       "This is a temporary profile tied only to this device — it won't survive a reinstall. Sign in or register to keep your access and raise your limits.",
     signInOrRegister: 'Sign in or register',
+    bypassRuTitle: 'Bypass Russian sites',
+    bypassRuDesc: 'Russian banks and state portals connect directly without VPN',
+    pingMs: 'ms',
+    pingChecking: 'ping…',
+    referralStats: 'Invited: %s friends · Earned: %s USDT',
   },
 } satisfies Record<Lang, Record<string, string>>;
+
 
 const lang: Lang = navigator.language.toLowerCase().startsWith('ru') ? 'ru' : 'en';
 

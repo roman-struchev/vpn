@@ -8,6 +8,8 @@ import androidx.security.crypto.MasterKey;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.Collections;
+import java.util.Set;
 import java.util.UUID;
 
 /** Persists the JWT issued by /api/v1/auth/* in a Keystore-backed encrypted prefs file. */
@@ -19,6 +21,9 @@ public class TokenStore {
     private static final String KEY_DEVICE_ID = "device_id";
     private static final String KEY_SELECTED_REGION = "selected_region";
     private static final String KEY_DEVICE_UUID = "device_uuid";
+    private static final String KEY_BYPASS_RUSSIAN_TRAFFIC = "bypass_russian_traffic";
+    private static final String KEY_AUTO_CONNECT_ON_BOOT = "auto_connect_on_boot";
+    private static final String KEY_DISALLOWED_APPS = "disallowed_apps";
 
     private final SharedPreferences prefs;
 
@@ -115,6 +120,30 @@ public class TokenStore {
         String deviceUuid = UUID.randomUUID().toString();
         prefs.edit().putString(KEY_DEVICE_UUID, deviceUuid).apply();
         return deviceUuid;
+    }
+
+    public boolean isBypassRussianTraffic() {
+        return prefs.getBoolean(KEY_BYPASS_RUSSIAN_TRAFFIC, false);
+    }
+
+    public void setBypassRussianTraffic(boolean enabled) {
+        prefs.edit().putBoolean(KEY_BYPASS_RUSSIAN_TRAFFIC, enabled).apply();
+    }
+
+    public boolean isAutoConnectOnBoot() {
+        return prefs.getBoolean(KEY_AUTO_CONNECT_ON_BOOT, false);
+    }
+
+    public void setAutoConnectOnBoot(boolean enabled) {
+        prefs.edit().putBoolean(KEY_AUTO_CONNECT_ON_BOOT, enabled).apply();
+    }
+
+    public Set<String> getDisallowedApps() {
+        return prefs.getStringSet(KEY_DISALLOWED_APPS, Collections.emptySet());
+    }
+
+    public void setDisallowedApps(Set<String> apps) {
+        prefs.edit().putStringSet(KEY_DISALLOWED_APPS, apps).apply();
     }
 
     /**

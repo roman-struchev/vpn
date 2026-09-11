@@ -15,6 +15,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -45,6 +47,7 @@ public class ConnectFragment extends Fragment {
     private TokenStore tokenStore;
     private UserProfile latestProfile;
     private List<RegionInfo> availableRegions = new ArrayList<>();
+    private final Map<String, Integer> regionPings = new ConcurrentHashMap<>();
     private boolean isGuest = false;
 
     public static ConnectFragment newInstance(boolean isGuest) {
@@ -92,6 +95,16 @@ public class ConnectFragment extends Fragment {
         });
         renderGuestCard();
 
+        binding.bypassRuSwitch.setChecked(tokenStore.isBypassRussianTraffic());
+        binding.bypassRuSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
+            tokenStore.setBypassRussianTraffic(isChecked);
+        });
+
+        binding.autoBootSwitch.setChecked(tokenStore.isAutoConnectOnBoot());
+        binding.autoBootSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
+            tokenStore.setAutoConnectOnBoot(isChecked);
+        });
+
         VpnStatusBus.state.observe(getViewLifecycleOwner(), this::renderState);
         VpnStatusBus.activeRegion.observe(getViewLifecycleOwner(), region -> {
             if (region != null && !region.isEmpty()) {
@@ -112,8 +125,24 @@ public class ConnectFragment extends Fragment {
     private void loadRegions() {
         Async.run(
                 () -> apiClient.getRegions(),
-                regions -> availableRegions = regions,
+                regions -> {
+                    availableRegions = regions;
+                    renderSelectedRegion();
+                    loadRegionPings();
+                },
                 error -> { /* keep whatever the last "Auto" default shows; not fatal to the connect flow */ });
+    }
+
+    private void loadRegionPings() {
+        Async.run(
+                () -> apiClient.pingRegions(),
+                pings -> {
+                    if (pings != null) {
+                        regionPings.putAll(pings);
+                        renderSelectedRegion();
+                    }
+                },
+                error -> { /* non-fatal */ });
     }
 
     private void renderSelectedRegion() {
@@ -134,8 +163,13 @@ public class ConnectFragment extends Fragment {
     }
 
     private String formatRegionRow(RegionInfo r) {
+        Integer ping = regionPings.get(r.region);
+        if (ping != null && ping > 0) {
+            return getString(R.string.region_row_with_ping, r.region, ping, loadLabel(r.loadLevel), r.nodeCount);
+        }
         return getString(R.string.region_row_format, r.region, loadLabel(r.loadLevel), r.nodeCount);
     }
+
 
     private String loadLabel(String loadLevel) {
         if ("HIGH".equals(loadLevel)) return getString(R.string.region_load_high);

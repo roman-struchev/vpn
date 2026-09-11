@@ -38,6 +38,7 @@ public class UserController {
     private final DeviceManagementService deviceManagementService;
     private final AntiEnumerationService antiEnumerationService;
     private final TelegramLinkService telegramLinkService;
+    private final com.vpn.server.service.PromoCodeService promoCodeService;
 
     public UserController(
             UserRepository userRepository,
@@ -49,7 +50,8 @@ public class UserController {
             SubscriptionExportService exportService,
             DeviceManagementService deviceManagementService,
             AntiEnumerationService antiEnumerationService,
-            TelegramLinkService telegramLinkService
+            TelegramLinkService telegramLinkService,
+            com.vpn.server.service.PromoCodeService promoCodeService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -61,7 +63,9 @@ public class UserController {
         this.deviceManagementService = deviceManagementService;
         this.antiEnumerationService = antiEnumerationService;
         this.telegramLinkService = telegramLinkService;
+        this.promoCodeService = promoCodeService;
     }
+
 
     /** Public origin of the web dashboard, used to build shareable referral links. */
     @Value("${vpn.public.web-base-url:https://vpn.struchev.site}")
@@ -91,6 +95,8 @@ public class UserController {
         response.put("role", user.getRole());
         response.put("balanceUsdtMicro", user.getBalanceUsdtMicro());
         response.put("referralCode", user.getReferralCode() != null ? user.getReferralCode() : "");
+        response.put("referralCount", userRepository.countByReferredBy_Id(userId));
+        response.put("referralEarningsUsdtMicro", balanceEntryRepository.sumReferralEarningsByUserId(userId));
         // Ready-to-share referral links, built server-side so every client (web,
         // desktop, Android, Telegram Mini App) hands out the same URLs and none of
         // them has to hardcode a host or the bot username. The plain-web link is the
@@ -413,4 +419,24 @@ public class UserController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    public static class PromoApplyRequest {
+        private String code;
+        public String getCode() { return code; }
+        public void setCode(String code) { this.code = code; }
+    }
+
+    @PostMapping("/promo/apply")
+    public ResponseEntity<?> applyPromoCode(
+            Authentication auth,
+            @RequestBody PromoApplyRequest req) {
+        Long userId = (Long) auth.getPrincipal();
+        try {
+            var result = promoCodeService.applyPromoCode(userId, req != null ? req.getCode() : null);
+            return ResponseEntity.ok(result);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
 }
+

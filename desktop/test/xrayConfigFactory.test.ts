@@ -61,4 +61,14 @@ describe('buildXrayConfig', () => {
     const uri = parseVlessUri(LINK);
     expect(() => buildXrayConfig(uri, 'firefox', 'GRPC')).toThrow();
   });
+
+  it('includes direct routing rules for RU domains and IPs when bypassRussianTraffic is enabled', () => {
+    const uri = parseVlessUri(LINK);
+    const config = buildXrayConfig(uri, 'firefox', 'XHTTP', undefined, { bypassRussianTraffic: true }) as any;
+    const rules = config.routing.rules;
+    const directRules = rules.filter((r: any) => r.outboundTag === 'direct');
+    expect(directRules.length).toBe(2);
+    expect(config.outbounds.some((o: any) => o.tag === 'direct' && o.protocol === 'freedom')).toBe(true);
+  });
 });
+

@@ -32,6 +32,7 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('profile:get', () => apiClient.getProfile());
 
   ipcMain.handle('regions:list', () => apiClient.getRegions());
+  ipcMain.handle('regions:ping', () => apiClient.pingRegions());
   ipcMain.handle('region:get', () => apiClient.getSelectedRegion());
   ipcMain.handle('region:set', (_e, region: string | null) => apiClient.setSelectedRegion(region));
 
@@ -59,6 +60,8 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('vpn:connect', () => vpn.connect());
   ipcMain.handle('vpn:disconnect', () => vpn.disconnect());
   ipcMain.handle('vpn:getState', () => vpn.getState());
+  ipcMain.handle('vpn:getBypassRu', () => vpn.getBypassRussianTraffic());
+  ipcMain.handle('vpn:setBypassRu', (_e, enabled: boolean) => vpn.setBypassRussianTraffic(enabled));
 
   vpn.on('state', (state) => {
     if (!win.isDestroyed()) win.webContents.send('vpn:state', state);

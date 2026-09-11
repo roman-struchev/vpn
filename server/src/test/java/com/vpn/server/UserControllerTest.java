@@ -65,6 +65,9 @@ class UserControllerTest {
     @Mock
     private AntiEnumerationService antiEnumerationService;
 
+    @Mock
+    private com.vpn.server.service.PromoCodeService promoCodeService;
+
     // Plain in-memory implementation (no external deps), same as
     // TelegramBotServiceTest -- cheaper and more meaningful than mocking a
     // single-purpose code generator/store.
@@ -90,10 +93,12 @@ class UserControllerTest {
                 exportService,
                 deviceManagementService,
                 antiEnumerationService,
-                telegramLinkService
+                telegramLinkService,
+                promoCodeService
         );
         when(auth.getPrincipal()).thenReturn(10L);
     }
+
 
     @Test
     void testGetProfile() {
@@ -104,6 +109,8 @@ class UserControllerTest {
         user.setBalanceUsdtMicro(5_000_000L);
 
         when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(userRepository.countByReferredBy_Id(10L)).thenReturn(4L);
+        when(balanceEntryRepository.sumReferralEarningsByUserId(10L)).thenReturn(800_000L);
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
                 .thenReturn(Optional.empty());
 
@@ -113,9 +120,39 @@ class UserControllerTest {
         assertEquals(10L, body.get("id"));
         assertEquals("user@example.com", body.get("email"));
         assertEquals(5_000_000L, body.get("balanceUsdtMicro"));
+        assertEquals(4L, body.get("referralCount"));
+        assertEquals(800_000L, body.get("referralEarningsUsdtMicro"));
         assertEquals(false, body.get("hasActiveSubscription"));
         assertEquals(false, body.get("telegramLinked"));
     }
+
+    @Test
+    void testApplyPromoCodeSuccess() {
+        UserController.PromoApplyRequest req = new UserController.PromoApplyRequest();
+        req.setCode("BONUS2026");
+        when(promoCodeService.applyPromoCode(10L, "BONUS2026"))
+                .thenReturn(Map.of("success", true, "bonusUsdtMicro", 1_000_000L));
+
+        ResponseEntity<?> res = userController.applyPromoCode(auth, req);
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals(true, body.get("success"));
+        assertEquals(1_000_000L, body.get("bonusUsdtMicro"));
+    }
+
+    @Test
+    void testApplyPromoCodeError() {
+        UserController.PromoApplyRequest req = new UserController.PromoApplyRequest();
+        req.setCode("EXPIRED");
+        when(promoCodeService.applyPromoCode(10L, "EXPIRED"))
+                .thenThrow(new IllegalStateException("This promo code has expired"));
+
+        ResponseEntity<?> res = userController.applyPromoCode(auth, req);
+        assertEquals(400, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals("This promo code has expired", body.get("error"));
+    }
+
 
     @Test
     void testGetProfileTelegramLinkedTrueWhenTelegramIdSet() {

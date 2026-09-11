@@ -59,7 +59,50 @@ export interface ServerConfigSyncPayload {
   fallbackInbound?: InboundSyncConfig;
 }
 
-// Local-dev/e2e-only escape hatch: the primary inbound's port always comes
+export function hasStructuralChanges(
+  prevSync: ServerConfigSyncPayload | null,
+  nextSync: ServerConfigSyncPayload
+): boolean {
+  if (!prevSync) return true;
+  if (prevSync.nodeType !== nextSync.nodeType) return true;
+
+  const compareInbound = (a?: InboundSyncConfig, b?: InboundSyncConfig): boolean => {
+    if (!a && !b) return true;
+    if (!a || !b) return false;
+    if (a.listenPort !== b.listenPort) return false;
+    if (a.protocol !== b.protocol) return false;
+    if (a.transport !== b.transport) return false;
+
+    if (Boolean(a.reality?.enabled) !== Boolean(b.reality?.enabled)) return false;
+    if (a.reality?.enabled) {
+      if (a.reality.dest !== b.reality?.dest) return false;
+      if (a.reality.privateKey !== b.reality?.privateKey) return false;
+      if (JSON.stringify(a.reality.serverNames) !== JSON.stringify(b.reality?.serverNames)) return false;
+      if (JSON.stringify(a.reality.shortIds) !== JSON.stringify(b.reality?.shortIds)) return false;
+    }
+
+    if (Boolean(a.tlsSettings?.enabled) !== Boolean(b.tlsSettings?.enabled)) return false;
+    if (a.tlsSettings?.enabled) {
+      if (a.tlsSettings.serverName !== b.tlsSettings?.serverName) return false;
+      if (a.tlsSettings.certPath !== b.tlsSettings?.certPath) return false;
+      if (a.tlsSettings.keyPath !== b.tlsSettings?.keyPath) return false;
+    }
+
+    if (a.xhttpSettings?.path !== b.xhttpSettings?.path) return false;
+    if (a.xhttpSettings?.mode !== b.xhttpSettings?.mode) return false;
+    if (a.xhttpSettings?.host !== b.xhttpSettings?.host) return false;
+
+    if (a.grpcSettings?.serviceName !== b.grpcSettings?.serviceName) return false;
+
+    return true;
+  };
+
+  if (!compareInbound(prevSync.inbound, nextSync.inbound)) return true;
+  if (!compareInbound(prevSync.fallbackInbound, nextSync.fallbackInbound)) return true;
+
+  return false;
+}
+
 // from the server (NodeManagementService hardcodes 443 in production), and
 // binding 443 needs root. Unset by default and never referenced by
 // scripts/install-node.sh or agent/Dockerfile — only e2e/tests/tunnel.spec.ts

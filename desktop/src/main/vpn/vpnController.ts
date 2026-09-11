@@ -38,6 +38,7 @@ export class VpnController extends EventEmitter {
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
   private retryTimer: NodeJS.Timeout | null = null;
+  private bypassRussianTraffic: boolean = true;
 
   constructor(
     private readonly apiClient: ApiClient,
@@ -48,6 +49,23 @@ export class VpnController extends EventEmitter {
 
   getState(): ConnectionState {
     return this.stateMachine.getState();
+  }
+
+  getBypassRussianTraffic(): boolean {
+    return this.bypassRussianTraffic;
+  }
+
+  setBypassRussianTraffic(enabled: boolean): void {
+    this.bypassRussianTraffic = enabled;
+  }
+
+  async checkLiveness(): Promise<void> {
+    if (this.getState() !== 'CONNECTED') return;
+    const isReady = await waitForPortOpen(HTTP_PORT, '127.0.0.1', 1000);
+    if (!isReady) {
+      console.warn('Liveness check failed on HTTP proxy port; triggering recovery');
+      void this.handleFailure();
+    }
   }
 
   async connect(): Promise<void> {
@@ -149,7 +167,13 @@ export class VpnController extends EventEmitter {
     const attemptStartedAt = Date.now();
 
     try {
-      const config = buildXrayConfig(vless, this.backoff.getFingerprint(), transport, this.grpcByHost.get(vless.host));
+      const config = buildXrayConfig(
+        vless,
+        this.backoff.getFingerprint(),
+        transport,
+        this.grpcByHost.get(vless.host),
+        { bypassRussianTraffic: this.bypassRussianTraffic }
+      );
       this.xrayProcess.start(config, (code, signal) => this.onXrayExit(code, signal));
 
       const ready = await waitForPortOpen(HTTP_PORT);
