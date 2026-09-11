@@ -11,6 +11,8 @@
     <string name="login_toggle">Already have an account? Sign in</string>
     <string name="login_error_generic">Could not sign in. Check your details and connection.</string>
     <string name="field_required">This field is required</string>
+    <string name="login_google_action">Sign in with Google</string>
+    <string name="google_signin_error">Could not sign in with Google. Please try again.</string>
 
     <string name="state_disconnected">Disconnected</string>
     <string name="state_connecting">Connecting…</string>

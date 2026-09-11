@@ -12,6 +12,11 @@
     <string name="login_toggle">Уже есть аккаунт? Войти</string>
     <string name="login_error_generic">Не удалось войти. Проверьте данные и подключение.</string>
     <string name="field_required">Заполните это поле</string>
+    <string name="login_google_action">Войти через Google</string>
+    <string name="google_signin_error">Не удалось войти через Google. Попробуйте снова.</string>
+    <!-- OAuth "Web application"-type Client ID from Google Cloud Console (the audience
+         the backend's vpn.google.client-id property expects) — replace before release. -->
+    <string name="google_web_client_id" translatable="false">REPLACE_WITH_GOOGLE_WEB_CLIENT_ID</string>
 
     <!-- Connect screen -->
     <string name="state_disconnected">Отключено</string>

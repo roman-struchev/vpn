@@ -2,11 +2,22 @@ package com.vpn.android.ui.login;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.text.TextUtils;
 import android.view.View;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
+import androidx.credentials.Credential;
+import androidx.credentials.CredentialManager;
+import androidx.credentials.CredentialManagerCallback;
+import androidx.credentials.CustomCredential;
+import androidx.credentials.GetCredentialRequest;
+import androidx.credentials.GetCredentialResponse;
+import androidx.credentials.exceptions.GetCredentialException;
 
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption;
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential;
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
@@ -38,6 +49,7 @@ public class LoginActivity extends AppCompatActivity {
 
         binding.submitButton.setOnClickListener(v -> submit());
         binding.toggleModeButton.setOnClickListener(v -> toggleMode());
+        binding.googleSignInButton.setOnClickListener(v -> signInWithGoogle());
         applyMode();
     }
 
@@ -63,6 +75,83 @@ public class LoginActivity extends AppCompatActivity {
         setLoading(true);
         Async.run(
                 () -> registerMode ? apiClient.register(email, password, null) : apiClient.login(email, password),
+                (AuthResponse resp) -> {
+                    setLoading(false);
+                    goToMain();
+                },
+                error -> {
+                    setLoading(false);
+                    showError(error.getMessage() != null ? error.getMessage() : getString(R.string.login_error_generic));
+                });
+    }
+
+    /**
+     * Google Sign-In via the Credential Manager API (androidx.credentials) — the
+     * current recommended replacement for the deprecated GoogleSignInClient. The
+     * "server client ID" passed to GetGoogleIdOption must be a Web-application-type
+     * OAuth Client ID from Google Cloud Console, matching the audience the backend's
+     * vpn.google.client-id property expects when it verifies the token; it is NOT
+     * the Android-type client ID. See R.string.google_web_client_id for the
+     * placeholder that needs a real value before this can work end-to-end.
+     */
+    private void signInWithGoogle() {
+        GetGoogleIdOption googleIdOption = new GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(false)
+                .setServerClientId(getString(R.string.google_web_client_id))
+                .build();
+
+        GetCredentialRequest request = new GetCredentialRequest.Builder()
+                .addCredentialOption(googleIdOption)
+                .build();
+
+        CredentialManager credentialManager = CredentialManager.create(this);
+        setLoading(true);
+        credentialManager.getCredentialAsync(
+                this,
+                request,
+                new CancellationSignal(),
+                ContextCompat.getMainExecutor(this),
+                new CredentialManagerCallback<GetCredentialResponse, GetCredentialException>() {
+                    @Override
+                    public void onResult(GetCredentialResponse result) {
+                        handleGoogleCredential(result);
+                    }
+
+                    @Override
+                    public void onError(GetCredentialException e) {
+                        // Covers "no Google account on this device", user cancellation,
+                        // and any other Credential Manager failure.
+                        setLoading(false);
+                        showError(getString(R.string.google_signin_error));
+                    }
+                });
+    }
+
+    private void handleGoogleCredential(GetCredentialResponse result) {
+        Credential credential = result.getCredential();
+        if (!(credential instanceof CustomCredential)
+                || !GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(credential.getType())) {
+            setLoading(false);
+            showError(getString(R.string.google_signin_error));
+            return;
+        }
+
+        String idToken;
+        try {
+            // createFrom is declared to throw GoogleIdTokenParsingException in Kotlin,
+            // but that's not reflected in the compiled method signature javac sees, so
+            // a checked catch clause for it doesn't compile — catch broadly instead.
+            GoogleIdTokenCredential googleIdTokenCredential =
+                    GoogleIdTokenCredential.createFrom(((CustomCredential) credential).getData());
+            idToken = googleIdTokenCredential.getIdToken();
+        } catch (Exception e) {
+            setLoading(false);
+            showError(getString(R.string.google_signin_error));
+            return;
+        }
+
+        Async.run(
+                () -> apiClient.googleAuth(idToken, null),
                 (AuthResponse resp) -> {
                     setLoading(false);
                     goToMain();
