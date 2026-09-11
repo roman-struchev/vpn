@@ -2,7 +2,19 @@ import { useEffect, useState } from 'react';
 import type { UserProfile } from '../types';
 import { t } from '../i18n';
 
-export default function ProfilePage({ onLoggedOut }: { onLoggedOut: () => void }) {
+export default function ProfilePage({
+  onLoggedOut,
+  onSwitchAccount,
+}: {
+  onLoggedOut: () => void;
+  /**
+   * Sends the user to LoginPage without clearing the current session — for
+   * a trial device account that wants to register/sign in with a real
+   * account instead (e.g. to keep it across reinstalls/devices). Unlike
+   * logout(), this doesn't touch the stored token/device UUID.
+   */
+  onSwitchAccount: () => void;
+}) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -61,6 +73,12 @@ export default function ProfilePage({ onLoggedOut }: { onLoggedOut: () => void }
       </div>
       <button
         className="mt-4 rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
+        onClick={onSwitchAccount}
+      >
+        {t.signInExistingAccount}
+      </button>
+      <button
+        className="rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
         onClick={logout}
       >
         {t.logout}

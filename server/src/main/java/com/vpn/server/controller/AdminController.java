@@ -134,6 +134,7 @@ public class AdminController {
             map.put("id", u.getId());
             map.put("email", u.getEmail());
             map.put("telegramId", u.getTelegramId());
+            map.put("deviceUuid", u.getDeviceUuid());
             map.put("role", u.getRole());
             map.put("status", u.getStatus());
             map.put("balanceUsdtMicro", u.getBalanceUsdtMicro());

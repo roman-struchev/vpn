@@ -1,10 +1,12 @@
 import { app, safeStorage } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 interface StoredAuth {
-  token: string;
-  userId: number;
+  /** Absent until the first successful login/register/deviceLogin. */
+  token?: string;
+  userId?: number;
   /**
    * The server-assigned Device row for this install, used to auto-register/
    * touch on connect instead of a manual "add device" step — see
@@ -18,6 +20,13 @@ interface StoredAuth {
    * ConnectPage region picker, read by VpnController#connect.
    */
   selectedRegion?: string;
+  /**
+   * Stable per-install identifier generated on first run (see
+   * getOrCreateDeviceUuid), independent of and surviving before any auth
+   * token exists. Sent to POST /api/v1/auth/device so a fresh install can
+   * start on the trial tariff without registration — see ApiClient#deviceLogin.
+   */
+  deviceUuid?: string;
 }
 
 /**
@@ -32,11 +41,18 @@ export class TokenStore {
   }
 
   save(token: string, userId: number, deviceId?: number): void {
-    // Preserves an already-stored selectedRegion across a fresh login/
-    // register (a region preference is per-install, not per-JWT — there's
-    // no reason a re-login should silently reset it back to "auto").
-    const selectedRegion = this.load()?.selectedRegion;
-    const payload: StoredAuth = { token, userId, deviceId, selectedRegion };
+    // Preserves an already-stored selectedRegion/deviceUuid across a fresh
+    // login/register (both are per-install, not per-JWT — there's no reason
+    // a re-login should silently reset the region back to "auto" or hand out
+    // a new device UUID).
+    const current = this.load();
+    const payload: StoredAuth = {
+      token,
+      userId,
+      deviceId,
+      selectedRegion: current?.selectedRegion,
+      deviceUuid: current?.deviceUuid,
+    };
     this.writePayload(payload);
   }
 
@@ -73,7 +89,7 @@ export class TokenStore {
   /** No-op if there's no token yet (nothing to attach a deviceId to). */
   saveDeviceId(deviceId: number): void {
     const current = this.load();
-    if (!current) return;
+    if (!current?.token || current.userId === undefined) return;
     this.save(current.token, current.userId, deviceId);
   }
 
@@ -86,6 +102,19 @@ export class TokenStore {
     const current = this.load();
     if (!current) return;
     this.writePayload({ ...current, selectedRegion: region ?? undefined });
+  }
+
+  /**
+   * Returns this install's stable device UUID, generating and persisting one
+   * on first call. Works even before any login has happened — unlike the
+   * rest of this store, which only writes once an auth token exists.
+   */
+  getOrCreateDeviceUuid(): string {
+    const current = this.load();
+    if (current?.deviceUuid) return current.deviceUuid;
+    const deviceUuid = randomUUID();
+    this.writePayload({ ...current, deviceUuid });
+    return deviceUuid;
   }
 
   clear(): void {

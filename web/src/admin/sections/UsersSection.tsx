@@ -5,6 +5,14 @@ import { Dialog } from 'primereact/dialog';
 import { adminApi, AdminUser } from '../adminApi';
 import { AdminT } from '../adminI18n';
 
+/**
+ * True for accounts auto-created by the desktop app's no-signup trial flow
+ * (POST /api/v1/auth/device, see DeviceAuthService) rather than an actual
+ * registration/login — a deviceUuid with no telegramId means nobody ever
+ * went through /register, /login or /telegram for this account.
+ */
+const isTrialDeviceUser = (u: AdminUser) => !!u.deviceUuid && !u.telegramId;
+
 export function UsersSection({ t }: { t: AdminT }) {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +59,21 @@ export function UsersSection({ t }: { t: AdminT }) {
           selectionMode="single"
         >
           <Column field="id" header="ID" style={{ width: '4rem' }} sortable />
-          <Column field="email" header={t.email} sortable />
+          <Column
+            field="email"
+            header={t.email}
+            sortable
+            body={(u: AdminUser) => (
+              <span className="flex items-center gap-2">
+                {u.email}
+                {isTrialDeviceUser(u) && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-400 whitespace-nowrap">
+                    {t.trialDeviceLabel}
+                  </span>
+                )}
+              </span>
+            )}
+          />
           <Column field="role" header={t.role} style={{ width: '6rem' }} />
           <Column
             field="status"
@@ -153,6 +175,11 @@ function UserDetailDialog({
     >
       <div className="space-y-5 text-xs">
         {err && <p className="text-red-400">{err}</p>}
+        {isTrialDeviceUser(user) && (
+          <span className="inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-400">
+            {t.trialDeviceLabel}
+          </span>
+        )}
 
         <div className="grid grid-cols-2 gap-3 text-slate-300">
           <div>{t.role}: <span className="font-semibold">{user.role}</span></div>
