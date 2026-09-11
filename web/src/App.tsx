@@ -21,6 +21,21 @@ declare global {
   }
 }
 
+/**
+ * Same-origin relative path guard for a handoff link's `next` param
+ * (WEB_HANDOFF_RESEARCH.md §4.4) — must start with a single `/` and must not
+ * be protocol-relative (`//host/...`) or carry a scheme (`https://...`),
+ * either of which would turn this into an open-redirect primitive for a
+ * hand-crafted `?handoff_code=...&next=https://evil.example` link.
+ */
+function isSafeRelativePath(path: string | null): path is string {
+  if (!path) return false;
+  if (!path.startsWith('/')) return false;
+  if (path.startsWith('//')) return false;
+  if (path.includes('://')) return false;
+  return true;
+}
+
 export function App() {
   const [lang, setLang] = useState<Lang>('ru');
   const [user, setUser] = useState<UserProfile | null>(null);
@@ -41,6 +56,17 @@ export function App() {
     const params = new URLSearchParams(window.location.search);
     return params.get('ref') || params.get('start');
   });
+  // A client -> web SSO handoff code (?handoff_code=...&next=...), opened by
+  // a desktop/Android client's system browser so the user doesn't have to
+  // log in again just to reach a specific page (e.g. billing). See
+  // WEB_HANDOFF_RESEARCH.md.
+  const [handoff] = useState<{ code: string; next: string } | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('handoff_code');
+    if (!code) return null;
+    const rawNext = params.get('next');
+    return { code, next: isSafeRelativePath(rawNext) ? rawNext! : '/' };
+  });
   // Backed by the URL hash (#admin), not just React state: a plain useState
   // resets to false on every reload (F5 while in the admin panel bounced you
   // back to the dashboard with no way to tell you'd been in admin at all).
@@ -60,7 +86,28 @@ export function App() {
   };
 
   useEffect(() => {
-    initApp();
+    (async () => {
+      if (handoff) {
+        try {
+          // setToken happens inside exchangeWebHandoff, same as every other
+          // auth method in api.ts — initApp() below then picks it up.
+          await api.exchangeWebHandoff(handoff.code);
+        } catch (err) {
+          // Expired/invalid/already-used code: fail silently into the
+          // normal logged-out landing page rather than blocking the user
+          // with an error state (WEB_HANDOFF_RESEARCH.md §4.1).
+          console.warn('Web handoff exchange failed', err);
+        }
+        // Strip the code from the URL/history immediately regardless of
+        // outcome — it's single-use, so leaving it there just risks a
+        // confusing "expired code" retry on refresh.
+        history.replaceState(null, '', handoff.next);
+      }
+      // `loading` is already true (initial state) at this point, so the
+      // loading screen below covers the handoff exchange too — no separate
+      // spinner needed to avoid flashing the logged-out landing page first.
+      await initApp();
+    })();
 
     const onHashChange = () => setShowAdmin(window.location.hash.startsWith('#admin'));
     window.addEventListener('hashchange', onHashChange);

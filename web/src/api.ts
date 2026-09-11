@@ -63,6 +63,24 @@ export const api = {
     return data;
   },
 
+  /**
+   * Redeems a client -> web SSO handoff code (see WEB_HANDOFF_RESEARCH.md)
+   * minted by an already-authenticated desktop/Android client for a normal,
+   * full-privilege session JWT — same response shape as login/register/
+   * telegramAuth/googleAuth above.
+   */
+  async exchangeWebHandoff(code: string) {
+    const res = await fetch('/api/v1/auth/web-handoff/exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    setToken(data.token);
+    return data;
+  },
+
   async getProfile(): Promise<UserProfile> {
     const res = await fetch('/api/v1/user/profile', {
       headers: getAuthHeaders(),
