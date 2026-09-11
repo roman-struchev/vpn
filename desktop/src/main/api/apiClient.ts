@@ -225,6 +225,17 @@ export class ApiClient {
     }
   }
 
+  /**
+   * Mints a short-lived, single-use code the web dashboard can exchange for
+   * a real session JWT (see WEB_HANDOFF_RESEARCH.md) — lets a user land on
+   * the web dashboard already signed in instead of hitting its login page.
+   * `webUrl` is server-built (vpn.public.web-base-url) so this client never
+   * needs its own copy of that config.
+   */
+  requestWebHandoff(): Promise<{ code: string; webUrl: string; expiresInSeconds: number }> {
+    return this.post('api/v1/auth/web-handoff', {}, true);
+  }
+
   logout(): void {
     this.tokenStore.clear();
   }
