@@ -21,6 +21,7 @@ import java.security.SecureRandom;
 import java.security.interfaces.XECPrivateKey;
 import java.security.interfaces.XECPublicKey;
 import java.security.spec.NamedParameterSpec;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -152,6 +153,19 @@ public class NodeManagementService {
             node.setMemoryUsedBytes(heartbeat.getMemoryUsedBytes());
             node.setMemoryTotalBytes(heartbeat.getMemoryTotalBytes());
             node.setActiveConnections(heartbeat.getActiveConnections());
+            if (heartbeat.getActiveConnections() == 0) {
+                // The agent only ever emits a traffic-stats report while it has
+                // connected users (AgentGrpcClient#sendTrafficStats returns early
+                // when its delta collection is empty), so recentBytesPerSec would
+                // otherwise keep showing whatever throughput was last measured
+                // — stale — for as long as the node stays idle. That's the same
+                // "smeared stale history" failure mode this fix started from,
+                // just for throughput instead of CPU load-average. Zero
+                // connections is an unambiguous "no traffic right now" signal,
+                // so force it to zero immediately rather than wait for a report
+                // that will never come.
+                node.setRecentBytesPerSec(0.0);
+            }
             node.setStatus("ONLINE");
             node.setLastHeartbeatAt(Instant.now());
             nodeRepository.save(node);
@@ -192,13 +206,30 @@ public class NodeManagementService {
                     });
         }
 
-        if (nodeTotalBytes > 0) {
-            long finalNodeTotalBytes = nodeTotalBytes;
-            nodeRepository.findById(nodeId).ifPresent(node -> {
+        long finalNodeTotalBytes = nodeTotalBytes;
+        Instant now = Instant.now();
+        nodeRepository.findById(nodeId).ifPresent(node -> {
+            if (finalNodeTotalBytes > 0) {
                 node.setTotalBytesServed(node.getTotalBytesServed() + finalNodeTotalBytes);
-                nodeRepository.save(node);
-            });
-        }
+            }
+
+            // Recent throughput: bytes reported this round ÷ elapsed time since
+            // the previous traffic-stats report — a lightweight "bytes/sec right
+            // now" figure, and arguably a more honest "is this node busy" signal
+            // for a proxy than CPU alone (see SubscriptionExportService#
+            // loadLevelFor). The first report after a gap (or ever) has no prior
+            // timestamp to divide by, so it's skipped rather than guessed at;
+            // node.recentBytesPerSec simply keeps its previous value (null on a
+            // brand-new node) until the next report can compute a real rate.
+            Instant previousReportAt = node.getLastTrafficStatsAt();
+            if (previousReportAt != null) {
+                double elapsedSeconds = Math.max(1.0, Duration.between(previousReportAt, now).toMillis() / 1000.0);
+                node.setRecentBytesPerSec(finalNodeTotalBytes / elapsedSeconds);
+            }
+            node.setLastTrafficStatsAt(now);
+
+            nodeRepository.save(node);
+        });
     }
 
     @Transactional

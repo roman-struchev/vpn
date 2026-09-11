@@ -68,6 +68,19 @@ public class Node {
     @Column(name = "total_bytes_served", nullable = false)
     private Long totalBytesServed = 0L;
 
+    // Bytes/sec since the previous traffic-stats report — see
+    // NodeManagementService#processTrafficStats. Forced to 0 the moment a
+    // heartbeat reports activeConnections == 0 (NodeManagementService#
+    // processHeartbeat), so it can't keep showing stale throughput from a
+    // now-ended burst the way the old CPU load-average figure used to.
+    @Column(name = "recent_bytes_per_sec")
+    private Double recentBytesPerSec;
+
+    // Bookkeeping only (elapsed-time denominator for the next traffic-stats
+    // report) — not surfaced anywhere.
+    @Column(name = "last_traffic_stats_at")
+    private Instant lastTrafficStatsAt;
+
     @Column(name = "last_heartbeat_at")
     private Instant lastHeartbeatAt;
 
@@ -135,6 +148,12 @@ public class Node {
 
     public Long getTotalBytesServed() { return totalBytesServed; }
     public void setTotalBytesServed(Long totalBytesServed) { this.totalBytesServed = totalBytesServed; }
+
+    public Double getRecentBytesPerSec() { return recentBytesPerSec; }
+    public void setRecentBytesPerSec(Double recentBytesPerSec) { this.recentBytesPerSec = recentBytesPerSec; }
+
+    public Instant getLastTrafficStatsAt() { return lastTrafficStatsAt; }
+    public void setLastTrafficStatsAt(Instant lastTrafficStatsAt) { this.lastTrafficStatsAt = lastTrafficStatsAt; }
 
     public Instant getLastHeartbeatAt() { return lastHeartbeatAt; }
     public void setLastHeartbeatAt(Instant lastHeartbeatAt) { this.lastHeartbeatAt = lastHeartbeatAt; }

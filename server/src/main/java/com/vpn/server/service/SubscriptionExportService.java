@@ -98,6 +98,8 @@ public class SubscriptionExportService {
             int nodeCount,
             Double avgCpuPercent,
             long avgActiveConnections,
+            Double avgBytesPerSec,
+            Double avgMemoryPercent,
             String loadLevel
     ) {}
 
@@ -142,8 +144,22 @@ public class SubscriptionExportService {
                     .average()
                     .orElse(0.0));
 
+            OptionalDouble avgBytesPerSecOpt = nodes.stream()
+                    .map(Node::getRecentBytesPerSec)
+                    .filter(Objects::nonNull)
+                    .mapToDouble(Double::doubleValue)
+                    .average();
+            Double avgBytesPerSec = avgBytesPerSecOpt.isPresent() ? round1(avgBytesPerSecOpt.getAsDouble()) : null;
+
+            OptionalDouble avgMemoryPercentOpt = nodes.stream()
+                    .filter(n -> n.getMemoryUsedBytes() != null && n.getMemoryTotalBytes() != null && n.getMemoryTotalBytes() > 0)
+                    .mapToDouble(n -> 100.0 * n.getMemoryUsedBytes() / n.getMemoryTotalBytes())
+                    .average();
+            Double avgMemoryPercent = avgMemoryPercentOpt.isPresent() ? round1(avgMemoryPercentOpt.getAsDouble()) : null;
+
             summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
-                    loadLevelFor(avgCpu, avgConnections)));
+                    avgBytesPerSec, avgMemoryPercent,
+                    loadLevelFor(avgCpu, avgConnections, avgBytesPerSec, avgMemoryPercent)));
         }
         summaries.sort(Comparator.comparing(RegionSummary::region));
         return summaries;
@@ -153,31 +169,107 @@ public class SubscriptionExportService {
         return Math.round(v * 10.0) / 10.0;
     }
 
+    // Relative weights for the signals blended in loadLevelFor, in "how
+    // directly does this reflect actual proxy load" order: throughput is what
+    // users are actually here to consume, CPU is the (now accurately sampled)
+    // secondary signal, memory the lightest one. Judgment calls, not measured
+    // figures — see loadLevelFor's doc comment.
+    private static final double THROUGHPUT_WEIGHT = 0.5;
+    private static final double CPU_WEIGHT = 0.35;
+    private static final double MEMORY_WEIGHT = 0.15;
+
+    // Below this, treat a node as "not really pushing traffic" for the
+    // zero-connections cap — a few stray bytes/sec of TCP keepalive noise
+    // shouldn't prevent the cap from kicking in.
+    private static final double NEGLIGIBLE_BYTES_PER_SEC = 1024.0;
+
     /**
-     * Simple LOW/MEDIUM/HIGH bucket from average CPU% (primary signal — directly
-     * reported by the agent heartbeat, NodeManagementService#processHeartbeat)
-     * blended with active-connections-per-node as a fallback/secondary signal
-     * for nodes that don't report CPU. Deliberately not a real capacity model
-     * (no per-node bandwidth/connection ceiling is tracked) — just enough for a
-     * user to pick a less-congested region at a glance, per the product ask.
+     * Simple LOW/MEDIUM/HIGH bucket blended from several already-reported
+     * heartbeat/traffic-stats signals, weighted by how directly each one
+     * reflects "is this node actually busy right now" for a proxy workload:
      *
-     * When avgActiveConnections is 0, CPU is capped from pushing the result past
-     * MEDIUM: zero connected users is an unambiguous "nobody is using this
-     * region right now" signal, and host CPU can still read nonzero from things
-     * with nothing to do with VPN traffic (OS housekeeping, monitoring agents,
-     * a residual reading right after a burst of unrelated activity, etc.) — an
-     * idle-of-traffic region should never look like the busiest choice.
+     * <ul>
+     *   <li><b>Throughput</b> — {@code avgBytesPerSec}, a rolling bytes/sec
+     *       figure computed in NodeManagementService#processTrafficStats. The
+     *       most honest signal for a proxy: it's literally the thing users
+     *       are here to consume. Mapped onto the 0-100 scale via
+     *       {@link #throughputScore}.</li>
+     *   <li><b>CPU</b> — {@code avgCpuPercent}, sampled directly over the
+     *       heartbeat interval (NodeManagementService#processHeartbeat, fed by
+     *       the agent's os.cpus()-diff in AgentGrpcClient#computeCpuPercent).
+     *       When absent (a node that hasn't reported CPU), falls back to the
+     *       old connections-based estimate — this fallback always applies, so
+     *       CPU (or its stand-in) never drops out of the blend entirely.</li>
+     *   <li><b>Memory</b> — {@code avgMemoryPercent}, used-of-total from the
+     *       same heartbeat. A lighter signal on its own (high memory usage
+     *       alone doesn't mean the node can't take more traffic), but a real
+     *       "avoid this one" nudge when combined with the others.</li>
+     * </ul>
+     *
+     * Throughput and memory readings aren't always available (a node that
+     * hasn't sent a traffic-stats report yet, one running an agent build
+     * that predates this signal, etc.), so the weights above (THROUGHPUT_
+     * WEIGHT / CPU_WEIGHT / MEMORY_WEIGHT) are renormalized over whichever
+     * signals are actually present rather than treating a missing one as 0 —
+     * otherwise a node with only CPU data would always look artificially
+     * under-loaded just because throughput/memory weren't reported.
+     *
+     * Deliberately not a real capacity model (no per-node bandwidth/connection
+     * ceiling is tracked, and the weights above are a judgment call, not a
+     * measured formula) — just enough for a user to pick a less-congested
+     * region at a glance, per the product ask.
+     *
+     * When avgActiveConnections is 0 and there's no meaningful recent
+     * throughput either, the blended score is capped from pushing the result
+     * past MEDIUM: zero connected users with zero bytes moving is an
+     * unambiguous "nobody is using this region right now" signal, and host
+     * CPU/memory can still read nonzero from things with nothing to do with
+     * VPN traffic (OS housekeeping, monitoring agents, a residual reading
+     * right after a burst of unrelated activity, etc.) — an idle-of-traffic
+     * region should never look like the busiest choice.
      */
-    private static String loadLevelFor(Double avgCpuPercent, long avgActiveConnections) {
-        double score = avgCpuPercent != null
+    private static String loadLevelFor(Double avgCpuPercent, long avgActiveConnections,
+                                        Double avgBytesPerSec, Double avgMemoryPercent) {
+        double cpu = avgCpuPercent != null
                 ? avgCpuPercent
                 : Math.min(100.0, avgActiveConnections / 2.0);
-        if (avgActiveConnections == 0) {
+
+        double weightedSum = cpu * CPU_WEIGHT;
+        double totalWeight = CPU_WEIGHT;
+
+        if (avgBytesPerSec != null) {
+            weightedSum += throughputScore(avgBytesPerSec) * THROUGHPUT_WEIGHT;
+            totalWeight += THROUGHPUT_WEIGHT;
+        }
+        if (avgMemoryPercent != null) {
+            weightedSum += avgMemoryPercent * MEMORY_WEIGHT;
+            totalWeight += MEMORY_WEIGHT;
+        }
+
+        double score = weightedSum / totalWeight;
+
+        boolean noRecentTraffic = avgBytesPerSec == null || avgBytesPerSec < NEGLIGIBLE_BYTES_PER_SEC;
+        if (avgActiveConnections == 0 && noRecentTraffic) {
             score = Math.min(score, 74.0);
         }
+
         if (score < 40) return "LOW";
         if (score < 75) return "MEDIUM";
         return "HIGH";
+    }
+
+    /**
+     * Maps a bytes/sec figure onto the same 0-100 scale as the other signals.
+     * No per-node bandwidth ceiling is tracked (see {@link #loadLevelFor}), so
+     * this uses a round, deliberately conservative reference point of 200
+     * Mbps sustained as "fully loaded" for a single node's share of the
+     * indicator — good enough for a glance-able comparison between regions,
+     * not a claim about actual node capacity.
+     */
+    private static double throughputScore(double bytesPerSec) {
+        double mbps = (bytesPerSec * 8.0) / 1_000_000.0;
+        double referenceMbps = 200.0;
+        return Math.min(100.0, (mbps / referenceMbps) * 100.0);
     }
 
     private RegionScopedLinks exportVlessLinks(Long userId, boolean restrictToPaidPlans, boolean autoCreatePrimaryDevice, String region) {

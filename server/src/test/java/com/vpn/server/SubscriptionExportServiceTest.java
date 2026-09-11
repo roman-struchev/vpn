@@ -321,6 +321,10 @@ class SubscriptionExportServiceTest {
 
         assertEquals(2, ams.nodeCount());
         assertEquals(25.0, ams.avgCpuPercent());
+        assertNull(ams.avgBytesPerSec());
+        assertNull(ams.avgMemoryPercent());
+        // Neither node reports throughput/memory, so loadLevelFor's weighting
+        // renormalizes onto CPU alone — same result as the pre-blend formula.
         assertEquals("LOW", ams.loadLevel());
 
         assertEquals(1, lax.nodeCount());
@@ -332,9 +336,13 @@ class SubscriptionExportServiceTest {
     void testGetAvailableRegionsWithZeroConnectionsNeverReportsHigh() {
         // Regression for the "idle node shown as loaded" bug: a node with zero
         // active connections has nothing to do with VPN traffic, but stale/
-        // unrelated host CPU (OS housekeeping, monitoring agents, a residual
-        // reading right after some unrelated burst) could still read fairly
-        // high. Zero connections should cap the result at MEDIUM, never HIGH.
+        // unrelated host CPU and memory (OS housekeeping, monitoring agents, a
+        // residual reading right after some unrelated burst) could still read
+        // fairly high, and it never reported a throughput figure at all (no
+        // traffic-stats report is ever sent while idle — see
+        // AgentGrpcClient#sendTrafficStats). Zero connections plus no
+        // throughput data should cap the result at MEDIUM, never HIGH, even
+        // with high CPU *and* high memory both present.
         User user = new User();
         user.setId(27L);
 
@@ -353,6 +361,8 @@ class SubscriptionExportServiceTest {
         idleButCpuHigh.setStatus("ONLINE");
         idleButCpuHigh.setPool("paid");
         idleButCpuHigh.setCpuPercent(new java.math.BigDecimal("90.0"));
+        idleButCpuHigh.setMemoryUsedBytes(950L);
+        idleButCpuHigh.setMemoryTotalBytes(1000L);
         idleButCpuHigh.setActiveConnections(0);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(27L, "ACTIVE"))
@@ -364,7 +374,131 @@ class SubscriptionExportServiceTest {
         SubscriptionExportService.RegionSummary fra = regions.stream()
                 .filter(r -> r.region().equals("eu-fra")).findFirst().orElseThrow();
         assertEquals(0L, fra.avgActiveConnections());
+        assertNull(fra.avgBytesPerSec());
+        assertEquals(95.0, fra.avgMemoryPercent());
         assertEquals("MEDIUM", fra.loadLevel());
+    }
+
+    @Test
+    void testGetAvailableRegionsZeroConnectionsWithExplicitZeroThroughputAlsoCapsAtMedium() {
+        // Same anchoring case as above, but for a node that HAS reported
+        // throughput before and had it force-zeroed by processHeartbeat once
+        // connections dropped (NodeManagementService#processHeartbeat), rather
+        // than one that simply never reported a rate at all. Both shapes of
+        // "no real traffic" must cap the same way.
+        User user = new User();
+        user.setId(29L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node wentIdle = new Node();
+        wentIdle.setId(10L);
+        wentIdle.setRegion("ap-sgp");
+        wentIdle.setStatus("ONLINE");
+        wentIdle.setPool("paid");
+        wentIdle.setCpuPercent(new java.math.BigDecimal("80.0"));
+        wentIdle.setRecentBytesPerSec(0.0);
+        wentIdle.setActiveConnections(0);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(29L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(wentIdle));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(29L);
+
+        SubscriptionExportService.RegionSummary sgp = regions.stream()
+                .filter(r -> r.region().equals("ap-sgp")).findFirst().orElseThrow();
+        assertEquals(0.0, sgp.avgBytesPerSec());
+        assertNotEquals("HIGH", sgp.loadLevel());
+    }
+
+    @Test
+    void testGetAvailableRegionsHighThroughputWithModerateCpuReportsHigh() {
+        // Throughput is the primary, most-honest load signal for a proxy
+        // server (see loadLevelFor) — a node pushing a saturating amount of
+        // traffic should read HIGH even though its CPU alone (50%) would only
+        // have been MEDIUM.
+        User user = new User();
+        user.setId(31L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node saturated = new Node();
+        saturated.setId(11L);
+        saturated.setRegion("eu-fra");
+        saturated.setStatus("ONLINE");
+        saturated.setPool("paid");
+        saturated.setCpuPercent(new java.math.BigDecimal("50.0"));
+        saturated.setActiveConnections(80);
+        // 25,000,000 bytes/sec == 200 Mbps == loadLevelFor's throughput-score
+        // reference point for "fully loaded".
+        saturated.setRecentBytesPerSec(25_000_000.0);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(31L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(saturated));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(31L);
+
+        SubscriptionExportService.RegionSummary fra = regions.stream()
+                .filter(r -> r.region().equals("eu-fra")).findFirst().orElseThrow();
+        assertEquals(25_000_000.0, fra.avgBytesPerSec());
+        assertEquals("HIGH", fra.loadLevel());
+    }
+
+    @Test
+    void testGetAvailableRegionsHighMemoryNudgesLowCpuRegionToMedium() {
+        // Memory is the lightest of the three blended signals, but should
+        // still be able to push a region that CPU alone would call LOW up
+        // into MEDIUM — a node genuinely close to running out of memory is a
+        // real "maybe avoid this one" signal even mid-CPU-idle.
+        User user = new User();
+        user.setId(32L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node lowCpuHighMemory = new Node();
+        lowCpuHighMemory.setId(12L);
+        lowCpuHighMemory.setRegion("us-lax");
+        lowCpuHighMemory.setStatus("ONLINE");
+        lowCpuHighMemory.setPool("paid");
+        lowCpuHighMemory.setCpuPercent(new java.math.BigDecimal("30.0"));
+        lowCpuHighMemory.setActiveConnections(20);
+        lowCpuHighMemory.setMemoryUsedBytes(950L);
+        lowCpuHighMemory.setMemoryTotalBytes(1000L);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(32L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(lowCpuHighMemory));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(32L);
+
+        SubscriptionExportService.RegionSummary lax = regions.stream()
+                .filter(r -> r.region().equals("us-lax")).findFirst().orElseThrow();
+        assertEquals(95.0, lax.avgMemoryPercent());
+        // CPU alone (30%) would have been LOW; blended with high memory it's MEDIUM.
+        assertEquals("MEDIUM", lax.loadLevel());
     }
 
     @Test
