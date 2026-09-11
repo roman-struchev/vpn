@@ -51,6 +51,11 @@
         "from": "resources/bin/${os}-${arch}",
         "to": "bin",
         "filter": ["**/*"]
+      },
+      {
+        "from": "resources/tray",
+        "to": "tray",
+        "filter": ["**/*"]
       }
     ],
     "publish": {

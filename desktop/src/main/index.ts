@@ -7,12 +7,24 @@ import { installDohDispatcher } from './api/dohDispatcher';
 import { TokenStore } from './api/tokenStore';
 import { registerIpcHandlers } from './ipc';
 import { createSystemProxyManager } from './proxy/systemProxy';
+import { createAppTray, type TrayHandle } from './tray';
 import { VpnController } from './vpn/vpnController';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let mainWindow: BrowserWindow | null = null;
 let vpnController: VpnController | null = null;
+let trayHandle: TrayHandle | null = null;
+
+// Now that a tray icon exists, the main window's "X" (or the red traffic
+// light on macOS) hides the window instead of quitting the whole app — the
+// tray is meant for quick connect/disconnect *while the window is closed*
+// (that's the entire point of the feature request), so closing the window
+// must not tear down the VPN connection along with it. Quitting now only
+// happens explicitly: the tray's Quit item, Cmd+Q / Alt+F4, or the OS
+// shutting the app down. `isQuitting` distinguishes a real quit (let the
+// window actually close) from the user just dismissing it (intercept and hide).
+let isQuitting = false;
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -38,6 +50,14 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  // Minimize-to-tray instead of destroying the window (see `isQuitting`
+  // comment above for why). Only intercept when this isn't an actual quit.
+  win.on('close', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    win.hide();
+  });
+
   if (process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
@@ -45,6 +65,17 @@ function createWindow(): BrowserWindow {
   }
 
   return win;
+}
+
+/** Shows the main window, creating one if it was actually destroyed (only happens during quit/on macOS reactivation). */
+function showMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createWindow();
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 app.whenReady().then(() => {
@@ -58,18 +89,24 @@ app.whenReady().then(() => {
 
   registerIpcHandlers(mainWindow, apiClient, vpnController);
   initAutoUpdater();
+  trayHandle = createAppTray(vpnController, showMainWindow);
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createWindow();
-    }
+    // On macOS, clicking the Dock icon with the window hidden (per the
+    // close-to-tray behavior above) should bring it back, not spawn a
+    // second one — hence showMainWindow() rather than an unconditional
+    // createWindow() here.
+    showMainWindow();
   });
 });
 
+// Windows/Linux previously quit the whole app here when the last window
+// closed; now that closing the window hides it to the tray instead of
+// destroying it (see the win.on('close', ...) handler above), this only
+// fires in edge cases (e.g. a window destroyed some other way) — the tray's
+// Quit item / before-quit below own normal app lifecycle now.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  // Intentionally a no-op: do not quit here. See comment above.
 });
 
 // Disconnecting on quit matters more than most apps: leaving the system
@@ -78,9 +115,15 @@ app.on('window-all-closed', () => {
 // teardown finishes, then let the (now no-op) second attempt through.
 let quitTeardownDone = false;
 app.on('before-quit', (event) => {
+  // Set unconditionally (not just on the branch below) and before the early
+  // return: this is also what tells the window's 'close' handler to let a
+  // real quit proceed instead of hiding to the tray, and that must be true
+  // for every before-quit firing, including the immediate second one below.
+  isQuitting = true;
   if (quitTeardownDone || !vpnController) return;
   event.preventDefault();
   void vpnController.disconnect().finally(() => {
+    trayHandle?.destroy();
     quitTeardownDone = true;
     app.quit();
   });
