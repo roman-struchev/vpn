@@ -40,6 +40,7 @@ export default function ConnectPage() {
   const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [selectedRegion, setSelectedRegionState] = useState<string | null>(null);
   const [regionFallback, setRegionFallback] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
 
   useEffect(() => {
     window.vpnApi.getConnectionState().then(setState);
@@ -76,21 +77,17 @@ export default function ConnectPage() {
   const selectedRegionInfo = selectedRegion ? regions.find((r) => r.region === selectedRegion) : undefined;
 
   // There's no purchase/top-up UI in this app at all — billing only exists
-  // on the web dashboard. `referralLink` is already the server-built
-  // `<web-base-url>/?ref=CODE` (see apiClient.ts), so its origin is the web
-  // dashboard's base URL without having to plumb a separate config value
-  // through to the renderer. Falls back to the same default host the API
-  // client and ProfilePage's referral-link fallback use.
-  const openBilling = () => {
-    let base = 'https://vpn.struchev.site';
-    if (profile?.referralLink) {
-      try {
-        base = new URL(profile.referralLink).origin;
-      } catch {
-        // keep default
-      }
+  // on the web dashboard. Uses the seamless client->web SSO handoff (see
+  // WEB_HANDOFF_RESEARCH.md) so the user lands there already signed in
+  // instead of hitting the web app's login page. The web app has no
+  // `/billing`-addressable route yet, so `next` is just the root.
+  const openBilling = async () => {
+    setBillingError(null);
+    try {
+      await window.vpnApi.openWebHandoff('/');
+    } catch (e) {
+      setBillingError(e instanceof Error ? e.message : String(e));
     }
-    void window.vpnApi.openExternal(base);
   };
 
   const sub = profile?.subscription;
@@ -160,11 +157,12 @@ export default function ConnectPage() {
           <div className="flex flex-col items-start gap-2">
             <p className="text-sm text-white/60">{t.noSubscription}</p>
             <button
-              onClick={openBilling}
+              onClick={() => void openBilling()}
               className="text-xs font-semibold text-brand-500 hover:underline"
             >
               {t.getPlan}
             </button>
+            {billingError && <p className="text-xs text-state-error">{billingError}</p>}
           </div>
         )}
       </div>

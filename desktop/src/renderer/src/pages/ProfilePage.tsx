@@ -17,6 +17,7 @@ export default function ProfilePage({
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [copied, setCopied] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
 
   useEffect(() => {
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
@@ -25,6 +26,18 @@ export default function ProfilePage({
   const logout = async () => {
     await window.vpnApi.logout();
     onLoggedOut();
+  };
+
+  // Persistent "manage billing" entry point (not just the ConnectPage
+  // dead-end when there's no active subscription) — same seamless
+  // client->web SSO handoff, see WEB_HANDOFF_RESEARCH.md.
+  const openBilling = async () => {
+    setBillingError(null);
+    try {
+      await window.vpnApi.openWebHandoff('/');
+    } catch (e) {
+      setBillingError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   // A bare referral code is useless to hand to a friend — they'd have to be told
@@ -73,6 +86,13 @@ export default function ProfilePage({
       </div>
       <button
         className="mt-4 rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
+        onClick={() => void openBilling()}
+      >
+        {t.manageBilling}
+      </button>
+      {billingError && <p className="text-xs text-state-error">{billingError}</p>}
+      <button
+        className="rounded-lg border border-dark-800 py-2.5 text-sm font-semibold text-white/80 hover:bg-dark-900"
         onClick={onSwitchAccount}
       >
         {t.signInExistingAccount}

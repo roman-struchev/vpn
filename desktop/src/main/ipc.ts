@@ -41,6 +41,18 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   // setWindowOpenHandler in main/index.ts uses for in-app link clicks.
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 
+  // Seamless client->web SSO handoff (see WEB_HANDOFF_RESEARCH.md): mints a
+  // short-lived exchange code via the existing authenticated ApiClient, then
+  // opens the web dashboard with that code so the user lands there already
+  // signed in instead of hitting its login page. Same shell.openExternal
+  // pattern as the Google OAuth loopback flow (auth/googleOAuth.ts) and the
+  // plain openExternal channel above — just building the URL first.
+  ipcMain.handle('auth:openWebHandoff', async (_e, next: string) => {
+    const { code, webUrl } = await apiClient.requestWebHandoff();
+    const url = `${webUrl}?handoff_code=${encodeURIComponent(code)}&next=${encodeURIComponent(next)}`;
+    await shell.openExternal(url);
+  });
+
   ipcMain.handle('vpn:connect', () => vpn.connect());
   ipcMain.handle('vpn:disconnect', () => vpn.disconnect());
   ipcMain.handle('vpn:getState', () => vpn.getState());

@@ -27,6 +27,15 @@ const vpnApi = {
   /** Opens a URL in the system's default browser (e.g. the web dashboard). */
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 
+  /**
+   * Seamless client->web SSO handoff: mints a short-lived exchange code
+   * server-side and opens `<web dashboard>?handoff_code=...&next=<next>` in
+   * the system browser, so the user arrives already signed in instead of
+   * hitting the web app's login page. `next` is a same-origin relative path
+   * on the web app (e.g. '/').
+   */
+  openWebHandoff: (next: string) => ipcRenderer.invoke('auth:openWebHandoff', next),
+
   connect: () => ipcRenderer.invoke('vpn:connect'),
   disconnect: () => ipcRenderer.invoke('vpn:disconnect'),
   getConnectionState: (): Promise<ConnectionState> => ipcRenderer.invoke('vpn:getState'),
