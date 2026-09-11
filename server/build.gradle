@@ -119,7 +119,27 @@ tasks.named('test') {
     )
 }
 
+// copyWebDist only ever copied web/dist as-is — it never rebuilt it, so
+// `bootRun`/`processResources` silently bundled whatever static JS/CSS
+// happened to be sitting in web/dist from whenever someone last ran
+// `npm run build` in web/ by hand (confirmed live: a server started via
+// bootRun served a UI build from hours earlier, missing several since-
+// landed frontend changes). buildWebDist actually runs the web build first;
+// declared inputs/outputs let Gradle skip it when web/src genuinely hasn't
+// changed, rather than rebuilding on every single bootRun.
+tasks.register('buildWebDist', Exec) {
+    workingDir file('../web')
+    commandLine 'npm', 'run', 'build'
+    inputs.dir file('../web/src')
+    inputs.files file('../web/package.json'), file('../web/index.html'),
+            file('../web/vite.config.ts'), file('../web/tailwind.config.js'),
+            file('../web/tsconfig.json')
+    outputs.dir file('../web/dist')
+    onlyIf { file('../web/package.json').exists() }
+}
+
 tasks.register('copyWebDist', Copy) {
+    dependsOn buildWebDist
     from file('../web/dist')
     into file('src/main/resources/static')
     onlyIf { file('../web/dist').exists() }

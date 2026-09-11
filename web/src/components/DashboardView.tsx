@@ -195,14 +195,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             date + buttons into each other at exactly the width this card
             renders at on real (non-ultrawide) monitors. */}
         <div className="flex flex-col items-start gap-4 relative z-10">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-3">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>{sub ? `Active · ${sub.tariffId.toUpperCase()}` : t.noActiveSub}</span>
+          <div className="w-full">
+            <div className="flex items-center justify-between gap-2">
+              <h1 className="text-2xl font-bold tracking-tight">
+                {sub ? `${t.traffic}: ${usedGb.toFixed(2)} / ${limitGb.toFixed(0)} GB` : t.noActiveSub}
+              </h1>
+              {sub && (
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold shrink-0">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>{`Active · ${sub.tariffId.toUpperCase()}`}</span>
+                </div>
+              )}
             </div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              {sub ? `${t.traffic}: ${usedGb.toFixed(2)} / ${limitGb.toFixed(0)} GB` : t.noActiveSub}
-            </h1>
             {sub && (
               <p className="text-xs text-slate-400 mt-1">
                 {t.expiresAt}: {formatExpiresAt(sub.expiresAt)}
@@ -248,39 +252,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Devices Section */}
       <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
-              <Smartphone className="w-5 h-5 text-brand-500" />
-              <span>{t.devices}</span>
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Active connections: {devices.length}
-              {currentTariff ? ` / ${currentTariff.maxDevices}` : ''}
-            </p>
-          </div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2">
+            <Smartphone className="w-5 h-5 text-brand-500" />
+            <span>{t.devices}</span>
+          </h2>
+          <p className="text-xs text-slate-400">
+            {devices.length}
+            {currentTariff ? ` / ${currentTariff.maxDevices}` : ''}
+          </p>
         </div>
 
-        <p className="text-xs text-slate-500 mb-4">{t.deviceAutoAddedHint}</p>
+        <p className="text-[11px] text-slate-500 mb-3 leading-snug">{t.deviceAutoAddedHint}</p>
 
         {devices.length === 0 ? (
           <p className="text-xs text-slate-500 py-4 text-center">No devices added yet.</p>
         ) : (
           <div className="divide-y divide-dark-800">
             {devices.map((d) => (
-              <div key={d.id} className="py-3 flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-semibold">{d.deviceName}</h4>
-                  <span className="text-[10px] uppercase tracking-wider text-slate-400">
-                    {d.platform} · Added {new Date(d.createdAt).toLocaleDateString()}
+              <div key={d.id} className="py-1.5 flex items-center justify-between gap-2">
+                <div className="flex items-baseline gap-2 min-w-0 truncate">
+                  <h4 className="text-xs font-semibold truncate">{d.deviceName}</h4>
+                  <span className="text-[10px] uppercase tracking-wider text-slate-500 whitespace-nowrap">
+                    {d.platform} · {new Date(d.createdAt).toLocaleDateString()}
                   </span>
                 </div>
                 <button
                   onClick={() => handleRevokeDevice(d.id)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  className="p-1 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
                   title={t.revoke}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             ))}
