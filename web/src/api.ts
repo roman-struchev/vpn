@@ -1,4 +1,4 @@
-import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, RegionInfo } from './types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo } from './types';
 
 const TOKEN_KEY = 'vpn_auth_token';
 
@@ -142,6 +142,18 @@ export const api = {
       headers: getAuthHeaders(),
     });
     if (!res.ok) throw new Error('Failed to load invoice history');
+    return res.json();
+  },
+
+  /** Every actual balance-ledger movement -- deposits, subscription debits,
+   *  referral bonuses, refunds, manual adjustments -- not just crypto deposit
+   *  invoices like getInvoiceHistory() above. See DashboardView's merged
+   *  billing history card. */
+  async getBalanceHistory(): Promise<BalanceHistoryEntry[]> {
+    const res = await fetch('/api/v1/user/balance-history', {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to load balance history');
     return res.json();
   },
 

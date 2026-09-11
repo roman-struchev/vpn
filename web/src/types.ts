@@ -79,3 +79,19 @@ export interface InvoiceHistoryEntry {
   createdAt: string;
   paidAt: string | null;
 }
+
+/**
+ * One row of the user's own balance ledger (GET /api/v1/user/balance-history)
+ * -- deposits, subscription debits, referral bonuses, refunds, manual
+ * adjustments. `type` matches BalanceEntry's type column server-side
+ * (DEPOSIT, SUBSCRIPTION_DEBIT, REFUND, REFERRAL_BONUS,
+ * REFERRAL_WELCOME_BONUS, MANUAL_ADJUSTMENT).
+ */
+export interface BalanceHistoryEntry {
+  id: number;
+  type: string;
+  amountUsdtMicro: number;
+  balanceAfterMicro: number;
+  description: string;
+  createdAt: string;
+}
