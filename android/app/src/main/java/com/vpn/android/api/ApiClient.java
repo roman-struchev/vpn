@@ -232,7 +232,25 @@ public class ApiClient {
         return post("api/v1/auth/web-handoff", new JsonObject(), WebHandoffResponse.class, true);
     }
 
+    /**
+     * Best-effort revokes this install's own registered Device row before
+     * wiping the local session — otherwise it lingers in the user's device
+     * list (and against their device-limit count) until the 30-day
+     * inactivity window ages it out on its own (see
+     * DeviceManagementService#DEVICE_ACTIVE_WINDOW_DAYS on the server). Does
+     * a blocking network call — callers must invoke this off the main
+     * thread (see ProfileFragment#logout's Async.run usage). A failed
+     * revoke (offline, already gone) must not block logout itself.
+     */
     public void logout() {
+        long deviceId = tokenStore.getDeviceId();
+        if (deviceId != -1) {
+            try {
+                deleteDevice(deviceId);
+            } catch (ApiException | IOException e) {
+                // Best-effort — proceed with clearing the local session regardless.
+            }
+        }
         tokenStore.clear();
     }
 

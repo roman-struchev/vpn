@@ -102,7 +102,20 @@ public class ProfileFragment extends Fragment {
     private void logout() {
         requireContext().startService(
                 new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT));
-        apiClient.logout();
+        // apiClient.logout() now does a best-effort network call to revoke this
+        // device before clearing the local session, so it can't run on the main
+        // thread. It never throws (the revoke failure is swallowed internally),
+        // but goToLogin() runs from both callbacks regardless, to be safe.
+        Async.run(
+                () -> {
+                    apiClient.logout();
+                    return null;
+                },
+                result -> goToLogin(),
+                error -> goToLogin());
+    }
+
+    private void goToLogin() {
         Intent intent = new Intent(requireContext(), LoginActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);

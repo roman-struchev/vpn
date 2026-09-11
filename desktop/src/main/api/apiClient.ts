@@ -237,7 +237,23 @@ export class ApiClient {
     return this.post('api/v1/auth/web-handoff', {}, true);
   }
 
-  logout(): void {
+  /**
+   * Best-effort revokes this install's own registered Device row before
+   * wiping the local session — otherwise it lingers in the user's device
+   * list (and against their device-limit count) until the 30-day
+   * inactivity window ages it out on its own (see
+   * DeviceManagementService#DEVICE_ACTIVE_WINDOW_DAYS on the server). A
+   * failed revoke (offline, already gone) must not block logout itself.
+   */
+  async logout(): Promise<void> {
+    const deviceId = this.tokenStore.getDeviceId();
+    if (deviceId) {
+      try {
+        await this.deleteDevice(deviceId);
+      } catch {
+        // Best-effort — proceed with clearing the local session regardless.
+      }
+    }
     this.tokenStore.clear();
   }
 

@@ -21,9 +21,9 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
     const idToken = await runGoogleLoginFlow();
     return apiClient.googleAuth(idToken, referralCode);
   });
-  ipcMain.handle('auth:logout', () => {
+  ipcMain.handle('auth:logout', async () => {
     void vpn.disconnect();
-    apiClient.logout();
+    await apiClient.logout();
   });
 
   ipcMain.handle('profile:get', () => apiClient.getProfile());
