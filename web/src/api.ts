@@ -75,19 +75,6 @@ export const api = {
     return res.json();
   },
 
-  async addDevice(deviceName: string, platform: string): Promise<Device> {
-    const res = await fetch('/api/v1/user/devices', {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify({ deviceName, platform }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: 'Failed to add device' }));
-      throw new Error(err.error || 'Failed to add device');
-    }
-    return res.json();
-  },
-
   async deleteDevice(deviceId: number): Promise<void> {
     const res = await fetch(`/api/v1/user/devices/${deviceId}`, {
       method: 'DELETE',

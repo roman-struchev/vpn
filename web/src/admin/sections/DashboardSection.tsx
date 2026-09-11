@@ -2,10 +2,19 @@ import { useEffect, useState } from 'react';
 import { adminApi, DashboardMetrics } from '../adminApi';
 import { AdminT } from '../adminI18n';
 
-const StatCard = ({ label, value }: { label: string; value: string | number }) => (
+const StatCard = ({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+}) => (
   <div className="p-4 rounded-xl bg-dark-900 border border-dark-800">
     <div className="text-[11px] text-slate-400">{label}</div>
     <div className="text-xl font-bold mt-1">{value}</div>
+    {hint && <div className="text-[10px] text-slate-500 mt-0.5">{hint}</div>}
   </div>
 );
 
@@ -31,6 +40,11 @@ export function DashboardSection({ t }: { t: AdminT }) {
         <StatCard label={t.totalBalance} value={`$${metrics.totalBalanceUsdt.toFixed(2)}`} />
         <StatCard label={t.totalTraffic} value={`${(metrics.totalTrafficUsedBytes / 1024 ** 3).toFixed(1)} GB`} />
         <StatCard label={t.onlineNodes} value={`${metrics.onlineNodes} / ${metrics.totalNodes}`} />
+        <StatCard
+          label={t.referralPayouts}
+          value={`$${(metrics.totalReferralBonusesPaidUsdt ?? 0).toFixed(2)}`}
+          hint={`${metrics.totalReferralBonusesCount ?? 0} ${t.referralPayoutsCountSuffix}`}
+        />
       </div>
 
       <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">

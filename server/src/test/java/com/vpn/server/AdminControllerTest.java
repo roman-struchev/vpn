@@ -100,6 +100,52 @@ class AdminControllerTest {
         assertEquals(5L, body.get("onlineNodes"));
     }
 
+    /**
+     * The referral program's payout total is what makes the "розданные деньги" visible
+     * in the admin report — it must sum both entry types BillingService writes (the
+     * recurring 15% referrer bonus and the one-time 10% welcome bonus) and be reported
+     * in whole USDT, not micro-units.
+     */
+    @Test
+    void testGetDashboardMetricsReportsReferralPayouts() {
+        when(userRepository.count()).thenReturn(2L);
+        when(subscriptionRepository.countByStatus("ACTIVE")).thenReturn(1L);
+        when(userRepository.sumBalanceUsdtMicro()).thenReturn(0L);
+        when(subscriptionRepository.sumTrafficUsedBytes()).thenReturn(0L);
+        when(nodeRepository.countByStatus("ONLINE")).thenReturn(1L);
+        when(nodeRepository.count()).thenReturn(1L);
+        when(connTelemetryRepository.aggregateByOperatorAndRegion(any(Instant.class))).thenReturn(List.of());
+        when(balanceEntryRepository.sumReferralPayoutsMicro()).thenReturn(3_250_000L);
+        when(balanceEntryRepository.countReferralPayouts()).thenReturn(4L);
+
+        Map<String, Object> body = adminController.getDashboardMetrics().getBody();
+        assertNotNull(body);
+        assertEquals(3.25, body.get("totalReferralBonusesPaidUsdt"));
+        assertEquals(4L, body.get("totalReferralBonusesCount"));
+    }
+
+    @Test
+    void testListUsersReportsPerUserReferralEarnings() {
+        User earner = new User();
+        earner.setId(10L);
+        earner.setEmail("earner@vpn.test");
+        User nonEarner = new User();
+        nonEarner.setId(11L);
+        nonEarner.setEmail("nobody@vpn.test");
+
+        when(userRepository.findAll()).thenReturn(List.of(earner, nonEarner));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(anyLong(), eq("ACTIVE")))
+                .thenReturn(Optional.empty());
+        when(balanceEntryRepository.sumReferralPayoutsGroupedByUser())
+                .thenReturn(List.<Object[]>of(new Object[]{10L, 1_500_000L}));
+
+        List<Map<String, Object>> body = adminController.listUsers().getBody();
+        assertNotNull(body);
+        assertEquals(1_500_000L, body.get(0).get("referralEarningsUsdtMicro"));
+        // Users the program has never paid out to must report 0, not null.
+        assertEquals(0L, body.get(1).get("referralEarningsUsdtMicro"));
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void testGetDashboardMetricsSplitsSuccessAndFailureTelemetry() {

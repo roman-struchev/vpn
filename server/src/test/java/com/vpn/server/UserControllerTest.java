@@ -104,6 +104,44 @@ class UserControllerTest {
         assertEquals(false, body.get("hasActiveSubscription"));
     }
 
+    /**
+     * The referral link the clients hand out has to be a plain web URL that works for
+     * any invitee (not only Telegram users) and has to carry the ?ref=CODE param the
+     * web signup form reads. The Telegram deep link stays available as an extra.
+     */
+    @Test
+    void testGetProfileReturnsPlatformAgnosticReferralLink() {
+        User user = new User();
+        user.setId(10L);
+        user.setEmail("user@example.com");
+        user.setReferralCode("ABC123");
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+
+        Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
+        assertEquals("ABC123", body.get("referralCode"));
+        assertEquals("https://nextgenvpn.app/?ref=ABC123", body.get("referralLink"));
+        assertEquals("https://t.me/MyVpnBot?start=ABC123", body.get("referralTelegramLink"));
+    }
+
+    @Test
+    void testGetProfileReferralLinksBlankWithoutCode() {
+        User user = new User();
+        user.setId(10L);
+        user.setEmail("user@example.com");
+        user.setReferralCode(null);
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+
+        Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
+        assertEquals("", body.get("referralLink"));
+        assertEquals("", body.get("referralTelegramLink"));
+    }
+
     @Test
     void testCreateInvoice() {
         CryptoInvoice invoice = new CryptoInvoice();

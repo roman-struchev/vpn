@@ -9,6 +9,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.CoreMatchers.allOf;
+import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -145,7 +146,28 @@ public class TunnelFlowTest {
         // what a trial is for. So the trial account this test just created
         // is enough to reach the real node; no paid purchase needed here.
 
-        // --- 3. Tap the real Connect button and handle the real OS consent dialog ---
+        // --- 3. Add a device through the real "Add device" dialog -----------
+        // Required *before* the first connect attempt, not just a nice-to-
+        // have: SubscriptionExportService#exportVlessLinksForOwnApp returns
+        // an EMPTY link list (autoCreatePrimaryDevice=false) when the user
+        // has no devices yet, which XrayVpnService#loadProfileAndConnect
+        // then turns into "No subscription links available for this
+        // account" -> FATAL_ERROR. XrayVpnService's own
+        // registerOrTouchDevice() only runs *after* a tunnel has already
+        // come up, so it cannot bootstrap this account's very first device —
+        // confirmed live: an earlier version of this test that skipped this
+        // step failed with "java.lang.IllegalStateException: No
+        // subscription links available for this account" before ever
+        // dialing the real node.
+        String deviceName = "e2e-android-tunnel-device-" + System.currentTimeMillis();
+        onView(withId(R.id.nav_devices)).perform(click());
+        waitFor(withId(R.id.addDeviceButton), DEFAULT_TIMEOUT_MS);
+        onView(withId(R.id.addDeviceButton)).perform(click());
+        onView(instanceOf(android.widget.EditText.class)).perform(typeText(deviceName), closeSoftKeyboard());
+        onView(withId(android.R.id.button1)).perform(click());
+        waitFor(withText(deviceName), DEFAULT_TIMEOUT_MS);
+
+        // --- 4. Tap the real Connect button and handle the real OS consent dialog ---
         onView(withId(R.id.nav_connect)).perform(click());
         waitFor(allOf(withId(R.id.statusText), withText(R.string.state_disconnected)), DEFAULT_TIMEOUT_MS);
 
@@ -164,7 +186,7 @@ public class TunnelFlowTest {
             // failure worth surfacing, not something to paper over.
             waitFor(allOf(withId(R.id.statusText), withText(R.string.state_connected)), TUNNEL_TIMEOUT_MS);
 
-            // --- 4. The actual assertion: real traffic through the real tunnel ---
+            // --- 5. The actual assertion: real traffic through the real tunnel ---
             // Same reasoning as e2e/tests/tunnel.spec.ts: not a local/loopback
             // target (the node's own config blocks geoip:private on its
             // outbound side, and would only prove the tunnel can reach the

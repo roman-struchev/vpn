@@ -70,6 +70,10 @@ public class AdminController {
         long totalTrafficUsed = subscriptionRepository.sumTrafficUsedBytes();
         long onlineNodes = nodeRepository.countByStatus("ONLINE");
         long totalNodes = nodeRepository.count();
+        // Cost of the referral program: every 15% referrer bonus and 10% one-time
+        // welcome bonus BillingService#applyReferralRewards has credited so far.
+        long referralPayoutsMicro = balanceEntryRepository.sumReferralPayoutsMicro();
+        long referralPayoutsCount = balanceEntryRepository.countReferralPayouts();
 
         Instant past24Hours = Instant.now().minus(24, ChronoUnit.HOURS);
         List<Object[]> rawAgg = connTelemetryRepository.aggregateByOperatorAndRegion(past24Hours);
@@ -102,6 +106,8 @@ public class AdminController {
         response.put("totalTrafficUsedBytes", totalTrafficUsed);
         response.put("onlineNodes", onlineNodes);
         response.put("totalNodes", totalNodes);
+        response.put("totalReferralBonusesPaidUsdt", referralPayoutsMicro / 1_000_000.0);
+        response.put("totalReferralBonusesCount", referralPayoutsCount);
         response.put("telemetryDegradation", telemetryStats);
 
         return ResponseEntity.ok(response);
@@ -116,6 +122,13 @@ public class AdminController {
         List<User> users = userRepository.findAll();
         List<Map<String, Object>> result = new ArrayList<>();
 
+        // One grouped query for the whole table instead of a per-user SELECT, so the
+        // "referral earnings" column shows who the program is actually paying out to.
+        Map<Long, Long> referralEarningsByUser = new HashMap<>();
+        for (Object[] row : balanceEntryRepository.sumReferralPayoutsGroupedByUser()) {
+            referralEarningsByUser.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+        }
+
         for (User u : users) {
             Map<String, Object> map = new HashMap<>();
             map.put("id", u.getId());
@@ -129,6 +142,7 @@ public class AdminController {
             map.put("createdAt", u.getCreatedAt());
             map.put("deviceCount", deviceRepository.countByUserIdAndIsActiveTrue(u.getId()));
             map.put("referralCount", userRepository.countByReferredBy_Id(u.getId()));
+            map.put("referralEarningsUsdtMicro", referralEarningsByUser.getOrDefault(u.getId(), 0L));
 
             subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(u.getId(), "ACTIVE")
                     .ifPresent(s -> map.put("activeSubscription", Map.of(

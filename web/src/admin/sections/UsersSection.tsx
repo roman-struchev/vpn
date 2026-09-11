@@ -170,6 +170,12 @@ function UserDetailDialog({
           </div>
           <div>{t.devices}: <span className="font-semibold">{user.deviceCount}</span></div>
           <div>{t.referrals}: <span className="font-semibold">{user.referralCount}</span></div>
+          <div>
+            {t.referralEarnings}:{' '}
+            <span className="font-semibold">
+              ${((user.referralEarningsUsdtMicro ?? 0) / 1_000_000).toFixed(2)}
+            </span>
+          </div>
         </div>
 
         {user.activeSubscription && (

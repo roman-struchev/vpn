@@ -16,7 +16,6 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('profile:get', () => apiClient.getProfile());
 
   ipcMain.handle('devices:list', () => apiClient.getDevices());
-  ipcMain.handle('devices:add', (_e, deviceName: string, platform: string) => apiClient.addDevice(deviceName, platform));
   ipcMain.handle('devices:delete', (_e, deviceId: number) => apiClient.deleteDevice(deviceId));
 
   ipcMain.handle('vpn:connect', () => vpn.connect());

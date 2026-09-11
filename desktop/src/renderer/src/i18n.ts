@@ -33,13 +33,15 @@ const translations = {
     navProfile: 'Профиль',
 
     devicesTitle: 'Устройства',
-    thisDeviceAutoAdded: 'Это приложение само появится в списке при первом успешном подключении — добавлять его вручную не нужно.',
-    addAnotherDevice: 'Добавить другое устройство',
-    deviceName: 'Название устройства',
+    thisDeviceAutoAdded: 'Каждое устройство появляется здесь само — как только оно впервые подключится через это приложение, другое наше приложение или ссылку из личного кабинета на сайте (для v2rayTun, Hiddify и т. п.). Добавлять что-либо вручную не нужно.',
     revoke: 'Отозвать',
 
     balance: 'Баланс',
-    referralLink: 'Реферальный код',
+    referralLink: 'Ваша ссылка для приглашения',
+    referralDesc: 'Вам 15% с каждого пополнения друга, другу — бонус 10% на первое пополнение. Ссылка открывается в браузере на любой платформе.',
+    referralCodeLabel: 'Код',
+    copy: 'Копировать',
+    copied: 'Скопировано',
     logout: 'Выйти',
   },
   en: {
@@ -74,13 +76,15 @@ const translations = {
     navProfile: 'Profile',
 
     devicesTitle: 'Devices',
-    thisDeviceAutoAdded: 'This app registers itself the first time it connects successfully — no need to add it manually.',
-    addAnotherDevice: 'Add another device',
-    deviceName: 'Device name',
+    thisDeviceAutoAdded: 'Every device shows up here on its own — the first time it connects through this app, another of our apps, or a link from your web dashboard (for v2rayTun, Hiddify, etc). There\'s nothing to add manually.',
     revoke: 'Revoke',
 
     balance: 'Balance',
-    referralLink: 'Referral code',
+    referralLink: 'Your invite link',
+    referralDesc: 'You get 15% of every deposit your friend makes; they get a 10% bonus on their first deposit. The link opens in a browser on any platform.',
+    referralCodeLabel: 'Code',
+    copy: 'Copy',
+    copied: 'Copied',
     logout: 'Sign out',
   },
 } satisfies Record<Lang, Record<string, string>>;

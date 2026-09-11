@@ -26,6 +26,9 @@ export interface DashboardMetrics {
   totalTrafficUsedBytes: number;
   onlineNodes: number;
   totalNodes: number;
+  /** Referral money handed out so far (15% referrer bonuses + 10% welcome bonuses). */
+  totalReferralBonusesPaidUsdt: number;
+  totalReferralBonusesCount: number;
   telemetryDegradation: Array<{
     operator: string;
     region: string;
@@ -47,6 +50,8 @@ export interface AdminUser {
   createdAt: string;
   deviceCount: number;
   referralCount: number;
+  /** Referral bonuses credited to this user so far, in micro-USDT. */
+  referralEarningsUsdtMicro: number;
   activeSubscription?: {
     id: number;
     tariffId: string;

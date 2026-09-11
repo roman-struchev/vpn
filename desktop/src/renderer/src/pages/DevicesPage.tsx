@@ -4,7 +4,6 @@ import { t } from '../i18n';
 
 export default function DevicesPage() {
   const [devices, setDevices] = useState<DeviceDto[]>([]);
-  const [newName, setNewName] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const reload = () => {
@@ -15,23 +14,6 @@ export default function DevicesPage() {
   };
 
   useEffect(reload, []);
-
-  const add = async () => {
-    if (!newName.trim()) return;
-    try {
-      // 'DESKTOP' isn't a real platform value anywhere else in the system
-      // (server/web use ANDROID/WINDOWS/MACOS/THIRD_PARTY) — this manual form
-      // is for reserving a slot for some other device, not necessarily this
-      // machine (the running app auto-registers *this* install on connect,
-      // see vpnController.registerOrTouchDevice), so there's no single
-      // correct guess here; THIRD_PARTY is the closest existing "unspecified" value.
-      await window.vpnApi.addDevice(newName.trim(), 'THIRD_PARTY');
-      setNewName('');
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
 
   const revoke = async (id: number) => {
     try {
@@ -59,19 +41,6 @@ export default function DevicesPage() {
             </button>
           </div>
         ))}
-      </div>
-
-      <div className="flex gap-2">
-        <input
-          className="flex-1 rounded-lg border border-dark-800 bg-dark-900 px-3 py-2 text-sm outline-none focus:border-brand-500"
-          placeholder={t.deviceName}
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && add()}
-        />
-        <button className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold hover:bg-brand-700" onClick={add}>
-          {t.addAnotherDevice}
-        </button>
       </div>
 
       {error && <p className="text-sm text-state-error">{error}</p>}

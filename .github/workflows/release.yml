@@ -47,9 +47,15 @@ jobs:
       - id: v
         run: |
           VERSION="$(cat VERSION)"
-          TAG="${GITHUB_REF_NAME:-v$VERSION}"
-          if [ "${{ github.event_name }}" = "push" ] && [ "$TAG" != "v$VERSION" ]; then
-            echo "::warning::Tag $TAG does not match the VERSION file ($VERSION) — did scripts/release.sh's commit make it into this tag? Using the VERSION file's value ($VERSION) for all artifact versions."
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # Manual re-run not off a v* tag push: derive the tag from the
+            # VERSION file directly instead of GITHUB_REF_NAME (a branch here).
+            TAG="v$VERSION"
+          else
+            TAG="$GITHUB_REF_NAME"
+            if [ "$TAG" != "v$VERSION" ]; then
+              echo "::warning::Tag $TAG does not match the VERSION file ($VERSION) — did scripts/release.sh's commit make it into this tag? Using the VERSION file's value ($VERSION) for all artifact versions."
+            fi
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -70,21 +76,29 @@ jobs:
             echo "Release $TAG already exists; reusing it (re-run of a partially failed release, or workflow_dispatch)."
             exit 0
           fi
+          # REF is a real, walkable git rev: the pushed tag itself, or HEAD
+          # when this run came from workflow_dispatch (no such tag exists in
+          # git yet in that case — see the `version` job).
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            REF="$TAG"
+          else
+            REF="HEAD"
+          fi
           # Nearest tag reachable from the commit *before* this release's own
           # tag - i.e. the previous release. Empty on the very first release.
-          PREV_TAG="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+          PREV_TAG="$(git describe --tags --abbrev=0 "$REF^" 2>/dev/null || true)"
           {
             echo "## Changes"
             echo
             if [ -n "$PREV_TAG" ]; then
-              git log --no-merges --pretty='- %s' "$PREV_TAG..$TAG" | grep -v '^- release v' || true
+              git log --no-merges --pretty='- %s' "$PREV_TAG..$REF" | grep -v '^- release v' || true
               echo
               echo "**Full changelog**: https://github.com/${{ github.repository }}/compare/$PREV_TAG...$TAG"
             else
-              git log --no-merges --pretty='- %s' "$TAG" | grep -v '^- release v' || true
+              git log --no-merges --pretty='- %s' "$REF" | grep -v '^- release v' || true
             fi
           } > "$RUNNER_TEMP/release-notes.md"
-          gh release create "$TAG" --draft --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          gh release create "$TAG" --target "$REF" --draft --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
 
   docker-server:
     name: Build & Push Server Docker Image

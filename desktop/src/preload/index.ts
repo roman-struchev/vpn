@@ -10,7 +10,6 @@ const vpnApi = {
   getProfile: () => ipcRenderer.invoke('profile:get'),
 
   listDevices: () => ipcRenderer.invoke('devices:list'),
-  addDevice: (deviceName: string, platform: string) => ipcRenderer.invoke('devices:add', deviceName, platform),
   deleteDevice: (deviceId: number) => ipcRenderer.invoke('devices:delete', deviceId),
 
   connect: () => ipcRenderer.invoke('vpn:connect'),

@@ -4,7 +4,6 @@ import {
   Smartphone,
   Copy,
   Check,
-  Plus,
   Trash2,
   AlertCircle,
   HelpCircle,
@@ -18,6 +17,15 @@ import { Lang, translations } from '../i18n';
 import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry } from '../types';
 import { api } from '../api';
 
+// Subscriptions actually expire at an exact instant, not "sometime that day" —
+// a bare date ("04.12.2027") reads as if it's good until midnight/end-of-day,
+// when it might really lapse at 09:14. Showing the time removes that
+// ambiguity for every client that renders this same expiresAt value.
+function formatExpiresAt(iso: string): string {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+}
+
 interface DashboardViewProps {
   lang: Lang;
   user: UserProfile;
@@ -25,21 +33,6 @@ interface DashboardViewProps {
   onRefreshUser: () => void;
   openTopUp: boolean;
   setOpenTopUp: (open: boolean) => void;
-}
-
-/**
- * Best-effort guess so the "add device" form doesn't force a decision the
- * platform value is never actually used for functionally (see
- * server/.../UserController — it's stored and displayed only, never read
- * for config generation). Native Android/Desktop clients don't ask at all —
- * they hardcode their own platform when they self-register a device.
- */
-function detectDefaultPlatform(): string {
-  const ua = navigator.userAgent;
-  if (/Android/i.test(ua)) return 'ANDROID';
-  if (/Windows/i.test(ua)) return 'WINDOWS';
-  if (/Macintosh|Mac OS X/i.test(ua)) return 'MACOS';
-  return 'THIRD_PARTY';
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -55,13 +48,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [devices, setDevices] = useState<Device[]>([]);
   const [links, setLinks] = useState<string[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedReferral, setCopiedReferral] = useState(false);
   const [showQr, setShowQr] = useState(false);
-
-  // Add device form
-  const [showAddDevice, setShowAddDevice] = useState(false);
-  const [newDeviceName, setNewDeviceName] = useState('');
-  const [newDevicePlatform, setNewDevicePlatform] = useState(detectDefaultPlatform());
-  const [deviceError, setDeviceError] = useState('');
 
   const [invoiceHistory, setInvoiceHistory] = useState<InvoiceHistoryEntry[]>([]);
 
@@ -106,18 +94,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
-  const handleAddDevice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setDeviceError('');
-    try {
-      await api.addDevice(newDeviceName, newDevicePlatform);
-      setShowAddDevice(false);
-      setNewDeviceName('');
-      loadData();
-      onRefreshUser();
-    } catch (err: any) {
-      setDeviceError(err.message || 'Error adding device');
-    }
+  // The referral link has to work for *anyone* the user invites, not just people
+  // on Telegram — so the primary shareable link is a plain https URL carrying
+  // ?ref=CODE (App.tsx reads that param and prefills the signup form). The server
+  // builds it from its configured public web origin; falling back to the current
+  // origin keeps the card working on preview/dev hosts and against older servers.
+  // The Telegram deep link stays available as a secondary channel.
+  const referralWebLink =
+    user.referralLink || `${window.location.origin}/?ref=${user.referralCode}`;
+  const referralTelegramLink = user.referralTelegramLink || '';
+
+  const handleCopyReferral = () => {
+    navigator.clipboard.writeText(referralWebLink);
+    setCopiedReferral(true);
+    setTimeout(() => setCopiedReferral(false), 2000);
   };
 
   const handleRevokeDevice = async (id: number) => {
@@ -188,7 +178,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Subscription Banner */}
       <div className="p-6 rounded-3xl bg-gradient-to-br from-dark-850 to-dark-800 border border-dark-800 shadow-xl relative overflow-hidden">
-        <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 relative z-10">
+        {/* Always stacked, never a row: this card sits in a 2-column grid from
+            `lg:` up, so it only ever gets ~half the viewport — a row layout
+            that only flips at `xl:`/`2xl:` judges its own width off the full
+            viewport, not the space it actually has, and squeezes the title +
+            date + buttons into each other at exactly the width this card
+            renders at on real (non-ultrawide) monitors. */}
+        <div className="flex flex-col items-start gap-4 relative z-10">
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold mb-3">
               <ShieldCheck className="w-3.5 h-3.5" />
@@ -199,13 +195,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </h1>
             {sub && (
               <p className="text-xs text-slate-400 mt-1">
-                {t.expiresAt}: {new Date(sub.expiresAt).toLocaleDateString()}
+                {t.expiresAt}: {formatExpiresAt(sub.expiresAt)}
               </p>
             )}
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-2 w-full xl:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full">
             {links.length > 0 && (
               <>
                 <button
@@ -253,13 +249,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {currentTariff ? ` / ${currentTariff.maxDevices}` : ''}
             </p>
           </div>
-          <button
-            onClick={() => setShowAddDevice(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{t.addDevice}</span>
-          </button>
         </div>
 
         <p className="text-xs text-slate-500 mb-4">{t.deviceAutoAddedHint}</p>
@@ -333,12 +322,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               : tariff.monthlyPriceUsdtMicro;
             const price = priceMicro / 1_000_000;
             const isCurrent = sub?.tariffId === tariff.id;
+            const isTrial = tariff.id.toLowerCase() === 'trial';
             // Trial is one-shot server-side (BillingService.purchaseOrRenewSubscription
-            // rejects any repeat activation) — hasUsedTrial covers "already expired/
-            // switched away from it" too, not just "currently on it", so a stale
-            // "Продлить"/"Активировать бесплатно" button never invites a click that
-            // can only ever fail.
-            const isUnusableTrial = tariff.id.toLowerCase() === 'trial' && user.hasUsedTrial;
+            // rejects any repeat activation) — hasUsedTrial stays true forever once any
+            // trial subscription row has ever existed, whether that trial is currently
+            // ACTIVE (with quota left) or long expired. Only the "expired, and it can
+            // never be activated again" case should read as "already used" — while the
+            // trial is the user's current plan it's simply active, not "used up", so a
+            // stale "Активировать бесплатно" button never invites a click that can only
+            // ever fail, without implying anything is wrong with the plan they're on.
+            const isExpiredTrial = isTrial && !isCurrent && user.hasUsedTrial;
 
             return (
               <div
@@ -352,7 +345,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <h4 className="font-bold text-sm">{tariff.name}</h4>
                     {isCurrent && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold">
-                        Current
+                        {t.currentPlanBadge}
                       </span>
                     )}
                   </div>
@@ -373,7 +366,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </p>
                 </div>
 
-                {isUnusableTrial ? (
+                {isTrial && isCurrent ? (
+                  // Currently active trial with quota left — this is just their
+                  // current plan (matches the emerald "Current" treatment above),
+                  // not a disabled/broken control. Renewal isn't offered since the
+                  // trial can't be reactivated once it ends.
+                  <div className="mt-4 w-full py-2 rounded-lg text-center text-xs font-semibold text-emerald-400 border border-emerald-500/30 bg-emerald-500/5">
+                    {t.trialActiveLabel}
+                  </div>
+                ) : isExpiredTrial ? (
                   <div className="mt-4 w-full py-2 rounded-lg text-center text-xs font-semibold text-slate-500 border border-dark-800">
                     {t.trialAlreadyUsed}
                   </div>
@@ -479,18 +480,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <input
               type="text"
               readOnly
-              value={`https://t.me/MyVpnBot?start=${user.referralCode}`}
+              value={referralWebLink}
+              onFocus={(e) => e.currentTarget.select()}
               className="bg-transparent flex-1 outline-none text-slate-300 select-all"
             />
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(`https://t.me/MyVpnBot?start=${user.referralCode}`);
-                alert('Invite link copied!');
-              }}
+              type="button"
+              onClick={handleCopyReferral}
+              title={t.copyLink}
               className="p-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-slate-300"
             >
-              <Copy className="w-3.5 h-3.5" />
+              {copiedReferral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+            <span className="text-slate-500">
+              {t.referralCodeLabel}: <span className="font-mono text-slate-300">{user.referralCode}</span>
+            </span>
+            {referralTelegramLink && (
+              <a
+                href={referralTelegramLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-brand-500 hover:underline whitespace-nowrap"
+              >
+                {t.referralTelegramLink}
+              </a>
+            )}
           </div>
         </div>
 
@@ -524,66 +540,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {t.close}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* Add Device Modal */}
-      {showAddDevice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <form
-            onSubmit={handleAddDevice}
-            className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-sm w-full"
-          >
-            <h3 className="font-bold text-base mb-4">{t.addDevice}</h3>
-            {deviceError && (
-              <p className="text-xs text-red-400 mb-3">{deviceError}</p>
-            )}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">{t.deviceName}</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Phone, Laptop"
-                  value={newDeviceName}
-                  onChange={(e) => setNewDeviceName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">
-                  {t.deviceType}
-                  <span className="text-slate-600 font-normal"> · {t.deviceTypeHint}</span>
-                </label>
-                <select
-                  value={newDevicePlatform}
-                  onChange={(e) => setNewDevicePlatform(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
-                >
-                  <option value="ANDROID">Android</option>
-                  <option value="WINDOWS">Windows</option>
-                  <option value="MACOS">macOS</option>
-                  <option value="THIRD_PARTY">Universal / Other</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="mt-6 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setShowAddDevice(false)}
-                className="flex-1 py-2 rounded-xl bg-dark-800 hover:bg-dark-700 text-xs font-semibold text-slate-300"
-              >
-                {t.close}
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 text-xs font-bold"
-              >
-                {t.addDevice}
-              </button>
-            </div>
-          </form>
         </div>
       )}
 

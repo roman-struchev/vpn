@@ -1,15 +1,20 @@
 package com.vpn.android.ui.profile;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
+import com.vpn.android.BuildConfig;
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
@@ -25,6 +30,7 @@ public class ProfileFragment extends Fragment {
     private FragmentProfileBinding binding;
     private ApiClient apiClient;
     private TokenStore tokenStore;
+    private String referralLink = "";
 
     @Nullable
     @Override
@@ -39,6 +45,8 @@ public class ProfileFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         binding.logoutButton.setOnClickListener(v -> logout());
+        binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
+        binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
         loadProfile();
     }
 
@@ -49,9 +57,34 @@ public class ProfileFragment extends Fragment {
                     binding.emailText.setText(profile.email);
                     binding.balanceText.setText(getString(R.string.profile_balance,
                             String.format(Locale.US, "%.2f", profile.balanceUsdt())));
-                    binding.referralText.setText(profile.referralCode);
+                    // Show the full shareable https link, not just the bare code — a
+                    // friend on any platform can open it directly (the code stays
+                    // visible underneath for anyone who wants to type it in manually).
+                    referralLink = profile.shareableReferralLink(BuildConfig.WEB_BASE_URL);
+                    binding.referralText.setText(referralLink);
+                    binding.referralCodeText.setText(
+                            getString(R.string.profile_referral_code,
+                                    profile.referralCode == null ? "" : profile.referralCode));
                 },
                 error -> { /* keep placeholders on failure */ });
+    }
+
+    private void copyReferralLink() {
+        if (referralLink.isEmpty()) return;
+        ClipboardManager clipboard =
+                (ClipboardManager) requireContext().getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.profile_referral), referralLink));
+            Toast.makeText(requireContext(), R.string.profile_referral_copied, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void shareReferralLink() {
+        if (referralLink.isEmpty()) return;
+        Intent share = new Intent(Intent.ACTION_SEND)
+                .setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT, referralLink);
+        startActivity(Intent.createChooser(share, getString(R.string.profile_referral_share_title)));
     }
 
     private void logout() {

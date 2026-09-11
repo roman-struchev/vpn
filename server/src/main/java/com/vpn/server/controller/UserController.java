@@ -10,6 +10,7 @@ import com.vpn.server.service.BillingService;
 import com.vpn.server.service.DeviceManagementService;
 import com.vpn.server.service.SubscriptionExportService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -52,6 +53,13 @@ public class UserController {
         this.antiEnumerationService = antiEnumerationService;
     }
 
+    /** Public origin of the web dashboard, used to build shareable referral links. */
+    @Value("${vpn.public.web-base-url:https://nextgenvpn.app}")
+    private String publicWebBaseUrl = "https://nextgenvpn.app";
+
+    @Value("${vpn.telegram.bot-username:MyVpnBot}")
+    private String telegramBotUsername = "MyVpnBot";
+
     @GetMapping("/profile")
     public ResponseEntity<?> getProfile(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
@@ -73,6 +81,14 @@ public class UserController {
         response.put("role", user.getRole());
         response.put("balanceUsdtMicro", user.getBalanceUsdtMicro());
         response.put("referralCode", user.getReferralCode() != null ? user.getReferralCode() : "");
+        // Ready-to-share referral links, built server-side so every client (web,
+        // desktop, Android, Telegram Mini App) hands out the same URLs and none of
+        // them has to hardcode a host or the bot username. The plain-web link is the
+        // primary one — it works for anyone, including invitees who don't use
+        // Telegram; the Telegram deep link stays as an extra channel. `?ref=CODE` is
+        // what web/src/App.tsx reads to prefill the signup form's referral field.
+        response.put("referralLink", buildReferralWebLink(user.getReferralCode()));
+        response.put("referralTelegramLink", buildReferralTelegramLink(user.getReferralCode()));
         response.put("hasActiveSubscription", sub.isPresent());
         // So the client can hide/disable the trial tariff's action button once
         // it's been used — the trial is one-shot (see BillingService.
@@ -89,6 +105,19 @@ public class UserController {
         )).orElse(null));
 
         return ResponseEntity.ok(response);
+    }
+
+    private String buildReferralWebLink(String referralCode) {
+        if (referralCode == null || referralCode.isBlank()) return "";
+        String base = publicWebBaseUrl == null ? "" : publicWebBaseUrl.trim();
+        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        return base + "/?ref=" + referralCode;
+    }
+
+    private String buildReferralTelegramLink(String referralCode) {
+        if (referralCode == null || referralCode.isBlank()) return "";
+        if (telegramBotUsername == null || telegramBotUsername.isBlank()) return "";
+        return "https://t.me/" + telegramBotUsername.trim().replaceFirst("^@", "") + "?start=" + referralCode;
     }
 
     @GetMapping("/tariffs")

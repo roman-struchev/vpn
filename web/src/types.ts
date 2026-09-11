@@ -4,6 +4,10 @@ export interface UserProfile {
   role: string;
   balanceUsdtMicro: number;
   referralCode: string;
+  /** Ready-to-share plain web link built by the server (`<site>/?ref=CODE`). */
+  referralLink?: string;
+  /** Optional extra channel — Telegram deep link, only useful to Telegram users. */
+  referralTelegramLink?: string;
   hasActiveSubscription: boolean;
   hasUsedTrial: boolean;
   subscription?: {

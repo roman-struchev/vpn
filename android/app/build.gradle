@@ -26,6 +26,10 @@ android {
         // Phase 10: comma-separated backup domains tried in order if the
         // primary is unreachable (see ApiHostRotation). Empty by default.
         buildConfigField "String", "API_BASE_URLS_BACKUP", "\"${project.findProperty('apiBaseUrlsBackup') ?: ''}\""
+        // Public origin of the web dashboard — only used as a local fallback when
+        // building the shareable referral link (`<site>/?ref=CODE`); normally the
+        // server hands the finished link back in GET /api/v1/user/profile.
+        buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'https://nextgenvpn.app/'}\""
 
         // libXray bundles a Go runtime per ABI (~20-25MB each); drop legacy 32-bit x86.
         ndk {
