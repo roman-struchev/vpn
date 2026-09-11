@@ -13,8 +13,11 @@ import com.vpn.server.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -40,6 +43,11 @@ public class GoogleAuthService {
     private final SecureRandom random = new SecureRandom();
     private final HttpClient httpClient;
 
+    // See DeviceAuthService's newUserTransactionTemplate for why the "create
+    // new user" insert needs its own REQUIRES_NEW transaction rather than a
+    // plain @Transactional method called from within this same class.
+    private final TransactionTemplate newUserTransactionTemplate;
+
     @Value("${vpn.google.client-id:}")
     private String googleClientId;
 
@@ -47,7 +55,8 @@ public class GoogleAuthService {
             UserRepository userRepository,
             SubscriptionRepository subscriptionRepository,
             TariffRepository tariffRepository,
-            JwtUtil jwtUtil
+            JwtUtil jwtUtil,
+            PlatformTransactionManager transactionManager
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -56,6 +65,8 @@ public class GoogleAuthService {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
+        this.newUserTransactionTemplate = new TransactionTemplate(transactionManager);
+        this.newUserTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     public void setGoogleClientId(String googleClientId) {
@@ -68,12 +79,10 @@ public class GoogleAuthService {
             boolean emailVerified
     ) {}
 
-    @Transactional
     public AuthResponse authenticateGoogle(String idToken, String referralCode) {
         GoogleUser googleUser = verifyIdToken(idToken);
 
-        User user = userRepository.findByGoogleSub(googleUser.sub())
-                .orElseGet(() -> createNewGoogleUser(googleUser, referralCode));
+        User user = findOrCreateGoogleUser(googleUser, referralCode);
 
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new IllegalStateException("Account is suspended or blocked");
@@ -81,6 +90,23 @@ public class GoogleAuthService {
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
         return new AuthResponse(token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode());
+    }
+
+    /**
+     * Find-or-create keyed by googleSub, resilient to two concurrent requests
+     * racing to create the same never-before-seen googleSub (see
+     * DeviceAuthService#findOrCreateDeviceUser for the full race explanation).
+     */
+    private User findOrCreateGoogleUser(GoogleUser googleUser, String referralCode) {
+        Optional<User> existing = userRepository.findByGoogleSub(googleUser.sub());
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        try {
+            return newUserTransactionTemplate.execute(status -> createNewGoogleUser(googleUser, referralCode));
+        } catch (DataIntegrityViolationException e) {
+            return userRepository.findByGoogleSub(googleUser.sub()).orElseThrow(() -> e);
+        }
     }
 
     public GoogleUser verifyIdToken(String idToken) {
