@@ -1,12 +1,20 @@
 package com.vpn.android.ui.connect;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.VpnService;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
+import java.util.ArrayList;
+import java.util.List;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -17,6 +25,7 @@ import com.google.android.material.snackbar.Snackbar;
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
+import com.vpn.android.api.model.RegionInfo;
 import com.vpn.android.api.model.UserProfile;
 import com.vpn.android.databinding.FragmentConnectBinding;
 import com.vpn.android.util.Async;
@@ -28,7 +37,9 @@ public class ConnectFragment extends Fragment {
 
     private FragmentConnectBinding binding;
     private ApiClient apiClient;
+    private TokenStore tokenStore;
     private UserProfile latestProfile;
+    private List<RegionInfo> availableRegions = new ArrayList<>();
 
     private final ActivityResultLauncher<Intent> vpnPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.StartActivityForResult(),
@@ -41,7 +52,8 @@ public class ConnectFragment extends Fragment {
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         binding = FragmentConnectBinding.inflate(inflater, container, false);
-        apiClient = new ApiClient(new TokenStore(requireContext()));
+        tokenStore = new TokenStore(requireContext());
+        apiClient = new ApiClient(tokenStore);
         return binding.getRoot();
     }
 
@@ -50,6 +62,7 @@ public class ConnectFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
 
         binding.connectButton.setOnClickListener(v -> onConnectButtonClicked());
+        binding.regionCard.setOnClickListener(v -> showRegionPicker());
 
         VpnStatusBus.state.observe(getViewLifecycleOwner(), this::renderState);
         VpnStatusBus.activeRegion.observe(getViewLifecycleOwner(), region -> {
@@ -60,8 +73,70 @@ public class ConnectFragment extends Fragment {
                 binding.regionText.setVisibility(View.GONE);
             }
         });
+        VpnStatusBus.regionFallback.observe(getViewLifecycleOwner(), fellBack ->
+                binding.regionFallbackNotice.setVisibility(Boolean.TRUE.equals(fellBack) ? View.VISIBLE : View.GONE));
 
+        renderSelectedRegion();
         loadProfile();
+        loadRegions();
+    }
+
+    private void loadRegions() {
+        Async.run(
+                () -> apiClient.getRegions(),
+                regions -> availableRegions = regions,
+                error -> { /* keep whatever the last "Auto" default shows; not fatal to the connect flow */ });
+    }
+
+    private void renderSelectedRegion() {
+        String selected = tokenStore.getSelectedRegion();
+        if (selected == null) {
+            binding.regionSelectedText.setText(R.string.region_auto);
+            return;
+        }
+        RegionInfo match = findRegion(selected);
+        binding.regionSelectedText.setText(match != null ? formatRegionRow(match) : selected);
+    }
+
+    private RegionInfo findRegion(String region) {
+        for (RegionInfo r : availableRegions) {
+            if (r.region.equals(region)) return r;
+        }
+        return null;
+    }
+
+    private String formatRegionRow(RegionInfo r) {
+        return getString(R.string.region_row_format, r.region, loadLabel(r.loadLevel), r.nodeCount);
+    }
+
+    private String loadLabel(String loadLevel) {
+        if ("HIGH".equals(loadLevel)) return getString(R.string.region_load_high);
+        if ("MEDIUM".equals(loadLevel)) return getString(R.string.region_load_medium);
+        return getString(R.string.region_load_low);
+    }
+
+    private void showRegionPicker() {
+        List<String> labels = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        labels.add(getString(R.string.region_auto));
+        values.add(null);
+        for (RegionInfo r : availableRegions) {
+            labels.add(formatRegionRow(r));
+            values.add(r.region);
+        }
+        String current = tokenStore.getSelectedRegion();
+        int checked = values.indexOf(current);
+        if (checked < 0) checked = 0;
+
+        new AlertDialog.Builder(requireContext())
+                .setTitle(R.string.region_picker_title)
+                .setSingleChoiceItems(labels.toArray(new String[0]), checked, (dialog, which) -> {
+                    tokenStore.saveSelectedRegion(values.get(which));
+                    renderSelectedRegion();
+                    dialog.dismiss();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private void loadProfile() {
@@ -87,7 +162,20 @@ public class ConnectFragment extends Fragment {
         binding.trafficText.setText(getString(R.string.traffic_used, usedGb, limitGb));
         int percent = limitGb > 0 ? (int) Math.min(100, (usedGb / limitGb) * 100) : 0;
         binding.trafficProgress.setProgress(percent);
-        binding.expiresText.setText(getString(R.string.expires_at, sub.expiresAt));
+        binding.expiresText.setText(getString(R.string.expires_at, formatExpiresAt(sub.expiresAt)));
+    }
+
+    // The server sends a raw ISO-8601 instant ("2027-12-04T09:14:00Z") — shown
+    // as-is that's an unreadable trailing "Z" and no locale formatting, and a
+    // bare date reads as "good until midnight" when it may really lapse mid-day.
+    private static String formatExpiresAt(String iso) {
+        try {
+            return DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.parse(iso));
+        } catch (Exception e) {
+            return iso;
+        }
     }
 
     private void onConnectButtonClicked() {

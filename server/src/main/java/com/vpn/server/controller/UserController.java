@@ -210,16 +210,54 @@ public class UserController {
         return ResponseEntity.ok(cryptoInvoiceRepository.findByUserIdOrderByCreatedAtDesc(userId));
     }
 
+    /**
+     * @param region optional (e.g. "nl-ams", see GET /regions) — restricts the
+     *               returned links to that region's ONLINE nodes; falls back to
+     *               every online node (today's "auto" behavior) if the region
+     *               has none right now, see SubscriptionExportService#
+     *               exportVlessLinksForOwnApp(Long, String). Omitted entirely,
+     *               this is the original unscoped response shape (no
+     *               requestedRegion/requestedRegionAvailable fields) so existing
+     *               clients that don't yet know about regions are unaffected.
+     */
     @GetMapping("/subscription/links")
-    public ResponseEntity<?> getSubscriptionLinks(Authentication auth, HttpServletRequest request) {
+    public ResponseEntity<?> getSubscriptionLinks(
+            Authentication auth, HttpServletRequest request,
+            @RequestParam(required = false) String region) {
         Long userId = (Long) auth.getPrincipal();
         antiEnumerationService.recordAccessAndEnforce(userId, request.getRemoteAddr());
         try {
+            if (region != null && !region.isBlank()) {
+                SubscriptionExportService.RegionScopedLinks result = exportService.exportVlessLinksForOwnApp(userId, region);
+                Map<String, Object> body = new LinkedHashMap<>();
+                body.put("count", result.links().size());
+                body.put("links", result.links());
+                body.put("requestedRegion", region);
+                body.put("requestedRegionAvailable", result.requestedRegionAvailable());
+                return ResponseEntity.ok(body);
+            }
             List<String> links = exportService.exportVlessLinksForOwnApp(userId);
             return ResponseEntity.ok(Map.of(
                     "count", links.size(),
                     "links", links
             ));
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Lists regions with at least one ONLINE node this user's subscription can
+     * reach, each with a rough load indicator — see SubscriptionExportService#
+     * getAvailableRegions for the heuristic. Powers the desktop/Android region
+     * picker (product ask: choose a connection region and see its congestion).
+     */
+    @GetMapping("/regions")
+    public ResponseEntity<?> getRegions(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        try {
+            List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(userId);
+            return ResponseEntity.ok(Map.of("regions", regions));
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
         }

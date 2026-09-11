@@ -5,6 +5,8 @@ import com.google.gson.JsonObject;
 import com.vpn.android.BuildConfig;
 import com.vpn.android.api.model.AuthResponse;
 import com.vpn.android.api.model.DeviceDto;
+import com.vpn.android.api.model.RegionInfo;
+import com.vpn.android.api.model.RegionsResponse;
 import com.vpn.android.api.model.RoutingConfigResponse;
 import com.vpn.android.api.model.SubscriptionLinksResponse;
 import com.vpn.android.api.model.UserProfile;
@@ -137,6 +139,31 @@ public class ApiClient {
 
     public SubscriptionLinksResponse getSubscriptionLinks() throws ApiException, IOException {
         return get("api/v1/user/subscription/links", SubscriptionLinksResponse.class);
+    }
+
+    /**
+     * @param region optional (from {@link #getRegions()}) — restricts the returned
+     *   links to that region's online nodes; the server falls back to every online
+     *   node (today's "auto" behavior) if the region currently has none, reported
+     *   back via {@link SubscriptionLinksResponse#requestedRegionAvailable}.
+     */
+    public SubscriptionLinksResponse getSubscriptionLinks(String region) throws ApiException, IOException {
+        if (region == null || region.isBlank()) {
+            return getSubscriptionLinks();
+        }
+        return executeWithHostRotation(host -> {
+            HttpUrl.Builder url = HttpUrl.parse(host + "api/v1/user/subscription/links").newBuilder();
+            url.addQueryParameter("region", region);
+            Request.Builder builder = new Request.Builder().url(url.build()).get();
+            applyAuth(builder);
+            return builder.build();
+        }, SubscriptionLinksResponse.class);
+    }
+
+    /** Regions with at least one online node this user's subscription can reach, each with a rough load indicator. */
+    public List<RegionInfo> getRegions() throws ApiException, IOException {
+        RegionsResponse resp = get("api/v1/user/regions", RegionsResponse.class);
+        return resp.regions != null ? resp.regions : List.of();
     }
 
     public RoutingConfigResponse getRoutingConfig(String operator, String region) throws ApiException, IOException {

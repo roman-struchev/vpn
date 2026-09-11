@@ -179,6 +179,164 @@ class SubscriptionExportServiceTest {
     }
 
     @Test
+    void testExportForOwnAppWithRegionFiltersToThatRegionOnly() {
+        User user = new User();
+        user.setId(23L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Device device = new Device();
+        device.setId(300L);
+        device.setUser(user);
+        device.setIsActive(true);
+
+        Node amsNode = new Node();
+        amsNode.setId(3L);
+        amsNode.setHostname("ams-01.vpn.internal");
+        amsNode.setPublicIp("198.51.100.40");
+        amsNode.setRegion("nl-ams");
+        amsNode.setStatus("ONLINE");
+        amsNode.setPool("paid");
+
+        Node laxNode = new Node();
+        laxNode.setId(4L);
+        laxNode.setHostname("lax-01.vpn.internal");
+        laxNode.setPublicIp("198.51.100.41");
+        laxNode.setRegion("us-lax");
+        laxNode.setStatus("ONLINE");
+        laxNode.setPool("paid");
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(23L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(deviceRepository.findByUserIdAndIsActiveTrue(23L)).thenReturn(List.of(device));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsNode, laxNode));
+        when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(300L), eq(3L)))
+                .thenReturn(Optional.of(new DeviceNodeKey(device, amsNode, UUID.randomUUID())));
+
+        SubscriptionExportService.RegionScopedLinks result = exportService.exportVlessLinksForOwnApp(23L, "nl-ams");
+
+        assertTrue(result.requestedRegionAvailable());
+        assertEquals(1, result.links().size());
+        assertTrue(result.links().get(0).contains("198.51.100.40"));
+    }
+
+    @Test
+    void testExportForOwnAppWithUnavailableRegionFallsBackToAllNodes() {
+        User user = new User();
+        user.setId(24L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Device device = new Device();
+        device.setId(400L);
+        device.setUser(user);
+        device.setIsActive(true);
+
+        Node amsNode = new Node();
+        amsNode.setId(5L);
+        amsNode.setHostname("ams-02.vpn.internal");
+        amsNode.setPublicIp("198.51.100.50");
+        amsNode.setRegion("nl-ams");
+        amsNode.setStatus("ONLINE");
+        amsNode.setPool("paid");
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(24L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(deviceRepository.findByUserIdAndIsActiveTrue(24L)).thenReturn(List.of(device));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsNode));
+        when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(400L), eq(5L)))
+                .thenReturn(Optional.of(new DeviceNodeKey(device, amsNode, UUID.randomUUID())));
+
+        // "us-lax" has no online node — should fall back to the full (nl-ams-only,
+        // in this fixture) node list rather than returning zero links.
+        SubscriptionExportService.RegionScopedLinks result = exportService.exportVlessLinksForOwnApp(24L, "us-lax");
+
+        assertFalse(result.requestedRegionAvailable());
+        assertEquals(1, result.links().size());
+    }
+
+    @Test
+    void testGetAvailableRegionsAggregatesLoadPerRegion() {
+        User user = new User();
+        user.setId(25L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node amsLow = new Node();
+        amsLow.setId(6L);
+        amsLow.setRegion("nl-ams");
+        amsLow.setStatus("ONLINE");
+        amsLow.setPool("paid");
+        amsLow.setCpuPercent(new java.math.BigDecimal("20.0"));
+        amsLow.setActiveConnections(10);
+
+        Node amsHigh = new Node();
+        amsHigh.setId(7L);
+        amsHigh.setRegion("nl-ams");
+        amsHigh.setStatus("ONLINE");
+        amsHigh.setPool("paid");
+        amsHigh.setCpuPercent(new java.math.BigDecimal("30.0"));
+        amsHigh.setActiveConnections(30);
+
+        Node laxBusy = new Node();
+        laxBusy.setId(8L);
+        laxBusy.setRegion("us-lax");
+        laxBusy.setStatus("ONLINE");
+        laxBusy.setPool("paid");
+        laxBusy.setCpuPercent(new java.math.BigDecimal("90.0"));
+        laxBusy.setActiveConnections(200);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(25L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(25L);
+
+        assertEquals(2, regions.size());
+        SubscriptionExportService.RegionSummary ams = regions.stream()
+                .filter(r -> r.region().equals("nl-ams")).findFirst().orElseThrow();
+        SubscriptionExportService.RegionSummary lax = regions.stream()
+                .filter(r -> r.region().equals("us-lax")).findFirst().orElseThrow();
+
+        assertEquals(2, ams.nodeCount());
+        assertEquals(25.0, ams.avgCpuPercent());
+        assertEquals("LOW", ams.loadLevel());
+
+        assertEquals(1, lax.nodeCount());
+        assertEquals(90.0, lax.avgCpuPercent());
+        assertEquals("HIGH", lax.loadLevel());
+    }
+
+    @Test
+    void testGetAvailableRegionsNoActiveSubscriptionThrows() {
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(26L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+
+        assertThrows(IllegalStateException.class, () -> exportService.getAvailableRegions(26L));
+    }
+
+    @Test
     void testExportForOwnAppReturnsEmptyWithoutAutoCreatingAPlaceholderDevice() {
         // Regression: the public export path's "auto-create a Primary Device if
         // none exists" convenience must NOT apply to the own-app path — it used

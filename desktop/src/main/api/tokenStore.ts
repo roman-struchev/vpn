@@ -12,6 +12,12 @@ interface StoredAuth {
    * equivalent for the full rationale.
    */
   deviceId?: number;
+  /**
+   * User's pinned connection region (e.g. "nl-ams"), or undefined for
+   * "auto"/best-available — today's implicit behavior. Set via the
+   * ConnectPage region picker, read by VpnController#connect.
+   */
+  selectedRegion?: string;
 }
 
 /**
@@ -26,7 +32,15 @@ export class TokenStore {
   }
 
   save(token: string, userId: number, deviceId?: number): void {
-    const payload: StoredAuth = { token, userId, deviceId };
+    // Preserves an already-stored selectedRegion across a fresh login/
+    // register (a region preference is per-install, not per-JWT — there's
+    // no reason a re-login should silently reset it back to "auto").
+    const selectedRegion = this.load()?.selectedRegion;
+    const payload: StoredAuth = { token, userId, deviceId, selectedRegion };
+    this.writePayload(payload);
+  }
+
+  private writePayload(payload: StoredAuth): void {
     if (safeStorage.isEncryptionAvailable()) {
       writeFileSync(this.filePath, safeStorage.encryptString(JSON.stringify(payload)));
     } else {
@@ -61,6 +75,17 @@ export class TokenStore {
     const current = this.load();
     if (!current) return;
     this.save(current.token, current.userId, deviceId);
+  }
+
+  getSelectedRegion(): string | null {
+    return this.load()?.selectedRegion ?? null;
+  }
+
+  /** No-op if there's no token yet (nothing to attach a region preference to). */
+  saveSelectedRegion(region: string | null): void {
+    const current = this.load();
+    if (!current) return;
+    this.writePayload({ ...current, selectedRegion: region ?? undefined });
   }
 
   clear(): void {

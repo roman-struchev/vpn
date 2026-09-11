@@ -50,6 +50,27 @@ public final class XrayConfigFactory {
     public static String build(
             VlessUri vless, String fingerprint, int tunFd, int mtu,
             String transport, Integer grpcPort, String grpcServiceName) {
+        return build(vless, fingerprint, tunFd, mtu, transport, grpcPort, grpcServiceName, null);
+    }
+
+    /**
+     * Same as {@link #build(VlessUri, String, int, int, String, Integer, String)}, plus
+     * {@code xrayAssetDir}: the real filesystem directory (NOT an APK asset path —
+     * xray-core's own file I/O cannot read out of an APK) containing a copy of
+     * {@code geoip.dat} (see {@code assets/geoip.dat}, extracted once at runtime by
+     * XrayVpnService). Without this, the routing rule below that keeps LAN traffic
+     * out of the tunnel (geoip:private) fails Xray-core startup entirely on Android
+     * with "failed to open geoip.dat: no such file or directory" — confirmed live —
+     * because Xray-core has no bundled default asset location on this platform the
+     * way desktop/agent's install (which ships geoip.dat/geosite.dat next to the
+     * xray binary, see desktop/resources/bin/<platform>/) does. Pass {@code null}
+     * only where the geoip:private rule is guaranteed unreachable (i.e. never, in
+     * production — kept nullable purely so existing JVM unit tests that don't
+     * exercise Xray-core itself don't need a real directory).
+     */
+    public static String build(
+            VlessUri vless, String fingerprint, int tunFd, int mtu,
+            String transport, Integer grpcPort, String grpcServiceName, String xrayAssetDir) {
         if (!"firefox".equals(fingerprint) && !"edge".equals(fingerprint)) {
             throw new IllegalArgumentException("fingerprint must be firefox or edge, got: " + fingerprint);
         }
@@ -64,9 +85,14 @@ public final class XrayConfigFactory {
         log.addProperty("loglevel", "warning");
         root.add("log", log);
 
-        // env.xray.tun.fd — see class javadoc.
+        // env.xray.tun.fd — see class javadoc. XRAY_LOCATION_ASSET is Xray-core's
+        // own standard geoip/geosite asset-directory env var (not an app-specific
+        // hack like tun.fd) — set here via the same env->os.Setenv plumbing.
         JsonObject env = new JsonObject();
         env.addProperty("xray.tun.fd", String.valueOf(tunFd));
+        if (xrayAssetDir != null) {
+            env.addProperty("XRAY_LOCATION_ASSET", xrayAssetDir);
+        }
         root.add("env", env);
 
         JsonObject policy = new JsonObject();

@@ -11,11 +11,18 @@ import {
   QrCode,
   Sparkles,
   Receipt,
+  Globe,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Lang, translations } from '../i18n';
-import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry } from '../types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, RegionInfo } from '../types';
 import { api } from '../api';
+
+const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
+  LOW: 'bg-emerald-400',
+  MEDIUM: 'bg-amber-400',
+  HIGH: 'bg-red-400',
+};
 
 // Subscriptions actually expire at an exact instant, not "sometime that day" —
 // a bare date ("04.12.2027") reads as if it's good until midnight/end-of-day,
@@ -47,6 +54,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [links, setLinks] = useState<string[]>([]);
+  const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedReferral, setCopiedReferral] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -73,14 +81,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const loadData = async () => {
     try {
-      const [devs, vlessLinks, invoices] = await Promise.all([
+      const [devs, vlessLinks, invoices, regionList] = await Promise.all([
         api.getDevices(),
         api.getSubscriptionLinks(),
         api.getInvoiceHistory(),
+        api.getRegions(),
       ]);
       setDevices(devs);
       setLinks(vlessLinks);
       setInvoiceHistory(invoices);
+      setRegions(regionList);
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     }
@@ -278,6 +288,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
       </div>
+
+      {/* Available Regions — read-only/informational: the web dashboard never
+          establishes a tunnel itself, so it has no reason to let a user pin a
+          region here (that choice lives in the Desktop/Android region picker,
+          which actually feeds it into node selection). Just a glance at where
+          nodes are and how busy they are. */}
+      {regions.length > 0 && (
+        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
+          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2 mb-1">
+            <Globe className="w-5 h-5 text-brand-500" />
+            <span>{t.regionsTitle}</span>
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">{t.regionsHint}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {regions.map((r) => (
+              <div key={r.region} className="flex items-center justify-between px-4 py-3 rounded-xl bg-dark-900 border border-dark-800">
+                <div>
+                  <p className="text-sm font-semibold">{r.region}</p>
+                  <p className="text-[11px] text-slate-500">{r.nodeCount} {t.regionNodeCountSuffix}</p>
+                </div>
+                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                  <span className={`w-2 h-2 rounded-full ${REGION_LOAD_DOT[r.loadLevel]}`} />
+                  {r.loadLevel === 'HIGH' ? t.regionLoadHigh : r.loadLevel === 'MEDIUM' ? t.regionLoadMedium : t.regionLoadLow}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tariffs Selection / Change — kept right under the subscription banner
           (was much further down, past the entire Devices section): this is

@@ -29,6 +29,14 @@
     <string name="operator_blocked_title">This is your carrier\'s restriction, not ours</string>
     <string name="operator_blocked_body">Russian sites load fine, but foreign ones don\'t — that\'s your carrier blocking traffic. We\'re switching to backup nodes automatically; try reconnecting in a minute.</string>
 
+    <string name="region_picker_title">Connection region</string>
+    <string name="region_auto">Auto (best available)</string>
+    <string name="region_row_format">%1$s — %2$s (%3$d nodes)</string>
+    <string name="region_load_low">low load</string>
+    <string name="region_load_medium">medium load</string>
+    <string name="region_load_high">high load</string>
+    <string name="region_unavailable_notice">The selected region is unavailable right now — using automatic selection</string>
+
     <string name="notif_channel_name">VPN status</string>
     <string name="notif_disconnect_action">Disconnect</string>
 

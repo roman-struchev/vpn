@@ -16,6 +16,7 @@ public class TokenStore {
     private static final String KEY_TOKEN = "auth_token";
     private static final String KEY_USER_ID = "user_id";
     private static final String KEY_DEVICE_ID = "device_id";
+    private static final String KEY_SELECTED_REGION = "selected_region";
 
     private final SharedPreferences prefs;
 
@@ -72,6 +73,26 @@ public class TokenStore {
 
     public long getDeviceId() {
         return prefs.getLong(KEY_DEVICE_ID, -1);
+    }
+
+    /**
+     * User's pinned connection region (e.g. "nl-ams"), or null for
+     * "auto"/best-available — today's implicit behavior. Set from the
+     * ConnectFragment region picker, read by XrayVpnService#loadProfileAndConnect.
+     * Wiped by clear() along with everything else on logout, same as deviceId —
+     * simplest behavior for the MVP, re-picking a region after logging back in
+     * is a minor inconvenience at worst.
+     */
+    public String getSelectedRegion() {
+        return prefs.getString(KEY_SELECTED_REGION, null);
+    }
+
+    public void saveSelectedRegion(String region) {
+        if (region == null) {
+            prefs.edit().remove(KEY_SELECTED_REGION).apply();
+        } else {
+            prefs.edit().putString(KEY_SELECTED_REGION, region).apply();
+        }
     }
 
     public void clear() {

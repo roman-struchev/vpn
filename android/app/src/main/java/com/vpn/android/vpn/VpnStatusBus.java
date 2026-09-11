@@ -13,6 +13,8 @@ public final class VpnStatusBus {
 
     public static final MutableLiveData<ConnectionState> state = new MutableLiveData<>(ConnectionState.DISCONNECTED);
     public static final MutableLiveData<String> activeRegion = new MutableLiveData<>(null);
+    /** true when a pinned region preference had no online node and the last connect attempt fell back to all regions. */
+    public static final MutableLiveData<Boolean> regionFallback = new MutableLiveData<>(false);
 
     private VpnStatusBus() {
     }

@@ -15,6 +15,10 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
 
   ipcMain.handle('profile:get', () => apiClient.getProfile());
 
+  ipcMain.handle('regions:list', () => apiClient.getRegions());
+  ipcMain.handle('region:get', () => apiClient.getSelectedRegion());
+  ipcMain.handle('region:set', (_e, region: string | null) => apiClient.setSelectedRegion(region));
+
   ipcMain.handle('devices:list', () => apiClient.getDevices());
   ipcMain.handle('devices:delete', (_e, deviceId: number) => apiClient.deleteDevice(deviceId));
 
@@ -27,5 +31,8 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   });
   vpn.on('region', (region) => {
     if (!win.isDestroyed()) win.webContents.send('vpn:region', region);
+  });
+  vpn.on('regionFallback', (fellBack) => {
+    if (!win.isDestroyed()) win.webContents.send('vpn:regionFallback', fellBack);
   });
 }

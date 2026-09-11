@@ -26,8 +26,9 @@ Xray-core release with `XRAY_CORE_VERSION=v26.x.y npm run fetch:xray`.
 
 ## Configuring the API endpoint
 
-`src/main/api/apiClient.ts` defaults to the placeholder
-`https://api.nextgenvpn.app/`. Point it at a real backend with the
+`src/main/api/apiClient.ts` defaults to the production server
+`https://vpn.struchev.site/` (dev builds default to `http://localhost:8080/`
+instead — see `hostsFromEnv()`). Point it at a different backend with the
 `VPN_API_BASE_URL` environment variable, and (Phase 10) optionally list
 backup domains tried in order on a network-level failure with
 `VPN_API_BASE_URLS_BACKUP` (comma-separated):

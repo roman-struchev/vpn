@@ -38,7 +38,7 @@ Server endpoints consumed (see `server/src/main/java/com/vpn/server/controller`)
 `GET /api/v1/client/config` (transport policy: fingerprint, backoff timing,
 node list), `POST /api/v1/client/telemetry` (best-effort).
 
-`BuildConfig.API_BASE_URL` is a placeholder (`https://api.nextgenvpn.app/`);
+`BuildConfig.API_BASE_URL` defaults to the production server (`https://vpn.struchev.site/`);
 override per environment with `-PapiBaseUrl=https://...`. Phase 10: comma-separated
 backup domains, tried in order on a network-level (not HTTP-error) failure —
 `-PapiBaseUrlsBackup=https://api-backup1.example/,https://api-backup2.example/`

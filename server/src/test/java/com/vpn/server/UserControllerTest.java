@@ -210,10 +210,70 @@ class UserControllerTest {
                 "vless://uuid2@5.6.7.8:443?..."
         ));
 
-        ResponseEntity<?> res = userController.getSubscriptionLinks(auth, request);
+        ResponseEntity<?> res = userController.getSubscriptionLinks(auth, request, null);
         assertEquals(200, res.getStatusCode().value());
         Map<?, ?> body = (Map<?, ?>) res.getBody();
         assertEquals(2, body.get("count"));
+        // Unscoped (no region requested) response shouldn't grow the extra
+        // region-fallback fields — existing clients don't expect them.
+        assertFalse(body.containsKey("requestedRegion"));
+    }
+
+    @Test
+    void testGetSubscriptionLinksWithRegionAvailable() {
+        when(exportService.exportVlessLinksForOwnApp(10L, "nl-ams")).thenReturn(
+                new SubscriptionExportService.RegionScopedLinks(
+                        List.of("vless://uuid1@1.2.3.4:443?..."), true));
+
+        ResponseEntity<?> res = userController.getSubscriptionLinks(auth, request, "nl-ams");
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals(1, body.get("count"));
+        assertEquals("nl-ams", body.get("requestedRegion"));
+        assertEquals(true, body.get("requestedRegionAvailable"));
+    }
+
+    @Test
+    void testGetSubscriptionLinksWithUnavailableRegionFallsBack() {
+        // Region has no online node right now — service already fell back to the
+        // full node list; the controller just needs to surface that it happened.
+        when(exportService.exportVlessLinksForOwnApp(10L, "us-lax")).thenReturn(
+                new SubscriptionExportService.RegionScopedLinks(
+                        List.of("vless://uuid1@1.2.3.4:443?...", "vless://uuid2@5.6.7.8:443?..."), false));
+
+        ResponseEntity<?> res = userController.getSubscriptionLinks(auth, request, "us-lax");
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        assertEquals(2, body.get("count"));
+        assertEquals(false, body.get("requestedRegionAvailable"));
+    }
+
+    @Test
+    void testGetRegionsSuccess() {
+        when(exportService.getAvailableRegions(10L)).thenReturn(List.of(
+                new SubscriptionExportService.RegionSummary("nl-ams", 2, 35.5, 40L, "LOW"),
+                new SubscriptionExportService.RegionSummary("us-lax", 1, 88.0, 120L, "HIGH")
+        ));
+
+        ResponseEntity<?> res = userController.getRegions(auth);
+        assertEquals(200, res.getStatusCode().value());
+        Map<?, ?> body = (Map<?, ?>) res.getBody();
+        @SuppressWarnings("unchecked")
+        List<SubscriptionExportService.RegionSummary> regions =
+                (List<SubscriptionExportService.RegionSummary>) body.get("regions");
+        assertEquals(2, regions.size());
+        assertEquals("nl-ams", regions.get(0).region());
+        assertEquals("LOW", regions.get(0).loadLevel());
+        assertEquals("HIGH", regions.get(1).loadLevel());
+    }
+
+    @Test
+    void testGetRegionsNoActiveSubscriptionReturnsBadRequest() {
+        when(exportService.getAvailableRegions(10L))
+                .thenThrow(new IllegalStateException("Active subscription not found"));
+
+        ResponseEntity<?> res = userController.getRegions(auth);
+        assertEquals(400, res.getStatusCode().value());
     }
 
     @Test

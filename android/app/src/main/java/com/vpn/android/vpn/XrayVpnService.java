@@ -22,6 +22,7 @@ import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
 import com.vpn.android.api.model.DeviceDto;
 import com.vpn.android.api.model.RoutingConfigResponse;
+import com.vpn.android.api.model.SubscriptionLinksResponse;
 import com.vpn.android.ui.MainActivity;
 import com.vpn.android.vpn.state.ConnectionEvent;
 import com.vpn.android.vpn.state.ConnectionState;
@@ -30,6 +31,10 @@ import com.vpn.android.vpn.xray.VlessUri;
 import com.vpn.android.vpn.xray.XrayConfigFactory;
 import com.vpn.android.vpn.xray.XrayInvoker;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -104,7 +109,17 @@ public class XrayVpnService extends VpnService implements DialerController {
     private void loadProfileAndConnect() {
         try {
             RoutingConfigResponse policy = apiClient.getRoutingConfig(null, null);
-            List<String> links = apiClient.getSubscriptionLinks().links;
+            String preferredRegion = tokenStore.getSelectedRegion();
+            SubscriptionLinksResponse linksResp = apiClient.getSubscriptionLinks(preferredRegion);
+            boolean regionFellBack = preferredRegion != null && Boolean.FALSE.equals(linksResp.requestedRegionAvailable);
+            if (regionFellBack) {
+                // Sane fallback per the region-picker spec: the server already
+                // substituted the full node list, so the connect flow proceeds
+                // normally below — this just explains why in the log/UI.
+                Log.w(TAG, "Preferred region \"" + preferredRegion + "\" has no online node right now; falling back to all regions");
+            }
+            VpnStatusBus.regionFallback.postValue(regionFellBack);
+            List<String> links = linksResp.links;
             if (links == null || links.isEmpty()) {
                 throw new IllegalStateException("No subscription links available for this account");
             }
@@ -166,10 +181,13 @@ public class XrayVpnService extends VpnService implements DialerController {
             XrayInvoker.registerDialerController(this);
             XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
 
+            String assetDir = ensureGeoAssetsExtracted();
             String config = useGrpc
                     ? XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU,
-                            "GRPC", grpcPortsByHost.get(vless.getHost()), grpcServiceNamesByHost.get(vless.getHost()))
-                    : XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU);
+                            "GRPC", grpcPortsByHost.get(vless.getHost()), grpcServiceNamesByHost.get(vless.getHost()),
+                            assetDir)
+                    : XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU,
+                            "XHTTP", null, null, assetDir);
             XrayInvoker.runXray(config);
 
             backoffPolicy.onSuccess();
@@ -287,6 +305,47 @@ public class XrayVpnService extends VpnService implements DialerController {
         });
     }
 
+    /**
+     * Copies the bundled {@code assets/geoip.dat} (same GeoIP database
+     * desktop/agent ship next to their xray binary — see
+     * desktop/resources/bin/<platform>/geoip.dat) out to a real file this
+     * process can read, since Xray-core's Go file I/O cannot read out of the
+     * APK's asset zip directly. Idempotent: skips the copy once the file
+     * already exists with the expected size, so this is cheap to call on
+     * every connect attempt. Returns the directory to hand to
+     * XrayConfigFactory as XRAY_LOCATION_ASSET, or null if extraction fails
+     * (best-effort — see class javadoc on XrayConfigFactory#build's
+     * xrayAssetDir parameter for what breaks without it).
+     */
+    private String ensureGeoAssetsExtracted() {
+        File dir = getFilesDir();
+        File dest = new File(dir, "geoip.dat");
+        try {
+            long expectedLength = -1;
+            try (android.content.res.AssetFileDescriptor afd = getAssets().openFd("geoip.dat")) {
+                expectedLength = afd.getLength();
+            } catch (Exception ignoredCompressed) {
+                // openFd fails for assets stored compressed in the APK; fall through
+                // to an always-copy below rather than trusting a stale dest file.
+            }
+            if (dest.exists() && (expectedLength < 0 || dest.length() == expectedLength)) {
+                return dir.getAbsolutePath();
+            }
+            try (InputStream in = getAssets().open("geoip.dat");
+                 OutputStream out = new FileOutputStream(dest)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = in.read(buffer)) != -1) {
+                    out.write(buffer, 0, read);
+                }
+            }
+            return dir.getAbsolutePath();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to extract geoip.dat asset; geoip:private routing rule will fail", e);
+            return null;
+        }
+    }
+
     private void ensureTunEstablished() throws Exception {
         if (tunInterface != null) {
             return;
@@ -321,6 +380,7 @@ public class XrayVpnService extends VpnService implements DialerController {
         });
         transition(ConnectionEvent.DISCONNECT_REQUESTED);
         VpnStatusBus.activeRegion.postValue(null);
+        VpnStatusBus.regionFallback.postValue(false);
         stopForeground(true);
         stopSelf();
     }

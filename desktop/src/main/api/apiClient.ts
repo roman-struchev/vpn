@@ -1,7 +1,7 @@
 import { ApiHostRotation } from '../../shared/apiHostRotation';
 import type { TokenStore } from './tokenStore';
 
-const DEFAULT_BASE_URL = 'https://api.nextgenvpn.app/';
+const DEFAULT_BASE_URL = 'https://vpn.struchev.site/';
 const DEV_DEFAULT_BASE_URL = 'http://localhost:8080/';
 
 export interface AuthResponse {
@@ -38,6 +38,23 @@ export interface DeviceDto {
   isActive: boolean;
   createdAt: string;
   lastSeenAt?: string;
+}
+
+export interface RegionInfo {
+  region: string;
+  nodeCount: number;
+  avgCpuPercent: number | null;
+  avgActiveConnections: number;
+  loadLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
+export interface SubscriptionLinksResponse {
+  count: number;
+  links: string[];
+  /** Present only when a `region` was requested — see ApiClient#getSubscriptionLinks. */
+  requestedRegion?: string;
+  /** false means the requested region had no online node and the server fell back to all nodes. */
+  requestedRegionAvailable?: boolean;
 }
 
 export interface RoutingConfigResponse {
@@ -129,9 +146,31 @@ export class ApiClient {
     }
   }
 
-  async getSubscriptionLinks(): Promise<string[]> {
-    const resp = await this.get<{ count: number; links: string[] }>('api/v1/user/subscription/links');
-    return resp.links ?? [];
+  /**
+   * @param region optional (from getRegions()) — restricts the returned links
+   *   to that region's online nodes; the server falls back to every online
+   *   node (today's "auto" behavior) if the region currently has none, and
+   *   says so via `requestedRegionAvailable: false` in the response.
+   */
+  async getSubscriptionLinks(region?: string | null): Promise<SubscriptionLinksResponse> {
+    const query = region ? `?region=${encodeURIComponent(region)}` : '';
+    const resp = await this.get<SubscriptionLinksResponse>(`api/v1/user/subscription/links${query}`);
+    return { count: resp.count ?? 0, links: resp.links ?? [], requestedRegion: resp.requestedRegion, requestedRegionAvailable: resp.requestedRegionAvailable };
+  }
+
+  /** Regions with at least one online node this user's subscription can reach, each with a rough load indicator. */
+  async getRegions(): Promise<RegionInfo[]> {
+    const resp = await this.get<{ regions: RegionInfo[] }>('api/v1/user/regions');
+    return resp.regions ?? [];
+  }
+
+  /** Persisted per-install region preference (null = "auto"/best-available, today's implicit behavior). */
+  getSelectedRegion(): string | null {
+    return this.tokenStore.getSelectedRegion();
+  }
+
+  setSelectedRegion(region: string | null): void {
+    this.tokenStore.saveSelectedRegion(region);
   }
 
   getRoutingConfig(operator: string | null, region: string | null): Promise<RoutingConfigResponse> {

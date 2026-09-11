@@ -19,6 +19,14 @@ export interface UserProfile {
   };
 }
 
+export interface RegionInfo {
+  region: string;
+  nodeCount: number;
+  avgCpuPercent: number | null;
+  avgActiveConnections: number;
+  loadLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
 export interface DeviceDto {
   id: number;
   deviceName: string;

@@ -5,10 +5,12 @@ import com.vpn.server.repository.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 public class SubscriptionExportService {
@@ -43,7 +45,7 @@ public class SubscriptionExportService {
      */
     @Transactional
     public List<String> exportVlessLinks(Long userId) {
-        return exportVlessLinks(userId, true, true);
+        return exportVlessLinks(userId, true, true, null).links();
     }
 
     /**
@@ -68,10 +70,107 @@ public class SubscriptionExportService {
      */
     @Transactional
     public List<String> exportVlessLinksForOwnApp(Long userId) {
-        return exportVlessLinks(userId, false, false);
+        return exportVlessLinks(userId, false, false, null).links();
     }
 
-    private List<String> exportVlessLinks(Long userId, boolean restrictToPaidPlans, boolean autoCreatePrimaryDevice) {
+    /**
+     * Region-scoped variant of {@link #exportVlessLinksForOwnApp(Long)} — lets a
+     * native client (desktop/Android region picker) restrict its subscription
+     * links to nodes in one region instead of getting every online "paid" node.
+     * {@code region} is matched case-insensitively against {@link Node#getRegion()};
+     * when the requested region currently has no ONLINE node, this falls back to
+     * the same full node list the unscoped export would return (today's implicit
+     * "auto" behavior) rather than returning nothing — {@link RegionScopedLinks
+     * #requestedRegionAvailable()} tells the caller whether that fallback kicked in,
+     * so the client can restrict/prefer-first accordingly and still surface it to
+     * the user (see docs on the desktop/Android region pickers).
+     */
+    @Transactional
+    public RegionScopedLinks exportVlessLinksForOwnApp(Long userId, String region) {
+        return exportVlessLinks(userId, false, false, region);
+    }
+
+    public record RegionScopedLinks(List<String> links, boolean requestedRegionAvailable) {}
+
+    /** One region's aggregate load, cheap to compute from already-loaded heartbeat fields — see {@link #getAvailableRegions}. */
+    public record RegionSummary(
+            String region,
+            int nodeCount,
+            Double avgCpuPercent,
+            long avgActiveConnections,
+            String loadLevel
+    ) {}
+
+    /**
+     * Lists every region that currently has at least one ONLINE node reachable
+     * by this user's subscription (same pool-selection rule as
+     * {@link #exportVlessLinksForOwnApp(Long)}: "paid" pool, falling back to any
+     * ONLINE node if that pool is empty), with a rough per-region load indicator
+     * so a client can show "pick a less-congested region" without exposing any
+     * node-level identity (hostname/IP already only ever appears inside a vless
+     * link, never here). Not a precise capacity/load-balancing model — see
+     * {@link #loadLevelFor} — just enough for a user to glance and compare.
+     */
+    @Transactional(readOnly = true)
+    public List<RegionSummary> getAvailableRegions(Long userId) {
+        Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
+                .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
+        if (sub.getCurrentPeriodEnd().isBefore(Instant.now())) {
+            throw new IllegalStateException("Subscription has expired");
+        }
+
+        List<Node> activeNodes = nodeRepository.findByPoolAndStatus("paid", "ONLINE");
+        if (activeNodes.isEmpty()) {
+            activeNodes = nodeRepository.findByStatus("ONLINE");
+        }
+
+        Map<String, List<Node>> byRegion = activeNodes.stream()
+                .filter(n -> n.getRegion() != null && !n.getRegion().isBlank())
+                .collect(Collectors.groupingBy(Node::getRegion, LinkedHashMap::new, Collectors.toList()));
+
+        List<RegionSummary> summaries = new ArrayList<>();
+        for (Map.Entry<String, List<Node>> entry : byRegion.entrySet()) {
+            List<Node> nodes = entry.getValue();
+            OptionalDouble avgCpuOpt = nodes.stream()
+                    .map(Node::getCpuPercent)
+                    .filter(Objects::nonNull)
+                    .mapToDouble(BigDecimal::doubleValue)
+                    .average();
+            Double avgCpu = avgCpuOpt.isPresent() ? round1(avgCpuOpt.getAsDouble()) : null;
+            long avgConnections = Math.round(nodes.stream()
+                    .mapToInt(n -> n.getActiveConnections() != null ? n.getActiveConnections() : 0)
+                    .average()
+                    .orElse(0.0));
+
+            summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
+                    loadLevelFor(avgCpu, avgConnections)));
+        }
+        summaries.sort(Comparator.comparing(RegionSummary::region));
+        return summaries;
+    }
+
+    private static double round1(double v) {
+        return Math.round(v * 10.0) / 10.0;
+    }
+
+    /**
+     * Simple LOW/MEDIUM/HIGH bucket from average CPU% (primary signal — directly
+     * reported by the agent heartbeat, NodeManagementService#processHeartbeat)
+     * blended with active-connections-per-node as a fallback/secondary signal
+     * for nodes that don't report CPU. Deliberately not a real capacity model
+     * (no per-node bandwidth/connection ceiling is tracked) — just enough for a
+     * user to pick a less-congested region at a glance, per the product ask.
+     */
+    private static String loadLevelFor(Double avgCpuPercent, long avgActiveConnections) {
+        double score = avgCpuPercent != null
+                ? avgCpuPercent
+                : Math.min(100.0, avgActiveConnections / 2.0);
+        if (score < 40) return "LOW";
+        if (score < 75) return "MEDIUM";
+        return "HIGH";
+    }
+
+    private RegionScopedLinks exportVlessLinks(Long userId, boolean restrictToPaidPlans, boolean autoCreatePrimaryDevice, String region) {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
 
@@ -86,7 +185,7 @@ public class SubscriptionExportService {
         List<Device> devices = deviceRepository.findByUserIdAndIsActiveTrue(userId);
         if (devices.isEmpty()) {
             if (!autoCreatePrimaryDevice) {
-                return List.of();
+                return new RegionScopedLinks(List.of(), true);
             }
             Device defaultDev = new Device();
             defaultDev.setUser(sub.getUser());
@@ -100,6 +199,20 @@ public class SubscriptionExportService {
         List<Node> activeNodes = nodeRepository.findByPoolAndStatus("paid", "ONLINE");
         if (activeNodes.isEmpty()) {
             activeNodes = nodeRepository.findByStatus("ONLINE");
+        }
+
+        boolean requestedRegionAvailable = true;
+        if (region != null && !region.isBlank()) {
+            List<Node> inRegion = activeNodes.stream()
+                    .filter(n -> region.equalsIgnoreCase(n.getRegion()))
+                    .toList();
+            requestedRegionAvailable = !inRegion.isEmpty();
+            if (requestedRegionAvailable) {
+                // Sane fallback per the product spec: an unavailable region silently
+                // falls back to the full (today's "auto") node list below rather than
+                // leaving the client with zero links to connect through.
+                activeNodes = inRegion;
+            }
         }
 
         List<String> links = new ArrayList<>();
@@ -122,7 +235,7 @@ public class SubscriptionExportService {
             links.add(vlessLink);
         }
 
-        return links;
+        return new RegionScopedLinks(links, requestedRegionAvailable);
     }
 
     @Transactional

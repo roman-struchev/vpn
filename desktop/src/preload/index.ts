@@ -9,6 +9,10 @@ const vpnApi = {
 
   getProfile: () => ipcRenderer.invoke('profile:get'),
 
+  getRegions: () => ipcRenderer.invoke('regions:list'),
+  getSelectedRegion: (): Promise<string | null> => ipcRenderer.invoke('region:get'),
+  setSelectedRegion: (region: string | null) => ipcRenderer.invoke('region:set', region),
+
   listDevices: () => ipcRenderer.invoke('devices:list'),
   deleteDevice: (deviceId: number) => ipcRenderer.invoke('devices:delete', deviceId),
 
@@ -25,6 +29,11 @@ const vpnApi = {
     const listener = (_e: unknown, region: string | null) => callback(region);
     ipcRenderer.on('vpn:region', listener);
     return () => ipcRenderer.removeListener('vpn:region', listener);
+  },
+  onRegionFallback: (callback: (fellBack: boolean) => void) => {
+    const listener = (_e: unknown, fellBack: boolean) => callback(fellBack);
+    ipcRenderer.on('vpn:regionFallback', listener);
+    return () => ipcRenderer.removeListener('vpn:regionFallback', listener);
   },
 };
 

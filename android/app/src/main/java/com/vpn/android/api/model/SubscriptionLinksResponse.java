@@ -6,4 +6,8 @@ import java.util.List;
 public class SubscriptionLinksResponse {
     public int count;
     public List<String> links;
+    /** Present only when a region was requested — see ApiClient#getSubscriptionLinks(String). */
+    public String requestedRegion;
+    /** Null when no region was requested; false means it had no online node and the server fell back to all nodes. */
+    public Boolean requestedRegionAvailable;
 }

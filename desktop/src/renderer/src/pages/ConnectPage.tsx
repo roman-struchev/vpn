@@ -1,7 +1,19 @@
 import { useEffect, useState } from 'react';
 import type { ConnectionState } from '../../../shared/connectionState';
-import type { UserProfile } from '../types';
+import type { RegionInfo, UserProfile } from '../types';
 import { t } from '../i18n';
+
+const LOAD_LABEL: Record<RegionInfo['loadLevel'], string> = {
+  LOW: t.regionLoadLow,
+  MEDIUM: t.regionLoadMedium,
+  HIGH: t.regionLoadHigh,
+};
+
+const LOAD_COLOR: Record<RegionInfo['loadLevel'], string> = {
+  LOW: 'text-state-connected',
+  MEDIUM: 'text-state-connecting',
+  HIGH: 'text-state-error',
+};
 
 const STATE_LABEL: Record<ConnectionState, string> = {
   DISCONNECTED: t.stateDisconnected,
@@ -25,18 +37,31 @@ export default function ConnectPage() {
   const [state, setState] = useState<ConnectionState>('DISCONNECTED');
   const [region, setRegion] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [regions, setRegions] = useState<RegionInfo[]>([]);
+  const [selectedRegion, setSelectedRegionState] = useState<string | null>(null);
+  const [regionFallback, setRegionFallback] = useState(false);
 
   useEffect(() => {
     window.vpnApi.getConnectionState().then(setState);
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
+    window.vpnApi.getRegions().then(setRegions).catch(() => undefined);
+    window.vpnApi.getSelectedRegion().then(setSelectedRegionState).catch(() => undefined);
 
     const offState = window.vpnApi.onStateChange(setState);
     const offRegion = window.vpnApi.onRegionChange(setRegion);
+    const offRegionFallback = window.vpnApi.onRegionFallback(setRegionFallback);
     return () => {
       offState();
       offRegion();
+      offRegionFallback();
     };
   }, []);
+
+  const onRegionPicked = (value: string) => {
+    const next = value === '' ? null : value;
+    setSelectedRegionState(next);
+    void window.vpnApi.setSelectedRegion(next);
+  };
 
   const isActive = state === 'CONNECTED' || state === 'CONNECTING' || state === 'RECONNECTING';
 
@@ -48,6 +73,8 @@ export default function ConnectPage() {
     }
   };
 
+  const selectedRegionInfo = selectedRegion ? regions.find((r) => r.region === selectedRegion) : undefined;
+
   const sub = profile?.subscription;
   const usedGb = sub ? sub.trafficUsedBytes / 1024 ** 3 : 0;
   const limitGb = sub ? sub.trafficLimitBytes / 1024 ** 3 : 0;
@@ -57,6 +84,29 @@ export default function ConnectPage() {
     <div className="flex flex-col items-center gap-6 px-8 py-10">
       <p className={`text-lg font-semibold ${STATE_COLOR[state]}`}>{STATE_LABEL[state]}</p>
       {region && <p className="text-xs text-white/50">{t.nodeRegion}: {region}</p>}
+
+      <div className="w-full rounded-xl bg-dark-900 p-4">
+        <label htmlFor="region-picker" className="mb-2 block text-sm font-semibold">
+          {t.regionPickerTitle}
+        </label>
+        <select
+          id="region-picker"
+          value={selectedRegion ?? ''}
+          onChange={(e) => onRegionPicked(e.target.value)}
+          className="w-full rounded-lg bg-dark-800 px-3 py-2 text-sm text-white"
+        >
+          <option value="">{t.regionAuto}</option>
+          {regions.map((r) => (
+            <option key={r.region} value={r.region}>
+              {r.region} — {LOAD_LABEL[r.loadLevel]} ({r.nodeCount} {t.regionNodeCountSuffix})
+            </option>
+          ))}
+        </select>
+        {selectedRegionInfo && (
+          <p className={`mt-2 text-xs ${LOAD_COLOR[selectedRegionInfo.loadLevel]}`}>{LOAD_LABEL[selectedRegionInfo.loadLevel]}</p>
+        )}
+        {regionFallback && <p className="mt-2 text-xs text-state-connecting">{t.regionUnavailableNotice}</p>}
+      </div>
 
       <button
         onClick={onToggle}
@@ -84,7 +134,8 @@ export default function ConnectPage() {
               <div className="h-full bg-brand-500" style={{ width: `${percent}%` }} />
             </div>
             <p className="mt-2 text-xs text-white/50">
-              {t.expiresAt}: {new Date(sub.expiresAt).toLocaleDateString()}
+              {t.expiresAt}: {new Date(sub.expiresAt).toLocaleDateString()}{' '}
+              {new Date(sub.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
           </>
         ) : (

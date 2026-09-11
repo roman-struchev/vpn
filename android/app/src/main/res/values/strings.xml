@@ -31,6 +31,14 @@
     <string name="operator_blocked_title">Это ограничение оператора, а не сервиса</string>
     <string name="operator_blocked_body">Российские сайты открываются, а внешние — нет. Это делает ваш оператор связи. Мы автоматически подбираем резервные ноды, попробуйте переподключиться через минуту.</string>
 
+    <string name="region_picker_title">Регион подключения</string>
+    <string name="region_auto">Авто (лучший доступный)</string>
+    <string name="region_row_format">%1$s — %2$s (%3$d нод)</string>
+    <string name="region_load_low">низкая загрузка</string>
+    <string name="region_load_medium">средняя загрузка</string>
+    <string name="region_load_high">высокая загрузка</string>
+    <string name="region_unavailable_notice">Выбранный регион сейчас недоступен — используется автоматический выбор</string>
+
     <string name="notif_channel_name">Статус VPN</string>
     <string name="notif_disconnect_action">Отключить</string>
 

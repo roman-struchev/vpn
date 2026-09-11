@@ -15,6 +15,8 @@ import { buildXrayConfig, HTTP_PORT, type GrpcFallback } from '../../shared/xray
 export interface VpnControllerEvents {
   state: [ConnectionState];
   region: [string | null];
+  /** true when a pinned region preference had no online node and connect() fell back to all regions. */
+  regionFallback: [boolean];
 }
 
 /**
@@ -65,10 +67,20 @@ export class VpnController extends EventEmitter {
       // fix that only ever got registered *after* a tunnel came up.
       await this.registerOrTouchDevice();
 
-      const [policy, links] = await Promise.all([
+      const preferredRegion = this.apiClient.getSelectedRegion();
+      const [policy, linksResp] = await Promise.all([
         this.apiClient.getRoutingConfig(null, null),
-        this.apiClient.getSubscriptionLinks(),
+        this.apiClient.getSubscriptionLinks(preferredRegion),
       ]);
+      const regionFellBack = Boolean(preferredRegion) && linksResp.requestedRegionAvailable === false;
+      if (regionFellBack) {
+        // Sane fallback (per the region-picker spec): the server already
+        // substituted the full node list, so connect() proceeds normally —
+        // just let the log/UI make clear why the pinned region wasn't honored.
+        console.warn(`Preferred region "${preferredRegion}" has no online node right now; falling back to all regions`);
+      }
+      this.emit('regionFallback', regionFellBack);
+      const links = linksResp.links;
       if (!links.length) {
         throw new Error('No subscription links available for this account');
       }
@@ -127,6 +139,7 @@ export class VpnController extends EventEmitter {
       this.transition('DISCONNECT_REQUESTED');
     }
     this.emit('region', null);
+    this.emit('regionFallback', false);
   }
 
   private async attemptStart(): Promise<void> {

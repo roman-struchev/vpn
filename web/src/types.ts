@@ -30,6 +30,14 @@ export interface Tariff {
   isActive: boolean;
 }
 
+export interface RegionInfo {
+  region: string;
+  nodeCount: number;
+  avgCpuPercent: number | null;
+  avgActiveConnections: number;
+  loadLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+}
+
 export interface Device {
   id: number;
   deviceName: string;
