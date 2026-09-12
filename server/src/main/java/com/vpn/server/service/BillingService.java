@@ -216,6 +216,10 @@ public class BillingService {
     }
 
     private void creditBonus(User user, long amountMicro, String type, String description, String referenceId) {
+        if (referenceId != null && balanceEntryRepository.existsByReferenceId(referenceId)) {
+            log.info("Bonus {} already credited, skipping duplicate", referenceId);
+            return;
+        }
         long newBalance = user.getBalanceUsdtMicro() + amountMicro;
         user.setBalanceUsdtMicro(newBalance);
         userRepository.save(user);
@@ -274,7 +278,16 @@ public class BillingService {
 
         Optional<Subscription> existingSub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
         if (existingSub.isPresent() && existingSub.get().getCurrentPeriodEnd().isAfter(now)) {
-            periodStart = existingSub.get().getCurrentPeriodEnd();
+            Subscription oldSub = existingSub.get();
+            if (oldSub.getTariff() != null && oldSub.getTariff().getId().equalsIgnoreCase(tariffId)) {
+                periodStart = oldSub.getCurrentPeriodEnd();
+            } else {
+                // Switching or upgrading tariff (e.g. from trial to pro): new plan takes effect immediately
+                oldSub.setStatus("SUPERSEDED");
+                oldSub.setAutoRenew(false);
+                subscriptionRepository.save(oldSub);
+                periodStart = now;
+            }
         }
 
         boolean isTrial = "trial".equalsIgnoreCase(tariffId);

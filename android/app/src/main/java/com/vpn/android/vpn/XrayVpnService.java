@@ -124,6 +124,9 @@ public class XrayVpnService extends VpnService implements DialerController {
 
     private void loadProfileAndConnect() {
         try {
+            // Must happen before fetching subscription links: a brand new account has zero devices,
+            // and the server only includes nodes/keys for existing devices.
+            registerOrTouchDevice();
             RoutingConfigResponse policy = apiClient.getRoutingConfig(null, null);
             String preferredRegion = tokenStore.getSelectedRegion();
             SubscriptionLinksResponse linksResp = apiClient.getSubscriptionLinks(preferredRegion);

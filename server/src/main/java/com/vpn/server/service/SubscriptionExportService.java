@@ -305,7 +305,10 @@ public class SubscriptionExportService {
         }
 
         Device primaryDevice = devices.get(0);
-        List<Node> activeNodes = nodeRepository.findByPoolAndStatus("paid", "ONLINE");
+        String targetPool = (sub.getTariff() != null && sub.getTariff().getServerPool() != null)
+                ? sub.getTariff().getServerPool()
+                : "paid";
+        List<Node> activeNodes = nodeRepository.findByPoolAndStatus(targetPool, "ONLINE");
         if (activeNodes.isEmpty()) {
             activeNodes = nodeRepository.findByStatus("ONLINE");
         }

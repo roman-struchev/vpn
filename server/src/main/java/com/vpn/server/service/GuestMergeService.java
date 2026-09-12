@@ -33,15 +33,18 @@ public class GuestMergeService {
     private final UserRepository userRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final BalanceEntryRepository balanceEntryRepository;
+    private final com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService;
 
     public GuestMergeService(
             UserRepository userRepository,
             SubscriptionRepository subscriptionRepository,
-            BalanceEntryRepository balanceEntryRepository
+            BalanceEntryRepository balanceEntryRepository,
+            com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.balanceEntryRepository = balanceEntryRepository;
+        this.agentStreamService = agentStreamService;
     }
 
     @Transactional
@@ -90,6 +93,7 @@ public class GuestMergeService {
         Long guestId = guest.getId();
         userRepository.delete(guest); // ON DELETE CASCADE clears its remaining devices/subscriptions/balance entries/invoices
         log.info("Merged guest device account {} into {}", guestId, targetUserId);
+        agentStreamService.pushConfigSyncToAll();
     }
 
     private boolean isGuest(User u) {

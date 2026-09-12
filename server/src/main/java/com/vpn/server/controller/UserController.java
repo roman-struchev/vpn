@@ -39,6 +39,7 @@ public class UserController {
     private final AntiEnumerationService antiEnumerationService;
     private final TelegramLinkService telegramLinkService;
     private final com.vpn.server.service.PromoCodeService promoCodeService;
+    private final com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService;
 
     public UserController(
             UserRepository userRepository,
@@ -51,7 +52,8 @@ public class UserController {
             DeviceManagementService deviceManagementService,
             AntiEnumerationService antiEnumerationService,
             TelegramLinkService telegramLinkService,
-            com.vpn.server.service.PromoCodeService promoCodeService
+            com.vpn.server.service.PromoCodeService promoCodeService,
+            com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -64,6 +66,7 @@ public class UserController {
         this.antiEnumerationService = antiEnumerationService;
         this.telegramLinkService = telegramLinkService;
         this.promoCodeService = promoCodeService;
+        this.agentStreamService = agentStreamService;
     }
 
 
@@ -226,6 +229,7 @@ public class UserController {
 
         try {
             Subscription sub = billingService.purchaseOrRenewSubscription(userId, tariffId, isAnnual);
+            agentStreamService.pushConfigSyncToAll();
             return ResponseEntity.ok(Map.of(
                     "status", "SUCCESS",
                     "subscriptionId", sub.getId(),

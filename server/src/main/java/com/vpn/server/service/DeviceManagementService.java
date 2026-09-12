@@ -79,7 +79,9 @@ public class DeviceManagementService {
             throw new IllegalStateException("Subscription has expired");
         }
 
-        int maxDevices = resolveMaxDevices(sub.getTariff().getId());
+        int maxDevices = (sub.getTariff() != null && sub.getTariff().getMaxDevices() != null)
+                ? sub.getTariff().getMaxDevices()
+                : resolveMaxDevices(sub.getTariff() != null ? sub.getTariff().getId() : null);
         Instant activeSince = Instant.now().minus(DEVICE_ACTIVE_WINDOW_DAYS, ChronoUnit.DAYS);
         long activeCount = deviceRepository.countRecentlyActiveByUserId(userId, activeSince);
 
@@ -146,6 +148,7 @@ public class DeviceManagementService {
         if (tariffId == null) return 1;
         return switch (tariffId.toLowerCase()) {
             case "trial" -> 1;
+            case "basic" -> 2;
             case "standard" -> 3;
             case "pro" -> 5;
             case "business" -> 10;

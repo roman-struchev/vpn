@@ -68,6 +68,9 @@ class UserControllerTest {
     @Mock
     private com.vpn.server.service.PromoCodeService promoCodeService;
 
+    @Mock
+    private com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService;
+
     // Plain in-memory implementation (no external deps), same as
     // TelegramBotServiceTest -- cheaper and more meaningful than mocking a
     // single-purpose code generator/store.
@@ -94,7 +97,8 @@ class UserControllerTest {
                 deviceManagementService,
                 antiEnumerationService,
                 telegramLinkService,
-                promoCodeService
+                promoCodeService,
+                agentStreamService
         );
         when(auth.getPrincipal()).thenReturn(10L);
     }

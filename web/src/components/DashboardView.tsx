@@ -919,7 +919,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                     <div>
                       <span className="text-[11px] text-slate-400">
-                        {invoice.chain === 'ETHEREUM' ? 'ERC-20 Address:' : 'TRC-20 Address:'}
+                        {invoice.chain === 'TRON' ? 'TRC-20 Address:' : (invoice.chain === 'ETHEREUM' ? 'ERC-20 Address:' : `${invoice.chain} (EVM) Address:`)}
                       </span>
                       <div className="text-xs font-mono break-all text-slate-200 mt-0.5">
                         {invoice.recipientAddress}

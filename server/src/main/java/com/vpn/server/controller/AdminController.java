@@ -218,9 +218,7 @@ public class AdminController {
         user.setStatus(newStatus);
         userRepository.save(user);
 
-        if ("BLOCKED".equals(newStatus)) {
-            agentStreamService.pushConfigSyncToAll();
-        }
+        agentStreamService.pushConfigSyncToAll();
 
         return ResponseEntity.ok(Map.of("userId", userId, "status", newStatus));
     }
@@ -253,6 +251,7 @@ public class AdminController {
 
         sub.setCurrentPeriodEnd(newEnd);
         subscriptionRepository.save(sub);
+        agentStreamService.pushConfigSyncToAll();
 
         return ResponseEntity.ok(Map.of(
                 "subscriptionId", sub.getId(),
@@ -312,6 +311,7 @@ public class AdminController {
 
         node.setStatus(status.toUpperCase());
         nodeRepository.save(node);
+        agentStreamService.pushConfigSyncToAll();
 
         return ResponseEntity.ok(Map.of("nodeId", nodeId, "status", node.getStatus()));
     }

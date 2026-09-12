@@ -79,7 +79,7 @@ vpn:
     # Ethereum/Base/Arbitrum/Polygon all use the same 0x address for a given key
     # (docs/PLAN.md §7) — one address covers whichever EVM chain vpn.blockchain.evm
     # below is pointed at.
-    evm-deposit-address: ${VPN_EVM_DEPOSIT_ADDRESS:}
+    evm-deposit-address: ${VPN_EVM_DEPOSIT_ADDRESS:0x1111111111111111111111111111111111111111}
   blockchain:
     scanner:
       enabled: ${VPN_BLOCKCHAIN_SCANNER_ENABLED:false}

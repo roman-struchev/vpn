@@ -385,4 +385,79 @@ class BillingServiceTest {
         assertEquals("0xclaim123", pendingInvoice.getTxHash());
         verify(cryptoInvoiceRepository).save(pendingInvoice);
     }
+
+    @Test
+    void testUpgradeSubscriptionSupersedesActivePlanAndStartsImmediately() {
+        User user = new User();
+        user.setId(11L);
+        user.setBalanceUsdtMicro(10_000_000L); // 10 USDT
+
+        Tariff trialTariff = new Tariff();
+        trialTariff.setId("trial");
+        trialTariff.setName("Trial");
+
+        Tariff proTariff = new Tariff();
+        proTariff.setId("pro");
+        proTariff.setName("Pro");
+        proTariff.setMonthlyPriceUsdtMicro(2_000_000L);
+        proTariff.setTrafficQuotaBytes(100L * 1024 * 1024 * 1024);
+
+        Subscription activeTrial = new Subscription();
+        activeTrial.setId(55L);
+        activeTrial.setUser(user);
+        activeTrial.setTariff(trialTariff);
+        activeTrial.setStatus("ACTIVE");
+        activeTrial.setCurrentPeriodStart(Instant.now().minus(1, java.time.temporal.ChronoUnit.DAYS));
+        activeTrial.setCurrentPeriodEnd(Instant.now().plus(2, java.time.temporal.ChronoUnit.DAYS));
+
+        when(userRepository.findById(11L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("pro")).thenReturn(Optional.of(proTariff));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(11L, "ACTIVE"))
+                .thenReturn(Optional.of(activeTrial));
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+
+        Subscription upgraded = billingService.purchaseOrRenewSubscription(11L, "pro", false);
+
+        assertNotNull(upgraded);
+        assertEquals("ACTIVE", upgraded.getStatus());
+        assertEquals("pro", upgraded.getTariff().getId());
+        assertEquals("SUPERSEDED", activeTrial.getStatus());
+        assertFalse(activeTrial.getAutoRenew());
+        // Upgraded subscription starts immediately, not at activeTrial's period end
+        assertTrue(upgraded.getCurrentPeriodStart().isBefore(activeTrial.getCurrentPeriodEnd()));
+        assertEquals(8_000_000L, user.getBalanceUsdtMicro());
+    }
+
+    @Test
+    void testSameTariffRenewalExtendsPeriod() {
+        User user = new User();
+        user.setId(12L);
+        user.setBalanceUsdtMicro(10_000_000L);
+
+        Tariff proTariff = new Tariff();
+        proTariff.setId("pro");
+        proTariff.setName("Pro");
+        proTariff.setMonthlyPriceUsdtMicro(2_000_000L);
+        proTariff.setTrafficQuotaBytes(100L * 1024 * 1024 * 1024);
+
+        Instant initialEnd = Instant.now().plus(10, java.time.temporal.ChronoUnit.DAYS);
+        Subscription activePro = new Subscription();
+        activePro.setId(56L);
+        activePro.setUser(user);
+        activePro.setTariff(proTariff);
+        activePro.setStatus("ACTIVE");
+        activePro.setCurrentPeriodEnd(initialEnd);
+
+        when(userRepository.findById(12L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("pro")).thenReturn(Optional.of(proTariff));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(12L, "ACTIVE"))
+                .thenReturn(Optional.of(activePro));
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+
+        Subscription renewed = billingService.purchaseOrRenewSubscription(12L, "pro", false);
+
+        assertNotNull(renewed);
+        assertEquals(initialEnd, renewed.getCurrentPeriodStart());
+        assertEquals("ACTIVE", activePro.getStatus()); // Not superseded
+    }
 }
