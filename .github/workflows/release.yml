@@ -122,6 +122,17 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Install web dependencies (bundled into the server jar by buildWebDist)
+        working-directory: web
+        run: npm ci
+
       - name: Build BootJar (no tests)
         run: ./gradlew :server:bootJar -x test
 

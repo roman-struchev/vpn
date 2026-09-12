@@ -70,7 +70,14 @@ function fetchOne(key, asset) {
   const zipPath = path.join(destDir, asset);
   const url = `https://github.com/${REPO}/releases/download/${VERSION}/${asset}`;
 
-  execFileSync('curl', ['-sL', '-o', zipPath, url], { stdio: 'inherit' });
+  // --fail: error out on a non-2xx response instead of silently writing the
+  // error page's body to zipPath (which then surfaces as a confusing
+  // "tar: This does not look like a tar archive" far from the real cause).
+  execFileSync(
+    'curl',
+    ['-sL', '--fail', '--retry', '3', '--retry-delay', '2', '-o', zipPath, url],
+    { stdio: 'inherit' },
+  );
   // `tar` extracts zip on macOS/Linux (bsdtar) and on Windows 10 1803+ (built-in bsdtar).
   execFileSync('tar', ['-xf', zipPath, '-C', destDir], { stdio: 'inherit' });
   rmSync(zipPath);

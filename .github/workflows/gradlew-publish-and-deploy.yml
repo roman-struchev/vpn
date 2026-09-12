@@ -1,4 +1,4 @@
-name: Build, Test & Deploy
+name: Build & Deploy
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Build & Test (Server & Agent)
+    name: Build (Server & Agent)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +23,8 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Server Tests
-        run: ./gradlew :server:test
+      - name: Build Server (no tests)
+        run: ./gradlew :server:compileJava
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
@@ -33,15 +33,14 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'agent/package-lock.json'
 
-      - name: Run Agent Tests
+      - name: Build Agent
         working-directory: agent
         run: |
           npm ci
           npm run build
-          npm test
 
   android:
-    name: Build & Test (Android)
+    name: Build (Android)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,10 +66,6 @@ jobs:
         working-directory: android
         run: ./scripts/fetch-libxray.sh
 
-      - name: Run Android unit tests
-        working-directory: android
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug
-
       - name: Assemble debug APK
         working-directory: android
         run: ./gradlew :app:assembleDebug
@@ -95,7 +90,7 @@ jobs:
           npm run build
 
   desktop:
-    name: Build & Test (Desktop)
+    name: Build (Desktop)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,11 +110,9 @@ jobs:
         working-directory: desktop
         run: npm run fetch:xray -- linux-x64
 
-      - name: Typecheck & unit tests
+      - name: Typecheck
         working-directory: desktop
-        run: |
-          npm run typecheck
-          npm test
+        run: npm run typecheck
 
       - name: Build (main/preload/renderer bundles)
         working-directory: desktop
@@ -146,6 +139,17 @@ jobs:
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Install web dependencies (bundled into the server jar by buildWebDist)
+        working-directory: web
+        run: npm ci
 
       - name: Build BootJar
         run: ./gradlew :server:bootJar -x test

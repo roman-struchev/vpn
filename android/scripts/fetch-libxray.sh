@@ -18,7 +18,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}"
 echo "Downloading libXray ${VERSION} from ${URL} ..."
-curl -sL -o "$TMP_DIR/$ASSET" "$URL"
+# --fail: error out on a non-2xx response instead of silently writing the
+# error page's body to disk, which would otherwise surface as a confusing
+# "unzip: not a zip file" far from the real cause.
+curl -sL --fail --retry 3 --retry-delay 2 -o "$TMP_DIR/$ASSET" "$URL"
 
 unzip -oq "$TMP_DIR/$ASSET" -d "$TMP_DIR/extracted"
 AAR_PATH="$(find "$TMP_DIR/extracted" -name 'libXray.aar' | head -n1)"
