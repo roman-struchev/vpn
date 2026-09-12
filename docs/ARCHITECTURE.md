@@ -261,3 +261,5 @@ flowchart TD
 * [`stores-and-liability.md`](stores-and-liability.md) — Юридический анализ, законодательство РФ и правила магазинов приложений.
 * [`google-play-readiness.md`](google-play-readiness.md) — Чеклист и руководство по публикации в Google Play.
 * [`BUGS_AND_OBSERVATIONS.md`](BUGS_AND_OBSERVATIONS.md) — Отчёт технического аудита кодовой базы.
+* [`research/UX_REVIEW.md`](research/UX_REVIEW.md) — UX-аудит веб-дашборда, админки, десктопа и Android.
+* [`research/WEB_HANDOFF_RESEARCH.md`](research/WEB_HANDOFF_RESEARCH.md) — Исследование и дизайн механизма client→web SSO handoff.

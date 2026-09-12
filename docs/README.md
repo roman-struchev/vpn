@@ -13,6 +13,8 @@
 | [**`stores-and-liability.md`**](stores-and-liability.md) | **Юридический анализ и правила сторов**: риски работы физлица без юрлица, ответственность по ст. 14.3 КоАП РФ, правила Apple App Store (требование организации по правилу 5.4) и Google Play. |
 | [**`google-play-readiness.md`**](google-play-readiness.md) | **Чеклист публикации в Google Play**: требования VpnService, черновик политики конфиденциальности, маппинг полей Data Safety и статус верификации аккаунта. |
 | [**`BUGS_AND_OBSERVATIONS.md`**](BUGS_AND_OBSERVATIONS.md) | **Отчёт технического аудита**: подтвержденные баги, уязвимости (включая критический double-credit в крипто-платежах), проблемы безопасности и рекомендации по улучшению кодовой базы. |
+| [**`research/UX_REVIEW.md`**](research/UX_REVIEW.md) | **UX-аудит** веб-дашборда, админки, desktop и Android с конкретными находками ("Quick Win #N") — на них ссылаются комментарии в коде. |
+| [**`research/WEB_HANDOFF_RESEARCH.md`**](research/WEB_HANDOFF_RESEARCH.md) | **Исследование и дизайн** механизма client→web SSO handoff (реализовано, на разделы документа ссылаются комментарии в `web/src/App.tsx` и др.). |
 | [**`TODO_ANDROID_GUEST_PROFILE.md`**](TODO_ANDROID_GUEST_PROFILE.md) | **TODO**: портировать на Android UX-исправление гостевого/пробного профиля, уже сделанное для desktop (`isGuest`, merge при входе, единый экран без вкладок для гостя) — конкретный список пробелов по файлам. |
 
 ---
