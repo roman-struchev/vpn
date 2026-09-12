@@ -2,9 +2,20 @@
 set -euo pipefail
 
 # ==============================================================================
-# VPN Node Bootstrap & Installer Script
+# VPN Node Bootstrap & Installer Script (Docker-based)
 # Supported OS: Ubuntu 22.04 / 24.04 LTS, Debian 12
 # ==============================================================================
+# Runs the node agent + xray-core as a single Docker container (image built
+# from agent/Dockerfile, published as romanew/vpn-node:latest by
+# .github/workflows/release.yml's docker-node job) instead of installing
+# Node.js/xray-core directly on the host — same monitoring story (docker ps/
+# logs/stats) as the main server's docker-compose deployment.
+#
+# --network host: xray-core's listener ports are driven by server-pushed
+# TransportPolicy, not fixed at install time, so there's no static port list
+# to map with `-p`; host networking also preserves real client source IPs
+# (needed for the anti-enumeration IP tracking — see README.md §2 "Защита от
+# перечисления нод"), which Docker's default bridge/NAT networking would mask.
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: This script must be run as root." >&2
@@ -23,6 +34,9 @@ CDN_HOSTNAME="${3:-}"
 # a per-user limiter. fq_codel under the cap gives fair per-flow sharing so
 # one heavy trial user doesn't starve the rest of that pool.
 TRIAL_CAP_MBPS="${4:-}"
+# Optional: override the published node-agent image (e.g. a specific
+# version tag instead of latest, or a private mirror).
+NODE_IMAGE="${VPN_NODE_IMAGE:-romanew/vpn-node:latest}"
 
 if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
     echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname] [trial_cap_mbps]"
@@ -36,7 +50,7 @@ fi
 
 echo "==> [1/6] Installing dependencies..."
 apt-get update -qq
-apt-get install -y -qq curl wget jq tar unzip ca-certificates iptables iproute2
+apt-get install -y -qq curl ca-certificates iptables iproute2
 
 echo "==> [2/6] Optimizing sysctl (BBR, TCP buffer tuning)..."
 cat <<EOF > /etc/sysctl.d/99-vpn-tuning.conf
@@ -51,35 +65,22 @@ fs.file-max = 1048576
 EOF
 sysctl --system > /dev/null 2>&1 || true
 
-echo "==> [3/6] Installing Xray-core..."
-XRAY_VERSION="v24.11.30"
-mkdir -p /usr/local/bin /etc/xray
-TMP_DIR=$(mktemp -d)
-wget -q -O "${TMP_DIR}/xray.zip" "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip" || {
-    echo "Warning: Direct download failed, trying official Xray install script..."
-    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
-}
-
-if [ -f "${TMP_DIR}/xray.zip" ]; then
-    unzip -q -o "${TMP_DIR}/xray.zip" xray -d /usr/local/bin/
-    chmod +x /usr/local/bin/xray
-fi
-rm -rf "$TMP_DIR"
-
-echo "==> [4/6] Installing Node.js runtime..."
-if ! command -v node > /dev/null 2>&1; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-    apt-get install -y -qq nodejs
+echo "==> [3/6] Installing Docker..."
+if ! command -v docker > /dev/null 2>&1; then
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable --now docker
 fi
 
-echo "==> [5/6] Setting up vpn-node-agent in /opt/vpn-node-agent..."
-mkdir -p /opt/vpn-node-agent /var/log/vpn-agent
-chown -R root:root /opt/vpn-node-agent
+echo "==> [4/6] Pulling node-agent image (${NODE_IMAGE})..."
+docker pull "$NODE_IMAGE"
+
+echo "==> [5/6] Setting up /opt/vpn-node-agent..."
+mkdir -p /opt/vpn-node-agent/data /var/log/vpn-agent
 
 cat <<EOF > /opt/vpn-node-agent/.env
 CONTROL_PLANE_GRPC=${SERVER_GRPC}
 BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN}
-NODE_DATA_DIR=/opt/vpn-node-agent/data
+AGENT_STATE_PATH=/opt/vpn-node-agent/data/.agent-state.json
 XRAY_BIN_PATH=/usr/local/bin/xray
 XRAY_CONFIG_PATH=/etc/xray/config.json
 STATS_INTERVAL_SEC=15
@@ -88,21 +89,28 @@ EOF
 
 chmod 600 /opt/vpn-node-agent/.env
 
-echo "==> [6/6] Creating systemd service vpn-node-agent.service..."
+echo "==> [6/6] Creating systemd service vpn-node-agent.service (runs the Docker container)..."
+mkdir -p /etc/xray/certs
 cat <<EOF > /etc/systemd/system/vpn-node-agent.service
 [Unit]
-Description=VPN Edge Node Agent (Xray Controller)
-After=network.target
+Description=VPN Edge Node Agent (Dockerized Xray Controller)
+After=network-online.target docker.service
+Requires=docker.service
+Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/vpn-node-agent
-EnvironmentFile=/opt/vpn-node-agent/.env
-ExecStart=/usr/bin/node /opt/vpn-node-agent/dist/index.js
 Restart=always
 RestartSec=5
-LimitNOFILE=1048576
+ExecStartPre=-/usr/bin/docker rm -f vpn-node-agent
+ExecStartPre=-/usr/bin/docker pull ${NODE_IMAGE}
+ExecStart=/usr/bin/docker run --rm --name vpn-node-agent \\
+  --network host \\
+  --env-file /opt/vpn-node-agent/.env \\
+  -v /opt/vpn-node-agent/data:/opt/vpn-node-agent/data \\
+  -v /etc/xray/certs:/etc/xray/certs:ro \\
+  ${NODE_IMAGE}
+ExecStop=/usr/bin/docker stop -t 10 vpn-node-agent
 
 [Install]
 WantedBy=multi-user.target
@@ -111,15 +119,15 @@ EOF
 systemctl daemon-reload
 
 if [ -n "$CDN_HOSTNAME" ]; then
-    echo "==> [7/7] Provisioning Let's Encrypt certificate for CDN node ($CDN_HOSTNAME)..."
+    echo "==> [7/8] Provisioning Let's Encrypt certificate for CDN node ($CDN_HOSTNAME)..."
     # CDN nodes use real TLS instead of Reality (a CDN terminates TLS itself,
     # which breaks Reality's cert-stealing handshake — see docs/PLAN.md §6 and
     # docs/ROADMAP_PROGRESS.md Phase 9). NodeManagementService expects the
     # cert at /etc/xray/certs/<hostname>/{fullchain,privkey}.pem by default
-    # (see vpn.cdn.cert-dir); certbot's --deploy-hook keeps that path in sync
-    # across renewals instead of a one-time copy that would go stale.
+    # (see vpn.cdn.cert-dir); that host path is bind-mounted read-only into
+    # the container above, so certbot's renewals (running on the host) are
+    # picked up without rebuilding/restarting the container's own filesystem.
     apt-get install -y -qq certbot
-    mkdir -p /etc/xray/certs
     if certbot certonly --standalone --non-interactive --agree-tos \
         --register-unsafely-without-email -d "$CDN_HOSTNAME" \
         --deploy-hook "mkdir -p /etc/xray/certs/$CDN_HOSTNAME && cp /etc/letsencrypt/live/$CDN_HOSTNAME/fullchain.pem /etc/xray/certs/$CDN_HOSTNAME/fullchain.pem && cp /etc/letsencrypt/live/$CDN_HOSTNAME/privkey.pem /etc/xray/certs/$CDN_HOSTNAME/privkey.pem && systemctl restart vpn-node-agent || true"; then
@@ -135,6 +143,9 @@ fi
 
 if [ -n "$TRIAL_CAP_MBPS" ]; then
     echo "==> [8/8] Capping egress bandwidth at ${TRIAL_CAP_MBPS}mbit (trial pool, fq_codel underneath)..."
+    # tc shapes the host's real NIC, so this applies regardless of the agent
+    # running in a container — --network host means container traffic still
+    # traverses this same interface.
     IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
     if [ -z "$IFACE" ]; then
         echo "WARNING: could not auto-detect the primary network interface; skipping tc setup."
@@ -174,6 +185,7 @@ fi
 
 echo "==> Installation complete!"
 echo "To start the agent: systemctl enable --now vpn-node-agent"
+echo "To monitor it: docker ps / docker logs -f vpn-node-agent / docker stats vpn-node-agent"
 if [ -n "$CDN_HOSTNAME" ]; then
     echo "This node was provisioned as a CDN edge for $CDN_HOSTNAME — register it via the admin API"
     echo "with type=cdn (see docs/ROADMAP_PROGRESS.md Phase 9 / AdminController's bootstrap-token endpoint)."
