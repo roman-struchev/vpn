@@ -119,8 +119,13 @@ jobs:
         run: npm run build
 
       - name: Package unsigned Linux build (smoke test)
+        # --publish never: this is a packaging smoke test, not a release —
+        # without it, electron-builder detects the CI env var GitHub Actions
+        # sets and tries to auto-resolve a publish config from .git/config,
+        # which fails here since this repo has no "repository" field in
+        # package.json and the checkout doesn't need one for this step.
         working-directory: desktop
-        run: npx electron-builder --linux --dir
+        run: npx electron-builder --linux --dir --publish never
 
   publish:
     name: Build Jar & Publish Docker Image
@@ -176,7 +181,7 @@ jobs:
         uses: appleboy/scp-action@master
         with:
           host: 217.216.79.46
-          username: root
+          username: admin
           port: 22
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: docker-compose.yml
@@ -186,7 +191,7 @@ jobs:
         uses: appleboy/ssh-action@master
         with:
           host: 217.216.79.46
-          username: root
+          username: admin
           port: 22
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
