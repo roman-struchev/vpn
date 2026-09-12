@@ -190,7 +190,9 @@ jobs:
           port: 22
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
             cd ~/vpn
+            export DOCKER_IMAGE="${{ secrets.DOCKER_IMAGE_NAME || 'romanew/vpn-server:latest' }}"
             export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
             export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
             export JWT_SECRET="${{ secrets.JWT_SECRET }}"

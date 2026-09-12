@@ -78,8 +78,18 @@ function fetchOne(key, asset) {
     ['-sL', '--fail', '--retry', '3', '--retry-delay', '2', '-o', zipPath, url],
     { stdio: 'inherit' },
   );
-  // `tar` extracts zip on macOS/Linux (bsdtar) and on Windows 10 1803+ (built-in bsdtar).
-  execFileSync('tar', ['-xf', zipPath, '-C', destDir], { stdio: 'inherit' });
+  if (process.platform === 'linux') {
+    // GNU tar (the default `tar` on Ubuntu/most Linux distros, incl. GitHub-
+    // hosted runners) cannot extract the PKZIP format at all — it tries to
+    // read the zip's local file header as a tar header and fails with
+    // "This does not look like a tar archive". `unzip` handles it correctly
+    // and ships preinstalled on ubuntu-latest.
+    execFileSync('unzip', ['-oq', zipPath, '-d', destDir], { stdio: 'inherit' });
+  } else {
+    // macOS's `tar` and Windows 10 1803+'s built-in `tar.exe` are both
+    // bsdtar, which extracts zip directly.
+    execFileSync('tar', ['-xf', zipPath, '-C', destDir], { stdio: 'inherit' });
+  }
   rmSync(zipPath);
 
   const binaryPath = path.join(destDir, binaryName);
