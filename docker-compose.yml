@@ -19,7 +19,7 @@ services:
 
   server:
     build: .
-    image: ${DOCKER_IMAGE:-vpn-server:latest}
+    image: ${DOCKER_IMAGE:-romanew/vpn-server:latest}
     container_name: vpn-server
     restart: always
     depends_on:
