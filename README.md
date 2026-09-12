@@ -66,8 +66,8 @@ cd web && npm install && npm run dev
 
 1. Как ADMIN дёрните `POST /api/v1/admin/nodes/bootstrap-token` — получите
    одноразовый `bootstrap_token`.
-2. На самой VPS выполните `scripts/install-node.sh <server_grpc_host:port> <bootstrap_token>`
-   (плюс опционально `[cdn_hostname]` и `[trial_cap_mbps]`, см. §5).
+2. На самой VPS запустите установщик `scripts/install-node.sh` через `curl`
+   (см. §5 для точной команды и опциональных `[cdn_hostname]`/`[trial_cap_mbps]`).
 3. Нода сама подключится по gRPC-стриму и зарегистрируется.
 
 ## 2. Конфигурация сервера
@@ -197,15 +197,18 @@ Google (`POST /api/v1/auth/google` принимает `idToken`, который 
 
 ## 5. Установка ноды в проде
 
+Запускается на чистом сервере (Ubuntu 22.04/24.04, Debian 12) от root — сам скрипт
+самодостаточен и не требует клонирования репозитория, ставится одной командой через `curl`:
+
 ```bash
 # Прямая Reality-нода:
-scripts/install-node.sh vpn.example.com:9090 bst_abc12345
+curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345
 
 # CDN-нода (настоящий TLS вместо Reality, certbot standalone + автопродление):
-scripts/install-node.sh vpn.example.com:9090 bst_abc12345 edge.example.com
+curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 edge.example.com
 
 # Пробная нода с общим потолком канала (tc htb + fq_codel, systemd-юнит на автозапуск):
-scripts/install-node.sh vpn.example.com:9090 bst_abc12345 "" 50
+curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 "" 50
 ```
 
 После установки — зарегистрировать ноду в нужном пуле через админ-API
