@@ -11,9 +11,41 @@ body {
     Roboto,
     sans-serif;
   user-select: none;
+  background-color: #060709;
+  color: #ffffff;
 }
 
 input,
 button {
   user-select: text;
+}
+
+/* Electron window drag handling */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag,
+button,
+a,
+input,
+select,
+textarea,
+label {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
 }

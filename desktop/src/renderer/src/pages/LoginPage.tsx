@@ -4,6 +4,7 @@ import { t } from '../i18n';
 export default function LoginPage({
   isGuestSession,
   onAuthenticated,
+  onCancel,
 }: {
   /**
    * True when a guest/device-trial session is still active (e.g. reached
@@ -16,6 +17,7 @@ export default function LoginPage({
    */
   isGuestSession: boolean;
   onAuthenticated: () => void;
+  onCancel?: () => void;
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -62,7 +64,17 @@ export default function LoginPage({
   };
 
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-4 px-8">
+    <div className="relative flex h-screen flex-col items-center justify-center gap-4 px-8">
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="absolute top-4 left-4 flex items-center gap-1.5 text-xs font-medium text-white/60 hover:text-white transition-colors"
+        >
+          <span>←</span>
+          <span>{t.back}</span>
+        </button>
+      )}
       <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600/20 text-3xl">🛡</div>
       <h1 className="text-xl font-semibold">{mode === 'login' ? t.loginTitle : t.registerTitle}</h1>
 

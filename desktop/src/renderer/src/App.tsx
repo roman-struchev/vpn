@@ -1,21 +1,14 @@
 import { useEffect, useState } from 'react';
 import LoginPage from './pages/LoginPage';
 import ConnectPage from './pages/ConnectPage';
-import DevicesPage from './pages/DevicesPage';
 import ProfilePage from './pages/ProfilePage';
 import { t } from './i18n';
 
-type Tab = 'connect' | 'devices' | 'profile';
+type Tab = 'connect' | 'account';
 type AuthPhase = 'checking' | 'loggedOut' | 'loggedIn';
 
 export default function App() {
   const [phase, setPhase] = useState<AuthPhase>('checking');
-  // Guest = no-signup device-trial account (see deviceLogin), not one the
-  // user consciously created. Tracked at this level (not inside a page
-  // component) because it decides the whole screen: a guest gets one
-  // nav-less view (connect + a sign-in/register CTA, below) instead of the
-  // tabbed connect/devices/profile shell, and it changes how LoginPage
-  // handles "register" (upgrade this session in place vs. create a new one).
   const [isGuest, setIsGuest] = useState(false);
   const [tab, setTab] = useState<Tab>('connect');
 
@@ -28,11 +21,8 @@ export default function App() {
         setPhase('loggedIn');
       })
       .catch(() =>
-        // No valid stored session — rather than forcing registration/login,
-        // silently log this install into its own (auto-created, trial-tariff)
-        // device account. LoginPage stays reachable via ProfilePage's "sign
-        // in or register" for anyone who wants to keep their account across
-        // reinstalls/devices.
+        // No valid stored session — silently log this install into its own
+        // (auto-created, trial-tariff) device account.
         window.vpnApi
           .deviceLogin()
           .then(() => {
@@ -50,52 +40,68 @@ export default function App() {
   }
 
   if (phase === 'loggedOut') {
-    // isGuest still reflects whatever session we had before landing here —
-    // set on a genuine guest→LoginPage handoff below (which doesn't clear
-    // the stored session first), and false on a real logout or a first-run
-    // deviceLogin failure, where there's no session to upgrade from.
-    return <LoginPage isGuestSession={isGuest} onAuthenticated={checkAuth} />;
-  }
-
-  if (isGuest) {
-    // A trial/guest profile has nothing to navigate to besides "connect"
-    // and "sign in or register" (no devices, billing, or referrals — see
-    // ProfilePage/DevicesPage, both real-account-only now) — so instead of
-    // a Profile tab hiding that CTA behind a click, it sits directly inside
-    // Connect on one nav-less screen.
     return (
-      <div className="flex h-screen flex-col overflow-y-auto">
-        <ConnectPage isGuest onSignInOrRegister={() => setPhase('loggedOut')} />
-      </div>
+      <LoginPage
+        isGuestSession={isGuest}
+        onAuthenticated={checkAuth}
+        onCancel={isGuest ? () => setPhase('loggedIn') : undefined}
+      />
     );
   }
 
-  return (
-    <div className="flex h-screen flex-col">
-      <div className="flex-1 overflow-y-auto">
-        {tab === 'connect' && <ConnectPage isGuest={false} />}
-        {tab === 'devices' && <DevicesPage />}
-        {tab === 'profile' && <ProfilePage onLoggedOut={() => setPhase('loggedOut')} />}
-      </div>
+  const isMac = window.vpnApi?.platform === 'darwin' || navigator.userAgent.includes('Mac');
 
-      <nav className="flex border-t border-dark-800 bg-dark-900">
-        <TabButton active={tab === 'connect'} label={t.navConnect} onClick={() => setTab('connect')} />
-        <TabButton active={tab === 'devices'} label={t.navDevices} onClick={() => setTab('devices')} />
-        <TabButton active={tab === 'profile'} label={t.navProfile} onClick={() => setTab('profile')} />
-      </nav>
+  return (
+    <div className="flex h-screen flex-col bg-dark-950 text-white select-none overflow-hidden">
+      {/* Top Header Bar with macOS traffic lights space and segmented pill switcher */}
+      <header className="drag-region flex items-center justify-between h-14 border-b border-dark-800/80 bg-dark-950/80 backdrop-blur-md px-4 shrink-0">
+        <div className={`flex items-center gap-2 ${isMac ? 'pl-[68px]' : ''}`}>
+          <span className="text-xs font-bold tracking-wider text-white/90 uppercase">Aura VPN</span>
+        </div>
+
+        {/* Segmented Pill Switcher [ Подключение | Аккаунт ] */}
+        <div className="no-drag flex items-center p-0.5 rounded-full bg-dark-900 border border-dark-800">
+          <button
+            type="button"
+            onClick={() => setTab('connect')}
+            className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+              tab === 'connect'
+                ? 'bg-dark-800 text-white shadow-sm font-semibold'
+                : 'text-white/50 hover:text-white/80'
+            }`}
+          >
+            {t.navConnect}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('account')}
+            className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all duration-200 ${
+              tab === 'account'
+                ? 'bg-dark-800 text-white shadow-sm font-semibold'
+                : 'text-white/50 hover:text-white/80'
+            }`}
+          >
+            {t.navAccount}
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto">
+        {tab === 'connect' && (
+          <ConnectPage
+            isGuest={isGuest}
+            onSignInOrRegister={() => setPhase('loggedOut')}
+          />
+        )}
+        {tab === 'account' && (
+          <ProfilePage
+            isGuest={isGuest}
+            onSignInOrRegister={() => setPhase('loggedOut')}
+            onLoggedOut={() => setPhase('loggedOut')}
+          />
+        )}
+      </main>
     </div>
-  );
-}
-
-function TabButton({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 py-3 text-sm font-medium transition-colors ${
-        active ? 'text-brand-500' : 'text-white/50 hover:text-white/80'
-      }`}
-    >
-      {label}
-    </button>
   );
 }

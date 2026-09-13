@@ -41,6 +41,8 @@ const translations = {
     navConnect: 'Подключение',
     navDevices: 'Устройства',
     navProfile: 'Профиль',
+    navAccount: 'Аккаунт',
+    back: 'Назад',
 
     devicesTitle: 'Устройства',
     thisDeviceAutoAdded: 'Каждое устройство появляется здесь само — как только оно впервые подключится через это приложение, другое наше приложение или ссылку из личного кабинета на сайте (для v2rayTun, Hiddify и т. п.). Добавлять что-либо вручную не нужно.',
@@ -108,6 +110,8 @@ const translations = {
     navConnect: 'Connect',
     navDevices: 'Devices',
     navProfile: 'Profile',
+    navAccount: 'Account',
+    back: 'Back',
 
     devicesTitle: 'Devices',
     thisDeviceAutoAdded: 'Every device shows up here on its own — the first time it connects through this app, another of our apps, or a link from your web dashboard (for v2rayTun, Hiddify, etc). There\'s nothing to add manually.',

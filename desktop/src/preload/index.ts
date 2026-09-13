@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { ConnectionState } from '../shared/connectionState';
 
 const vpnApi = {
+  platform: process.platform,
   login: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
   register: (email: string, password: string, referralCode?: string) =>
     ipcRenderer.invoke('auth:register', email, password, referralCode),

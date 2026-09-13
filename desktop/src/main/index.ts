@@ -28,6 +28,7 @@ let trayHandle: TrayHandle | null = null;
 let isQuitting = false;
 
 function createWindow(): BrowserWindow {
+  const isMac = process.platform === 'darwin';
   const win = new BrowserWindow({
     width: 400,
     height: 640,
@@ -36,6 +37,8 @@ function createWindow(): BrowserWindow {
     resizable: true,
     title: 'Aura VPN',
     backgroundColor: '#0C0E12',
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    trafficLightPosition: isMac ? { x: 16, y: 16 } : undefined,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       sandbox: false,
