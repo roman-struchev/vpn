@@ -110,6 +110,18 @@ public class NodeManagementService {
         bootstrapToken.setUsedByNode(node);
         tokenRepository.save(bootstrapToken);
 
+        // Revoke any credential(s) left over from a previous registration of this
+        // same node (re-registering with a fresh bootstrap token — see
+        // scripts/install-node.sh's PREV_TOKEN check) before issuing a new one.
+        // Leaving old rows unrevoked let them pile up under one node_id, and
+        // authenticateNode's single-result query crashed the gRPC sync stream
+        // (NonUniqueResultException) the moment a second one existed.
+        Instant revokedNow = Instant.now();
+        for (NodeCredential old : credentialRepository.findAllByNodeIdAndRevokedAtIsNull(node.getId())) {
+            old.setRevokedAt(revokedNow);
+            credentialRepository.save(old);
+        }
+
         // Generate persistent node authentication token
         String rawToken = UUID.randomUUID().toString().replace("-", "") + UUID.randomUUID().toString().replace("-", "");
         NodeCredential credential = new NodeCredential();
@@ -140,9 +152,8 @@ public class NodeManagementService {
         if (nodeId == null || rawToken == null || rawToken.isBlank()) {
             return false;
         }
-        return credentialRepository.findByNodeIdAndRevokedAtIsNull(nodeId)
-                .map(cred -> passwordEncoder.matches(rawToken, cred.getTokenHash()))
-                .orElse(false);
+        return credentialRepository.findAllByNodeIdAndRevokedAtIsNull(nodeId).stream()
+                .anyMatch(cred -> passwordEncoder.matches(rawToken, cred.getTokenHash()));
     }
 
     @Transactional
