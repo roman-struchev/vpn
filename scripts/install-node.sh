@@ -47,20 +47,28 @@ BOOTSTRAP_TOKEN="${2:-}"
 # Optional: only for CDN-fronted nodes (registered with type=cdn). A direct
 # Reality node needs none of this — Reality doesn't use a real certificate.
 CDN_HOSTNAME="${3:-}"
+# Optional: skips auto-detection below (step [3/5]) and uses this label as-is.
+# Useful when the geo-IP lookup gets a node's city wrong, or to force several
+# nodes onto one label the lookup wouldn't naturally agree on (region grouping
+# is an exact string match — see SubscriptionExportService#groupingBy).
+REGION_OVERRIDE="${4:-}"
 # Optional: override the published node-agent image (e.g. a specific
 # version tag instead of latest, or a private mirror).
 NODE_IMAGE="${VPN_NODE_IMAGE:-romanew/vpn-node:latest}"
 
 if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
-    echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname]"
+    echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname] [region]"
     echo "Example (direct Reality node):     $0 vpn.example.com:9090 bst_abc12345"
     echo "Example (CDN node, Phase 9):       $0 vpn.example.com:9090 bst_abc12345 edge.example.com"
+    echo "Example (force a region label):    $0 vpn.example.com:9090 bst_abc12345 \"\" \"Amsterdam, NL\""
     echo "  cdn_hostname must already resolve (via the CDN) to this host's IP on port 80/443"
     echo "  before running this script, so certbot's HTTP-01 challenge can complete."
+    echo "  region is auto-detected from this host's public IP via geo-IP lookup if omitted"
+    echo "  (falls back to \"default\" if that lookup fails — never fatal, unlike public IP)."
     exit 1
 fi
 
-echo "==> [1/4] Optimizing sysctl (BBR, TCP buffer tuning)..."
+echo "==> [1/5] Optimizing sysctl (BBR, TCP buffer tuning)..."
 cat <<EOF > /etc/sysctl.d/99-vpn-tuning.conf
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
@@ -73,7 +81,7 @@ fs.file-max = 1048576
 EOF
 sysctl --system > /dev/null 2>&1 || true
 
-echo "==> [2/4] Detecting public IP..."
+echo "==> [2/5] Detecting public IP..."
 # Without this, PUBLIC_IP is never set and the agent defaults to '127.0.0.1'
 # (see agent/src/config.ts) — which the server then embeds verbatim into every
 # VLESS link it generates for this node, making it unreachable for real
@@ -107,10 +115,41 @@ if ! echo "$PUBLIC_IP" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
 fi
 echo "==> Public IP: ${PUBLIC_IP}"
 
-echo "==> [3/4] Pulling node-agent image (${NODE_IMAGE})..."
+echo "==> [3/5] Detecting region..."
+# Shown in the admin panel and used to group nodes for the "auto (best
+# available)" client selector (SubscriptionExportService groups nodes by
+# this exact string — see docs/ARCHITECTURE.md §4.3/§5) — unlike PUBLIC_IP
+# above, getting this wrong doesn't break the node, so a failed lookup falls
+# back to "default" instead of aborting the install.
+if [ -n "$REGION_OVERRIDE" ]; then
+    REGION="$REGION_OVERRIDE"
+else
+    GEO_CITY=""
+    GEO_COUNTRY=""
+    # ipinfo.io's free tier already returns a 2-letter country code over HTTPS.
+    GEO_JSON=$(curl -fsS --max-time 5 "https://ipinfo.io/${PUBLIC_IP}/json" 2>/dev/null || true)
+    GEO_CITY=$(echo "$GEO_JSON" | grep -o '"city"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+    GEO_COUNTRY=$(echo "$GEO_JSON" | grep -o '"country"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+    if [ -z "$GEO_CITY" ] || [ -z "$GEO_COUNTRY" ]; then
+        # Fallback: ip-api.com's free tier is HTTP-only (HTTPS needs a paid plan).
+        GEO_JSON=$(curl -fsS --max-time 5 "http://ip-api.com/json/${PUBLIC_IP}" 2>/dev/null || true)
+        GEO_CITY=$(echo "$GEO_JSON" | grep -o '"city"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+        GEO_COUNTRY=$(echo "$GEO_JSON" | grep -o '"countryCode"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
+    fi
+    if [ -n "$GEO_CITY" ] && [ -n "$GEO_COUNTRY" ]; then
+        REGION="${GEO_CITY}, ${GEO_COUNTRY}"
+    else
+        echo "WARNING: geo-IP lookup failed — using \"default\" as this node's region."
+        echo "         Re-run with a 4th argument to set one explicitly, e.g. \"Amsterdam, NL\"."
+        REGION="default"
+    fi
+fi
+echo "==> Region: ${REGION}"
+
+echo "==> [4/5] Pulling node-agent image (${NODE_IMAGE})..."
 docker pull "$NODE_IMAGE"
 
-echo "==> [4/4] Starting vpn-node-agent container..."
+echo "==> [5/5] Starting vpn-node-agent container..."
 mkdir -p /opt/vpn-node-agent/data /etc/xray/certs
 
 # If this host was already registered under a *different* bootstrap token,
@@ -134,6 +173,7 @@ cat <<EOF > /opt/vpn-node-agent/.env
 SERVER_GRPC_URL=${SERVER_GRPC}
 BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN}
 PUBLIC_IP=${PUBLIC_IP}
+REGION=${REGION}
 AGENT_STATE_PATH=/opt/vpn-node-agent/data/.agent-state.json
 STATS_INTERVAL_MS=15000
 HEARTBEAT_INTERVAL_MS=15000

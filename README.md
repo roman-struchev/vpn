@@ -20,7 +20,7 @@
 | `e2e/` | Playwright — интеграционные тесты реального стека (регистрация, биллинг, админка, поднятие реального нод-агента и проверка VPN-туннеля) | отдельный npm-проект, см. [`e2e/README.md`](e2e/README.md) |
 | `design-tokens/` | Общие значения дизайн-токенов (цвета бренда/тёмной темы) — единый источник для `web/` и `desktop/`; Android синхронизируется вручную, см. [`tokens.mjs`](design-tokens/tokens.mjs) | не собирается, импортируется напрямую (`export default {...}`) |
 | `proto/` | Protobuf-контракт `server ↔ agent` | генерируется в `server/` и `agent/` при сборке |
-| `scripts/install-node.sh` | Установщик агента на VPS-ноду (systemd, sysctl, опционально TLS-сертификат для CDN-нод и `tc`-каппинг для пробного пула) | см. §5 ниже |
+| `scripts/install-node.sh` | Установщик агента на VPS-ноду: Docker-контейнер (`--network host`, `--restart unless-stopped`), sysctl-тюнинг, авто-детект public IP и региона, опционально TLS-сертификат для CDN-нод | см. §5 ниже |
 | `docs/` | План, статус фаз, исследование блокировок РФ, чеклист магазинов приложений, Google Play readiness | — |
 
 ## 1. Быстрый старт (локально)
@@ -179,7 +179,9 @@ Google (`POST /api/v1/auth/google` принимает `idToken`, который 
 | `SERVER_GRPC_URL` | `host:port` сервера (тот же `GRPC_SERVER_PORT`) |
 | `BOOTSTRAP_TOKEN` | Одноразовый токен из `POST /api/v1/admin/nodes/bootstrap-token` |
 | `NODE_ID` / `NODE_TOKEN` | Заполняются агентом автоматически после первой успешной регистрации (сохраняются в `.agent-state.json`, путь — `AGENT_STATE_PATH`) |
-| `REGION`, `ASN`, `PUBLIC_IP`, `NODE_HOSTNAME` | Метаданные ноды, показываются в админке |
+| `PUBLIC_IP` | IP, который сервер вставляет в каждую VLESS-ссылку для этой ноды. `install-node.sh` определяет его сам (интерфейс хоста, иначе внешний echo-сервис) — ошибка тут **фатальна** для установки, в отличие от `REGION` ниже |
+| `REGION` | Метка региона ("City, CC"), показывается в админке и используется для группировки нод в клиентском селекторе "авто (лучший доступный)". `install-node.sh` определяет её сам через geo-IP по публичному IP хоста (см. §5); при неудаче — `"default"`, ошибкой установку не роняет |
+| `ASN`, `NODE_HOSTNAME` | Остальные метаданные ноды, показываются в админке |
 | `XRAY_BIN_PATH`, `XRAY_CONFIG_PATH` | Пути к бинарю/конфигу `xray-core` на ноде |
 | `XRAY_STATS_API_URL` | `127.0.0.1:10085` — локальный Stats API самого `xray-core` |
 | `HEARTBEAT_INTERVAL_MS`, `STATS_INTERVAL_MS` | Периодичность heartbeat/отправки статистики трафика (по умолчанию 30с — те же 30с, что в `vpn.heartbeat-interval-sec`/`vpn.stats-interval-sec` на сервере) |
@@ -206,6 +208,11 @@ Google (`POST /api/v1/auth/google` принимает `idToken`, который 
 мониторинг обычным Docker: `docker ps` / `docker logs -f vpn-node-agent` /
 `docker stats vpn-node-agent` / `docker restart|stop vpn-node-agent`.
 
+Публичный IP и регион ноды скрипт определяет сам (по IP хоста и geo-IP
+соответственно) — руками задавать не нужно. Регион можно переопределить
+4-м аргументом, если автоопределение ошиблось или несколько нод одного города
+нужно свести в одну группу (группировка регионов — точное совпадение строки).
+
 Репозиторий публичный, поэтому скрипт можно ставить прямо по SSH одной командой
 через `curl` (если репозиторий когда-нибудь снова станет приватным — см. `scp`-вариант
 ниже):
@@ -216,6 +223,9 @@ ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/
 
 # CDN-нода (настоящий TLS вместо Reality, certbot standalone + автопродление):
 ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 edge.example.com'
+
+# С принудительным регионом (пустой 3-й аргумент — не CDN-нода):
+ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 "" "Amsterdam, NL"'
 ```
 
 Если репозиторий приватный — скопируйте скрипт со своей машины (где уже есть SSH-доступ
