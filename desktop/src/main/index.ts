@@ -34,7 +34,7 @@ function createWindow(): BrowserWindow {
     minWidth: 360,
     minHeight: 560,
     resizable: true,
-    title: 'NextGen VPN',
+    title: 'Aura VPN',
     backgroundColor: '#0C0E12',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),

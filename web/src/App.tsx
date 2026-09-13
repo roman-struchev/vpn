@@ -174,7 +174,7 @@ export function App() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-dark-900 text-slate-400">
-        <div className="animate-pulse font-medium text-sm">Loading NextGen VPN...</div>
+        <div className="animate-pulse font-medium text-sm">Loading Aura VPN...</div>
       </div>
     );
   }
@@ -219,7 +219,7 @@ export function App() {
       </div>
 
       <footer className="border-t border-dark-800 py-6 text-center text-xs text-slate-500">
-        NextGen Privacy VPN · XHTTP + Reality · Zero Logs · 2026
+        Aura Privacy VPN · XHTTP + Reality · Zero Logs · 2026
       </footer>
 
       <AuthModal

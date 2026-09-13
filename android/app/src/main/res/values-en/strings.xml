@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NextGen VPN</string>
+    <string name="app_name">Aura VPN</string>
 
     <string name="login_title">Sign in</string>
     <string name="login_email_hint">Email</string>
@@ -79,7 +79,7 @@
     <string name="profile_referral_copy">Copy</string>
     <string name="profile_referral_share">Share</string>
     <string name="profile_referral_copied">Link copied</string>
-    <string name="profile_referral_share_title">NextGen VPN invite</string>
+    <string name="profile_referral_share_title">Aura VPN invite</string>
 
     <string name="vpn_permission_denied">VPN permission is required to connect</string>
 

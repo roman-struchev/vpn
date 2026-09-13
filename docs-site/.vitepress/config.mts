@@ -3,8 +3,8 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 
 export default withMermaid(
   defineConfig({
-    title: 'NextGen VPN Portal',
-    description: 'Инженерная и продуктовая документация, спецификация REST и gRPC API NextGen VPN',
+    title: 'Aura VPN Portal',
+    description: 'Инженерная и продуктовая документация, спецификация REST и gRPC API Aura VPN',
     lang: 'ru-RU',
     base: '/',
     cleanUrls: true,
@@ -17,7 +17,7 @@ export default withMermaid(
       },
     },
     themeConfig: {
-      siteTitle: 'NextGen VPN Docs',
+      siteTitle: 'Aura VPN Docs',
       logo: '/logo.svg',
       nav: [
         { text: 'Главная', link: '/' },
@@ -160,8 +160,8 @@ export default withMermaid(
         },
       },
       footer: {
-        message: 'NextGen VPN Engineering Documentation Portal & API Reference.',
-        copyright: '© 2026 NextGen VPN Team. Не закоммичено в git.',
+        message: 'Aura VPN Engineering Documentation Portal & API Reference.',
+        copyright: '© 2026 Aura VPN Team. Не закоммичено в git.',
       },
     },
   })

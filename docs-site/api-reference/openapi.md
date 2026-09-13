@@ -1,6 +1,6 @@
 # OpenAPI 3.1 & Спецификация для Postman / Swagger
 
-Данная страница содержит готовую формальную спецификацию **OpenAPI 3.1.0** для всего REST API NextGen VPN. Вы можете скопировать этот файл и импортировать его в **Postman**, **Insomnia**, **Swagger Editor** или использовать для генерации клиентских SDK на TypeScript, Go, Java, Swift.
+Данная страница содержит готовую формальную спецификацию **OpenAPI 3.1.0** для всего REST API Aura VPN. Вы можете скопировать этот файл и импортировать его в **Postman**, **Insomnia**, **Swagger Editor** или использовать для генерации клиентских SDK на TypeScript, Go, Java, Swift.
 
 ---
 
@@ -9,7 +9,7 @@
 ```yaml
 openapi: 3.1.0
 info:
-  title: NextGen VPN REST API
+  title: Aura VPN REST API
   description: Высокоустойчивый к цензуре VPN-сервис (Spring Boot 4.1, PostgreSQL 17, Xray-core)
   version: 1.0.0
 servers:
@@ -304,7 +304,7 @@ components:
           type: array
           items:
             type: string
-            example: "vless://9b1deb4d...#NextGen-AMS-01"
+            example: "vless://9b1deb4d...#Aura-AMS-01"
 
     CreateInvoiceRequest:
       type: object

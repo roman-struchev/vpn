@@ -2,7 +2,7 @@ export type Lang = 'ru' | 'en';
 
 const translations = {
   ru: {
-    appName: 'NextGen VPN',
+    appName: 'Aura VPN',
     loginTitle: 'Вход',
     registerTitle: 'Зарегистрироваться',
     email: 'Email',
@@ -69,7 +69,7 @@ const translations = {
   },
 
   en: {
-    appName: 'NextGen VPN',
+    appName: 'Aura VPN',
     loginTitle: 'Sign in',
     registerTitle: 'Create account',
     email: 'Email',

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Map;
 
@@ -51,6 +52,16 @@ public class GlobalExceptionHandler {
         String msg = "Invalid value for parameter: " + ex.getName();
         log.warn("Parameter mismatch: {}", msg);
         return ResponseEntity.badRequest().body(Map.of("error", msg));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNoResourceFound(NoResourceFoundException ex) {
+        // Thrown for any request path that matches no controller mapping AND no
+        // static resource (e.g. a stale/typo'd asset URL) — without this handler
+        // it falls through to the generic Exception.class handler below, which
+        // was written for genuinely unexpected server errors and turns every
+        // missing asset into a misleading 500 instead of a plain, correct 404.
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("error", "Not found"));
     }
 
     @ExceptionHandler(ResponseStatusException.class)

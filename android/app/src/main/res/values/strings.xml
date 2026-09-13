@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">NextGen VPN</string>
+    <string name="app_name">Aura VPN</string>
 
     <!-- Auth -->
     <string name="login_title">Вход</string>
@@ -87,7 +87,7 @@
     <string name="profile_referral_copy">Копировать</string>
     <string name="profile_referral_share">Поделиться</string>
     <string name="profile_referral_copied">Ссылка скопирована</string>
-    <string name="profile_referral_share_title">Приглашение в NextGen VPN</string>
+    <string name="profile_referral_share_title">Приглашение в Aura VPN</string>
 
     <!-- VPN permission -->
     <string name="vpn_permission_denied">Для подключения нужно разрешить создание VPN-соединения</string>

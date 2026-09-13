@@ -45,7 +45,7 @@
 
 ```mermaid
 quadrantChart
-    title Матрица рисков NextGen VPN
+    title Матрица рисков Aura VPN
     x-axis Низкая вероятность --> Высокая вероятность
     y-axis Низкое влияние --> Критическое влияние
     quadrant-1 Срочное реагирование

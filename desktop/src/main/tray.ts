@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { ConnectionState } from '../shared/connectionState';
 import type { VpnController } from './vpn/vpnController';
 
-const APP_NAME = 'NextGen VPN'; // matches the BrowserWindow title set in index.ts
+const APP_NAME = 'Aura VPN'; // matches the BrowserWindow title set in index.ts
 
 /**
  * Menu-bar/system-tray icon (product ask: quick connect/disconnect "near the

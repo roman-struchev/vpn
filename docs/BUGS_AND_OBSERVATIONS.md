@@ -1,7 +1,7 @@
 # Аудит кодовой базы: Баги, уязвимости и архитектурные замечания
 
 Дата составления: Сентябрь 2026  
-Проект: NextGen VPN (Server, Web, Agent, Android, Desktop, E2E)
+Проект: Aura VPN (Server, Web, Agent, Android, Desktop, E2E)
 
 ---
 

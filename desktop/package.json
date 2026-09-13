@@ -2,7 +2,7 @@
   "name": "vpn-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "NextGen VPN desktop client (Windows/macOS) — system-proxy MVP, Electron + React",
+  "description": "Aura VPN desktop client (Windows/macOS) — system-proxy MVP, Electron + React",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -37,8 +37,8 @@
     "vitest": "^2.1.8"
   },
   "build": {
-    "appId": "app.nextgenvpn.desktop",
-    "productName": "NextGen VPN",
+    "appId": "app.auravpn.desktop",
+    "productName": "Aura VPN",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "buildResources": "build"

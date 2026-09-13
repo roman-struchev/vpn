@@ -2,7 +2,7 @@ export type Lang = 'ru' | 'en';
 
 export const translations = {
   ru: {
-    brandName: "NextGen VPN",
+    brandName: "Aura VPN",
     tagline: "Весь интернет. Как раньше.",
     subtagline: "Сайты, приложения и стримы открываются сами — без настроек и танцев с бубном. И работают там, где другие VPN уже сдались.",
     heroEyebrow: "Бесплатный старт · карта не нужна",
@@ -125,7 +125,7 @@ export const translations = {
     trialDurationLabel: "Пробный период 3 дня",
   },
   en: {
-    brandName: "NextGen VPN",
+    brandName: "Aura VPN",
     tagline: "The whole internet. Like before.",
     subtagline: "Sites, apps and streams just open — no setup, no fiddling. And it keeps working where other VPNs have already given up.",
     heroEyebrow: "Free to start · no card needed",

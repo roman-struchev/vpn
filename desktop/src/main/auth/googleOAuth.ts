@@ -178,5 +178,5 @@ function closePageHtml(success: boolean): string {
   const message = success
     ? 'Signed in — you can close this tab and return to the app.'
     : 'Sign-in failed — you can close this tab and return to the app.';
-  return `<!doctype html><html><head><meta charset="utf-8"><title>NextGen VPN</title></head><body style="font-family: -apple-system, sans-serif; text-align: center; padding-top: 4rem; color: #333;"><p>${message}</p></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Aura VPN</title></head><body style="font-family: -apple-system, sans-serif; text-align: center; padding-top: 4rem; color: #333;"><p>${message}</p></body></html>`;
 }

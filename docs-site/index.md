@@ -2,12 +2,12 @@
 layout: home
 
 hero:
-  name: "NextGen VPN"
+  name: "Aura VPN"
   text: "Инженерный портал & Спецификация API"
   tagline: "Высокоустойчивый к цензуре VPN-сервис: VLESS + XHTTP + Reality, mTLS gRPC Control Plane, Zero-Logs и независимый крипто-биллинг."
   image:
     src: /logo.svg
-    alt: NextGen VPN
+    alt: Aura VPN
   actions:
     - theme: brand
       text: ⚡ Спецификация API (REST & gRPC)
