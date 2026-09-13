@@ -60,7 +60,7 @@ if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
     exit 1
 fi
 
-echo "==> [1/3] Optimizing sysctl (BBR, TCP buffer tuning)..."
+echo "==> [1/4] Optimizing sysctl (BBR, TCP buffer tuning)..."
 cat <<EOF > /etc/sysctl.d/99-vpn-tuning.conf
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
@@ -73,10 +73,44 @@ fs.file-max = 1048576
 EOF
 sysctl --system > /dev/null 2>&1 || true
 
-echo "==> [2/3] Pulling node-agent image (${NODE_IMAGE})..."
+echo "==> [2/4] Detecting public IP..."
+# Without this, PUBLIC_IP is never set and the agent defaults to '127.0.0.1'
+# (see agent/src/config.ts) — which the server then embeds verbatim into every
+# VLESS link it generates for this node, making it unreachable for real
+# clients. Try the primary interface's own address first (many VPS providers
+# assign the public IP directly to eth0, no external call needed); only fall
+# back to an external echo service if that's missing or looks private/NAT'd.
+IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
+LOCAL_IP=""
+[ -n "$IFACE" ] && LOCAL_IP=$(ip -4 addr show dev "$IFACE" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+is_private_ip() {
+    case "$1" in
+        10.*|192.168.*|127.*) return 0 ;;
+        172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+if [ -n "$LOCAL_IP" ] && ! is_private_ip "$LOCAL_IP"; then
+    PUBLIC_IP="$LOCAL_IP"
+else
+    PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)
+    [ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://icanhazip.com 2>/dev/null | tr -d '[:space:]' || true)
+    [ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+fi
+if ! echo "$PUBLIC_IP" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+    echo "ERROR: could not determine this host's public IPv4 address (got: '${PUBLIC_IP:-<empty>}')." >&2
+    echo "        Every VLESS link the server generates for this node embeds this IP verbatim —" >&2
+    echo "        refusing to fall back to a default and silently ship broken client configs." >&2
+    echo "        Fix network/DNS connectivity, or set PUBLIC_IP yourself in /opt/vpn-node-agent/.env" >&2
+    echo "        and 'docker restart vpn-node-agent' afterwards." >&2
+    exit 1
+fi
+echo "==> Public IP: ${PUBLIC_IP}"
+
+echo "==> [3/4] Pulling node-agent image (${NODE_IMAGE})..."
 docker pull "$NODE_IMAGE"
 
-echo "==> [3/3] Starting vpn-node-agent container..."
+echo "==> [4/4] Starting vpn-node-agent container..."
 mkdir -p /opt/vpn-node-agent/data /etc/xray/certs
 
 # If this host was already registered under a *different* bootstrap token,
@@ -99,6 +133,7 @@ fi
 cat <<EOF > /opt/vpn-node-agent/.env
 SERVER_GRPC_URL=${SERVER_GRPC}
 BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN}
+PUBLIC_IP=${PUBLIC_IP}
 AGENT_STATE_PATH=/opt/vpn-node-agent/data/.agent-state.json
 STATS_INTERVAL_MS=15000
 HEARTBEAT_INTERVAL_MS=15000
