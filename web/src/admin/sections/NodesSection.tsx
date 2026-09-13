@@ -4,6 +4,7 @@ import { Column } from 'primereact/column';
 import { Dropdown } from 'primereact/dropdown';
 import { adminApi, AdminNode } from '../adminApi';
 import { AdminT } from '../adminI18n';
+import { copyToClipboard } from '../../utils/clipboard';
 
 const POOLS = ['trial', 'paid', 'quarantine', 'reserve'];
 const STATUSES = ['ONLINE', 'OFFLINE', 'DRAINING', 'MAINTENANCE'];
@@ -264,12 +265,21 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
             >
               {result.token}
             </div>
-            <p className="text-[10px] text-slate-500">
-              scripts/install-node.sh &lt;server_grpc_host:port&gt; {result.token}
-            </p>
+            {/* Repo is private, so `curl` on raw.githubusercontent.com won't work without a
+                token — scp the script from a machine with repo + SSH access, then run it on
+                the new node (see README.md §5). CONTROL_PLANE_GRPC (217.216.79.46:9090) is
+                this same server's gRPC port from docker-compose.yml's GRPC_PORT — known and
+                stable, unlike the new node's own IP, which stays a placeholder here. */}
+            <pre className="p-3 rounded-xl bg-dark-900 border border-dark-700 text-[10px] font-mono whitespace-pre-wrap break-all text-slate-300">
+{`scp scripts/install-node.sh root@<new-node-ip>:/root/install-node.sh
+ssh root@<new-node-ip> "bash /root/install-node.sh 217.216.79.46:9090 ${result.token}"`}
+            </pre>
             <button
               onClick={() => {
-                navigator.clipboard.writeText(result.token);
+                copyToClipboard(
+                  `scp scripts/install-node.sh root@<new-node-ip>:/root/install-node.sh\n` +
+                    `ssh root@<new-node-ip> "bash /root/install-node.sh 217.216.79.46:9090 ${result.token}"`,
+                );
                 setCopied(true);
               }}
               className="w-full py-2 rounded-xl bg-dark-800 hover:bg-dark-700 border border-dark-700 text-xs font-semibold"

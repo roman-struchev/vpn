@@ -17,6 +17,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Lang, translations } from '../i18n';
 import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo } from '../types';
 import { api } from '../api';
+import { copyToClipboard } from '../utils/clipboard';
 
 const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
   LOW: 'bg-emerald-400',
@@ -144,7 +145,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const handleCopyLink = () => {
     if (links.length > 0) {
-      navigator.clipboard.writeText(links[0]);
+      copyToClipboard(links[0]);
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
     }
@@ -161,7 +162,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const referralTelegramLink = user.referralTelegramLink || '';
 
   const handleCopyReferral = () => {
-    navigator.clipboard.writeText(referralWebLink);
+    copyToClipboard(referralWebLink);
     setCopiedReferral(true);
     setTimeout(() => setCopiedReferral(false), 2000);
   };

@@ -66,9 +66,8 @@ cd web && npm install && npm run dev
 
 1. Как ADMIN дёрните `POST /api/v1/admin/nodes/bootstrap-token` — получите
    одноразовый `bootstrap_token`.
-2. Скопируйте на VPS и запустите установщик `scripts/install-node.sh` (репозиторий
-   приватный, см. §5 для точной команды через `scp`/`ssh` и опциональных
-   `[cdn_hostname]`/`[trial_cap_mbps]`).
+2. Запустите на VPS установщик `scripts/install-node.sh` (см. §5 для точной команды
+   через `ssh`/`curl` и опционального `[cdn_hostname]`).
 3. Нода сама подключится по gRPC-стриму и зарегистрируется.
 
 ## 2. Конфигурация сервера
@@ -198,26 +197,33 @@ Google (`POST /api/v1/auth/google` принимает `idToken`, который 
 
 ## 5. Установка ноды в проде
 
-Запускается на чистом сервере (Ubuntu 22.04/24.04, Debian 12) от root. Скрипт ставит
-Docker (если его ещё нет) и поднимает node-агент + `xray-core` одним контейнером
-(`--network host`) из образа `romanew/vpn-node:latest`, который публикует
-`docker-node` job в `.github/workflows/release.yml`, — управляется через
-`systemctl {start,stop,status} vpn-node-agent`, мониторится обычным `docker ps` /
-`docker logs -f vpn-node-agent` / `docker stats`. Скрипт самодостаточен (не требует
-остального репозитория на ноде) — но репозиторий приватный, поэтому `curl` на
-raw.githubusercontent.com не сработает без токена. Проще всего скопировать скрипт
-со своей машины (где уже есть SSH-доступ к ноде) и сразу его выполнить:
+Запускается на чистом сервере (Ubuntu 22.04/24.04, Debian 12) от root, **с уже
+установленным Docker** (скрипт это проверяет и падает с понятной ошибкой, если его
+нет — сам Docker не ставит). Поднимает node-агент + `xray-core` одним контейнером
+(`--network host`, `--restart unless-stopped`) из образа `romanew/vpn-node:latest`,
+который публикует `publish-node` job в `.github/workflows/gradlew-publish-and-deploy.yml`
+на каждый push в `main`. Никакого systemd-юнита для самого агента — управление и
+мониторинг обычным Docker: `docker ps` / `docker logs -f vpn-node-agent` /
+`docker stats vpn-node-agent` / `docker restart|stop vpn-node-agent`.
+
+Репозиторий публичный, поэтому скрипт можно ставить прямо по SSH одной командой
+через `curl` (если репозиторий когда-нибудь снова станет приватным — см. `scp`-вариант
+ниже):
 
 ```bash
 # Прямая Reality-нода:
-scp scripts/install-node.sh root@<node-ip>:/root/install-node.sh
-ssh root@<node-ip> "bash /root/install-node.sh vpn.example.com:9090 bst_abc12345"
+ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345'
 
 # CDN-нода (настоящий TLS вместо Reality, certbot standalone + автопродление):
-ssh root@<node-ip> "bash /root/install-node.sh vpn.example.com:9090 bst_abc12345 edge.example.com"
+ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 edge.example.com'
+```
 
-# Пробная нода с общим потолком канала (tc htb + fq_codel, systemd-юнит на автозапуск):
-ssh root@<node-ip> "bash /root/install-node.sh vpn.example.com:9090 bst_abc12345 \"\" 50"
+Если репозиторий приватный — скопируйте скрипт со своей машины (где уже есть SSH-доступ
+и репозиторий) и выполните его так:
+
+```bash
+scp scripts/install-node.sh root@<node-ip>:/root/install-node.sh
+ssh root@<node-ip> "bash /root/install-node.sh vpn.example.com:9090 bst_abc12345"
 ```
 
 После установки — зарегистрировать ноду в нужном пуле через админ-API

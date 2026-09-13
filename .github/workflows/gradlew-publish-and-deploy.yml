@@ -169,6 +169,26 @@ jobs:
           username: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_PUBLISH_REGISTRY_PASSWORD }}
 
+  publish-node:
+    name: Publish VPN Node/Agent Docker Image
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish to Docker Registry
+        if: env.DOCKER_USER != ''
+        env:
+          DOCKER_USER: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          name: ${{ secrets.DOCKER_NODE_IMAGE_NAME || 'romanew/vpn-node:latest' }}
+          username: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_PUBLISH_REGISTRY_PASSWORD }}
+          workdir: agent
+          dockerfile: Dockerfile
+
   deploy:
     name: Deploy to Server via SSH
     needs: publish
