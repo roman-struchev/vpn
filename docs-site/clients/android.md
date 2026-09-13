@@ -19,7 +19,7 @@
 
 ## 2. Реализация системного туннеля (`VpnService`)
 
-Класс: `com.vpn.android.vpn.NextGenVpnService`.
+Класс: `com.vpn.android.vpn.XrayVpnService`.
 
 Android предоставляет абстракцию `android.net.VpnService` для перехвата исходящих IP-пакетов на уровне сетевого стека ядра Linux:
 

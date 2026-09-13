@@ -26,7 +26,7 @@ HTTP/1.1 200 OK
 Content-Type: text/plain; charset=utf-8
 Subscription-Userinfo: upload=1048576000; download=13237325000; total=107374182400; expire=1791742000
 profile-update-interval: 6
-Content-Disposition: attachment; filename="NextGen-VPN.txt"
+Content-Disposition: attachment; filename="Aura-VPN.txt"
 ```
 
 ### Разбор заголовка `Subscription-Userinfo`:
@@ -43,9 +43,9 @@ Content-Disposition: attachment; filename="NextGen-VPN.txt"
 Тело ответа представляет собой Base64-строку, которая после декодирования содержит актуальные конфигурационные URI для всех активных нод:
 
 ```text
-vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.34:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Z1X5q_a4...&fp=firefox&sni=dl.google.com&sid=a1b2c3d4#NextGen-AMS-01-XHTTP
-vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.34:8443?type=grpc&serviceName=vless-grpc&security=reality&pbk=Z1X5q_a4...&fp=firefox&sni=dl.google.com&sid=a1b2c3d4#NextGen-AMS-01-gRPC-Fallback
-vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@185.12.89.50:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Y8K2...&fp=edge&sni=dl.google.com&sid=e5f60718#NextGen-FRA-01-XHTTP
+vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.34:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Z1X5q_a4...&fp=firefox&sni=dl.google.com&sid=a1b2c3d4#Aura-AMS-01-XHTTP
+vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.34:8443?type=grpc&serviceName=vless-grpc&security=reality&pbk=Z1X5q_a4...&fp=firefox&sni=dl.google.com&sid=a1b2c3d4#Aura-AMS-01-gRPC-Fallback
+vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@185.12.89.50:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Y8K2...&fp=edge&sni=dl.google.com&sid=e5f60718#Aura-FRA-01-XHTTP
 ```
 
 ---

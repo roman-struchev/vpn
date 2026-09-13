@@ -154,8 +154,8 @@ curl -X GET "https://vpn.struchev.site/api/v1/user/profile" \
   "requestedRegion": "nl-ams",
   "requestedRegionAvailable": true,
   "links": [
-    "vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.34:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Z1X...&fp=firefox&sni=dl.google.com&sid=a1b2c3d4#NextGen-AMS-01",
-    "vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.35:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Z1X...&fp=edge&sni=dl.google.com&sid=a1b2c3d4#NextGen-AMS-02"
+    "vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.34:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Z1X...&fp=firefox&sni=dl.google.com&sid=a1b2c3d4#Aura-AMS-01",
+    "vless://9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d@194.87.12.35:443?type=xhttp&path=%2Fapi%2Fv1%2Fstream&host=dl.google.com&security=reality&pbk=Z1X...&fp=edge&sni=dl.google.com&sid=a1b2c3d4#Aura-AMS-02"
   ]
 }
 ```
