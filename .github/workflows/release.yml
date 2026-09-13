@@ -98,7 +98,16 @@ jobs:
               git log --no-merges --pretty='- %s' "$REF" | grep -v '^- release v' || true
             fi
           } > "$RUNNER_TEMP/release-notes.md"
-          gh release create "$TAG" --target "$REF" --draft --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          # --target must be a branch or commit SHA — the API rejects a tag
+          # name there (422 "Release.target_commitish is invalid"). It's only
+          # needed for workflow_dispatch (REF=HEAD, no tag yet); when the tag
+          # already exists (REF="$TAG"), omit it — GitHub creates the release
+          # on that tag's commit on its own.
+          if [ "$REF" = "$TAG" ]; then
+            gh release create "$TAG" --draft --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$TAG" --target "$REF" --draft --title "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi
 
   docker-server:
     name: Build & Push Server Docker Image
@@ -208,7 +217,7 @@ jobs:
         if: env.DOCKER_USER != ''
         uses: docker/build-push-action@v6
         with:
-          context: agent
+          context: .
           file: agent/Dockerfile
           push: true
           tags: ${{ steps.img.outputs.tags }}

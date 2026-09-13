@@ -186,8 +186,7 @@ jobs:
           name: ${{ secrets.DOCKER_NODE_IMAGE_NAME || 'romanew/vpn-node:latest' }}
           username: ${{ secrets.DOCKER_PUBLISH_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_PUBLISH_REGISTRY_PASSWORD }}
-          workdir: agent
-          dockerfile: Dockerfile
+          dockerfile: agent/Dockerfile
 
   deploy:
     name: Deploy to Server via SSH
