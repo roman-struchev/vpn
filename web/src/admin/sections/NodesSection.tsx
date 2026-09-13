@@ -290,18 +290,19 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
             >
               {result.token}
             </div>
-            {/* Repo is public, so the node can pull the script straight from GitHub over
-                SSH — no need to scp it from a machine that has the repo checked out.
+            {/* Repo is public, so the node can pull the script straight from GitHub —
+                no need to scp it from a machine that has the repo checked out. Run
+                this ON the new node itself (already SSH'd in), not from your machine.
                 SERVER_GRPC_URL (217.216.79.46:9090) is this same server's gRPC port
                 from docker-compose.yml's GRPC_PORT — known and stable, unlike the new
-                node's own IP, which stays a placeholder here. */}
+                node's own IP, which isn't needed here at all (no ssh wrapper). */}
             <pre className="p-3 rounded-xl bg-dark-900 border border-dark-700 text-[10px] font-mono whitespace-pre-wrap break-all text-slate-300">
-{`ssh root@<new-node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}'`}
+{`curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}`}
             </pre>
             <button
               onClick={() => {
                 copyToClipboard(
-                  `ssh root@<new-node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}'`,
+                  `curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}`,
                 );
                 setCopied(true);
               }}
