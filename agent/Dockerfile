@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     unzip \
     && curl -fL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip" \
-    && unzip -q /tmp/xray.zip xray -d /usr/local/bin/ \
+    && unzip -q /tmp/xray.zip xray geoip.dat geosite.dat -d /usr/local/bin/ \
     && chmod +x /usr/local/bin/xray \
     && rm -rf /tmp/xray.zip /var/lib/apt/lists/*
 
