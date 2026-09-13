@@ -176,7 +176,7 @@ Google (`POST /api/v1/auth/google` принимает `idToken`, который 
 
 | Переменная | Назначение |
 |---|---|
-| `CONTROL_PLANE_GRPC` | `host:port` сервера (тот же `GRPC_SERVER_PORT`) |
+| `SERVER_GRPC_URL` | `host:port` сервера (тот же `GRPC_SERVER_PORT`) |
 | `BOOTSTRAP_TOKEN` | Одноразовый токен из `POST /api/v1/admin/nodes/bootstrap-token` |
 | `NODE_ID` / `NODE_TOKEN` | Заполняются агентом автоматически после первой успешной регистрации (сохраняются в `.agent-state.json`, путь — `AGENT_STATE_PATH`) |
 | `REGION`, `ASN`, `PUBLIC_IP`, `NODE_HOSTNAME` | Метаданные ноды, показываются в админке |

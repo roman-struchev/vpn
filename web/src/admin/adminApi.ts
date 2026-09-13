@@ -79,6 +79,8 @@ export interface AdminNode {
   memoryTotalBytes: number | null;
   activeConnections: number | null;
   totalBytesServed: number;
+  recentBytesPerSec: number | null;
+  lastTrafficStatsAt: string | null;
   lastHeartbeatAt: string | null;
   createdAt: string;
 }

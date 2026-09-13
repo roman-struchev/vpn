@@ -1,5 +1,6 @@
 package com.vpn.server.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -119,6 +120,7 @@ public class Node {
     public String getRealityPublicKey() { return realityPublicKey; }
     public void setRealityPublicKey(String realityPublicKey) { this.realityPublicKey = realityPublicKey; }
 
+    @JsonIgnore
     public String getRealityPrivateKey() { return realityPrivateKey; }
     public void setRealityPrivateKey(String realityPrivateKey) { this.realityPrivateKey = realityPrivateKey; }
 

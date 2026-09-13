@@ -79,12 +79,29 @@ docker pull "$NODE_IMAGE"
 echo "==> [3/3] Starting vpn-node-agent container..."
 mkdir -p /opt/vpn-node-agent/data /etc/xray/certs
 
+# If this host was already registered under a *different* bootstrap token,
+# treat this run as an intentional re-registration: the agent only ever calls
+# RegisterNode when it has no persisted nodeId/nodeToken (see
+# agent/src/client/grpc-client.ts), so as long as .agent-state.json survives,
+# a fresh bootstrap token passed here would otherwise be silently ignored and
+# the container would just reconnect as the old node identity. The server
+# dedupes by hostname (NodeManagementService#registerNode), so this doesn't
+# create a duplicate node — it updates the same row with whatever pool/type
+# the new token grants. Re-running with the *same* token (e.g. redeploying a
+# newer image) leaves the persisted state alone, so it reconnects as before.
+PREV_TOKEN=""
+[ -f /opt/vpn-node-agent/.env ] && PREV_TOKEN=$(grep -m1 '^BOOTSTRAP_TOKEN=' /opt/vpn-node-agent/.env | cut -d= -f2-)
+if [ -n "$PREV_TOKEN" ] && [ "$PREV_TOKEN" != "$BOOTSTRAP_TOKEN" ]; then
+    echo "==> New bootstrap token — discarding this host's previous node identity so it re-registers."
+    rm -f /opt/vpn-node-agent/data/.agent-state.json
+fi
+
 cat <<EOF > /opt/vpn-node-agent/.env
-CONTROL_PLANE_GRPC=${SERVER_GRPC}
+SERVER_GRPC_URL=${SERVER_GRPC}
 BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN}
 AGENT_STATE_PATH=/opt/vpn-node-agent/data/.agent-state.json
-STATS_INTERVAL_SEC=15
-HEARTBEAT_INTERVAL_SEC=15
+STATS_INTERVAL_MS=15000
+HEARTBEAT_INTERVAL_MS=15000
 EOF
 chmod 600 /opt/vpn-node-agent/.env
 

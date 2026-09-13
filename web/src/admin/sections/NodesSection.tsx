@@ -9,6 +9,19 @@ import { copyToClipboard } from '../../utils/clipboard';
 const POOLS = ['trial', 'paid', 'quarantine', 'reserve'];
 const STATUSES = ['ONLINE', 'OFFLINE', 'DRAINING', 'MAINTENANCE'];
 
+// ~3x the server's default vpn.stats-interval-sec (30s, see NodeManagementService)
+// — past this, recentBytesPerSec is a leftover from before the node went quiet
+// (idle or offline) rather than a real current rate, so it's shown as "—".
+const STATS_STALE_AFTER_MS = 90_000;
+const REFRESH_INTERVAL_MS = 20_000;
+
+function formatNodeSpeed(n: AdminNode): string {
+  if (n.recentBytesPerSec == null || !n.lastTrafficStatsAt) return '—';
+  if (Date.now() - new Date(n.lastTrafficStatsAt).getTime() > STATS_STALE_AFTER_MS) return '—';
+  const mbps = (n.recentBytesPerSec * 8) / 1_000_000;
+  return `${mbps.toFixed(mbps < 10 ? 2 : 1)} Mbps`;
+}
+
 export function NodesSection({ t }: { t: AdminT }) {
   const [nodes, setNodes] = useState<AdminNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -17,16 +30,24 @@ export function NodesSection({ t }: { t: AdminT }) {
   const [showBootstrap, setShowBootstrap] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
 
-  const load = () => {
-    setLoading(true);
+  // silent=true is used for the background poll below: it refreshes live metrics
+  // (speed, CPU, connections...) without flashing the table's loading spinner.
+  const load = (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     adminApi
       .listNodes()
       .then(setNodes)
       .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!opts?.silent) setLoading(false);
+      });
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    const id = setInterval(() => load({ silent: true }), REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
 
   const withBusy = async (id: number, fn: () => Promise<unknown>) => {
     setBusyId(id);
@@ -135,6 +156,10 @@ export function NodesSection({ t }: { t: AdminT }) {
           <Column
             header={<span title={t.connectionsHint} className="cursor-help border-b border-dotted border-slate-600">{t.connections}</span>}
             body={(n: AdminNode) => n.activeConnections ?? 0}
+          />
+          <Column
+            header={<span title={t.speedHint} className="cursor-help border-b border-dotted border-slate-600">{t.speed}</span>}
+            body={formatNodeSpeed}
           />
           <Column
             header={t.trafficServed}
@@ -265,20 +290,18 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
             >
               {result.token}
             </div>
-            {/* Repo is private, so `curl` on raw.githubusercontent.com won't work without a
-                token — scp the script from a machine with repo + SSH access, then run it on
-                the new node (see README.md §5). CONTROL_PLANE_GRPC (217.216.79.46:9090) is
-                this same server's gRPC port from docker-compose.yml's GRPC_PORT — known and
-                stable, unlike the new node's own IP, which stays a placeholder here. */}
+            {/* Repo is public, so the node can pull the script straight from GitHub over
+                SSH — no need to scp it from a machine that has the repo checked out.
+                SERVER_GRPC_URL (217.216.79.46:9090) is this same server's gRPC port
+                from docker-compose.yml's GRPC_PORT — known and stable, unlike the new
+                node's own IP, which stays a placeholder here. */}
             <pre className="p-3 rounded-xl bg-dark-900 border border-dark-700 text-[10px] font-mono whitespace-pre-wrap break-all text-slate-300">
-{`scp scripts/install-node.sh root@<new-node-ip>:/root/install-node.sh
-ssh root@<new-node-ip> "bash /root/install-node.sh 217.216.79.46:9090 ${result.token}"`}
+{`ssh root@<new-node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}'`}
             </pre>
             <button
               onClick={() => {
                 copyToClipboard(
-                  `scp scripts/install-node.sh root@<new-node-ip>:/root/install-node.sh\n` +
-                    `ssh root@<new-node-ip> "bash /root/install-node.sh 217.216.79.46:9090 ${result.token}"`,
+                  `ssh root@<new-node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}'`,
                 );
                 setCopied(true);
               }}

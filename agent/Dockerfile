@@ -31,5 +31,9 @@ COPY --from=builder /app/proto ./proto
 ENV NODE_ENV=production
 ENV XRAY_BIN_PATH=/usr/local/bin/xray
 ENV XRAY_CONFIG_PATH=/etc/xray/config.json
+# config.ts's default (`path.resolve(process.cwd(), '../proto/...')`) assumes
+# proto/ sits next to the agent/ checkout, which is true for local dev but not
+# in this image: proto/ lands as a sibling of dist/ under this same WORKDIR.
+ENV PROTO_PATH=/opt/vpn-node-agent/proto/vpn/agent/v1/agent.proto
 
 CMD ["node", "dist/index.js"]
