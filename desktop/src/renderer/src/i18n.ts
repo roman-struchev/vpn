@@ -76,6 +76,10 @@ const translations = {
     pingMs: 'мс',
     pingChecking: 'пинг…',
     referralStats: 'Приглашено: %s друзей · Заработано: %s USDT',
+
+    serverUnavailableTitle: 'Сервер недоступен',
+    serverUnavailableBody: 'Не удалось связаться с сервером. Проверьте подключение к интернету и попробуйте снова.',
+    retry: 'Повторить',
   },
 
   en: {
@@ -153,6 +157,10 @@ const translations = {
     pingMs: 'ms',
     pingChecking: 'ping…',
     referralStats: 'Invited: %s friends · Earned: %s USDT',
+
+    serverUnavailableTitle: 'Server unavailable',
+    serverUnavailableBody: "Couldn't reach the server. Check your internet connection and try again.",
+    retry: 'Retry',
   },
 } satisfies Record<Lang, Record<string, string>>;
 

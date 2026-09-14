@@ -1,10 +1,26 @@
 import { ipcMain, shell, type BrowserWindow } from 'electron';
-import type { ApiClient } from './api/apiClient';
+import { ApiError, type ApiClient } from './api/apiClient';
 import type { TokenStore } from './api/tokenStore';
 import { runGoogleLoginFlow } from './auth/googleOAuth';
 import { isPublicIpRussian } from './geoLocale';
 import type { VpnController } from './vpn/vpnController';
 import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
+
+// Electron's ipcMain.handle only ever forwards a rejected handler's `message`
+// string to the renderer (not the class/prototype, not any custom properties
+// like ApiError#httpCode) — so a network-level failure (server unreachable)
+// and a real "invalid/expired session" response are otherwise indistinguishable
+// on the renderer side. App.tsx's startup checkAuth() needs to tell them apart
+// (an unreachable server should show "server unavailable", not silently drop
+// straight to the login screen as if the session were merely invalid) — mark
+// network failures with this prefix so it survives the trip.
+export const NETWORK_ERROR_PREFIX = 'NETWORK_ERROR:';
+
+function rethrowTagged(e: unknown): never {
+  if (e instanceof ApiError) throw e; // a real server response — not a connectivity problem
+  const message = e instanceof Error ? e.message : String(e);
+  throw new Error(`${NETWORK_ERROR_PREFIX} ${message}`);
+}
 
 /** All main<->renderer channels in one place; preload/index.ts exposes a matching typed surface. */
 export function registerIpcHandlers(
@@ -20,7 +36,7 @@ export function registerIpcHandlers(
   // No-signup trial flow: the device UUID lives in TokenStore, generated on
   // first call, so the renderer never has to know or manage it.
   ipcMain.handle('auth:deviceLogin', (_e, referralCode?: string) =>
-    apiClient.deviceLogin(apiClient.getOrCreateDeviceUuid(), referralCode)
+    apiClient.deviceLogin(apiClient.getOrCreateDeviceUuid(), referralCode).catch(rethrowTagged)
   );
   ipcMain.handle('auth:upgradeGuest', (_e, email: string, password: string) =>
     apiClient.upgradeGuest(email, password)
@@ -37,7 +53,7 @@ export function registerIpcHandlers(
     await apiClient.logout();
   });
 
-  ipcMain.handle('profile:get', () => apiClient.getProfile());
+  ipcMain.handle('profile:get', () => apiClient.getProfile().catch(rethrowTagged));
 
   ipcMain.handle('regions:list', () => apiClient.getRegions());
   ipcMain.handle('regions:ping', () => apiClient.pingRegions());

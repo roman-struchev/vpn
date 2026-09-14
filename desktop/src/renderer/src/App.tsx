@@ -5,7 +5,18 @@ import ProfilePage from './pages/ProfilePage';
 import { t } from './i18n';
 
 type Tab = 'connect' | 'account';
-type AuthPhase = 'checking' | 'loggedOut' | 'loggedIn';
+type AuthPhase = 'checking' | 'loggedOut' | 'loggedIn' | 'serverUnavailable';
+
+// The main process tags a network-level failure (server unreachable — DNS/
+// connect/timeout) this way before it crosses the IPC boundary, since
+// Electron only ever forwards a rejected handler's `message` string to the
+// renderer, not the original error's class/properties (see ipc.ts). Without
+// this, a server outage was indistinguishable from "no valid session" and
+// silently dropped the user onto the login screen instead of saying what was
+// actually wrong.
+const NETWORK_ERROR_PREFIX = 'NETWORK_ERROR:';
+const isNetworkError = (e: unknown): boolean =>
+  e instanceof Error && e.message.includes(NETWORK_ERROR_PREFIX);
 
 export default function App() {
   const [phase, setPhase] = useState<AuthPhase>('checking');
@@ -20,7 +31,11 @@ export default function App() {
         setIsGuest(profile.isGuest);
         setPhase('loggedIn');
       })
-      .catch(() =>
+      .catch((err) => {
+        if (isNetworkError(err)) {
+          setPhase('serverUnavailable');
+          return;
+        }
         // No valid stored session — silently log this install into its own
         // (auto-created, trial-tariff) device account.
         window.vpnApi
@@ -29,14 +44,30 @@ export default function App() {
             setIsGuest(true);
             setPhase('loggedIn');
           })
-          .catch(() => setPhase('loggedOut'))
-      );
+          .catch((err2) => setPhase(isNetworkError(err2) ? 'serverUnavailable' : 'loggedOut'));
+      });
   };
 
   useEffect(checkAuth, []);
 
   if (phase === 'checking') {
     return <div className="flex h-screen items-center justify-center text-dark-800/60 text-sm">…</div>;
+  }
+
+  if (phase === 'serverUnavailable') {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-3 bg-dark-950 text-white px-8 text-center">
+        <p className="text-sm font-semibold">{t.serverUnavailableTitle}</p>
+        <p className="text-xs text-white/60">{t.serverUnavailableBody}</p>
+        <button
+          type="button"
+          onClick={checkAuth}
+          className="mt-2 rounded-xl bg-brand-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-brand-700"
+        >
+          {t.retry}
+        </button>
+      </div>
+    );
   }
 
   if (phase === 'loggedOut') {
