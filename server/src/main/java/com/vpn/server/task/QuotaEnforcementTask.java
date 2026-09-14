@@ -81,7 +81,24 @@ public class QuotaEnforcementTask {
                     sub.getId(), sub.getUser().getId(), sub.getTrafficUsedBytes(), sub.getTrafficLimitBytes());
         }
 
-        // 3. Mark expired crypto invoices
+        // 3. Revert admin-granted temporary tariff overrides once their window
+        // has passed — restores the real billing tariff and the traffic limit
+        // it had before the override was granted (see AdminController#grantTemporaryTariff).
+        List<Subscription> expiredOverrides = subscriptionRepository.findExpiredTariffOverrides(now);
+        for (Subscription sub : expiredOverrides) {
+            log.info("Temporary tariff override for subscription {} (user {}) expired, reverting {} -> {}",
+                    sub.getId(), sub.getUser().getId(), sub.getOverrideTariff().getId(), sub.getTariff().getId());
+            if (sub.getOverridePreviousTrafficLimitBytes() != null) {
+                sub.setTrafficLimitBytes(sub.getOverridePreviousTrafficLimitBytes());
+            }
+            sub.setOverrideTariff(null);
+            sub.setOverrideExpiresAt(null);
+            sub.setOverridePreviousTrafficLimitBytes(null);
+            subscriptionRepository.save(sub);
+            stateChanged = true;
+        }
+
+        // 4. Mark expired crypto invoices
         List<CryptoInvoice> expiredInvoices = cryptoInvoiceRepository.findByStatusAndExpiresAtBefore("PENDING", now);
         for (CryptoInvoice invoice : expiredInvoices) {
             invoice.setStatus("EXPIRED");
@@ -89,7 +106,7 @@ public class QuotaEnforcementTask {
             log.debug("Crypto invoice {} expired", invoice.getId());
         }
 
-        // 4. Purge invoices that were never paid, long enough ago that
+        // 5. Purge invoices that were never paid, long enough ago that
         // re-showing "where to send" (see billing history UI) is no longer
         // useful — keeps the history list from accumulating dead rows forever.
         Instant staleCutoff = now.minus(STALE_INVOICE_RETENTION_DAYS, ChronoUnit.DAYS);

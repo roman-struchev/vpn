@@ -4,6 +4,7 @@ import com.vpn.server.entity.Device;
 import com.vpn.server.entity.DeviceNodeKey;
 import com.vpn.server.entity.Node;
 import com.vpn.server.entity.Subscription;
+import com.vpn.server.entity.Tariff;
 import com.vpn.server.entity.User;
 import com.vpn.server.grpc.AgentStreamServiceImpl;
 import com.vpn.server.repository.DeviceNodeKeyRepository;
@@ -79,9 +80,10 @@ public class DeviceManagementService {
             throw new IllegalStateException("Subscription has expired");
         }
 
-        int maxDevices = (sub.getTariff() != null && sub.getTariff().getMaxDevices() != null)
-                ? sub.getTariff().getMaxDevices()
-                : resolveMaxDevices(sub.getTariff() != null ? sub.getTariff().getId() : null);
+        Tariff effectiveTariff = sub.getEffectiveTariff();
+        int maxDevices = (effectiveTariff != null && effectiveTariff.getMaxDevices() != null)
+                ? effectiveTariff.getMaxDevices()
+                : resolveMaxDevices(effectiveTariff != null ? effectiveTariff.getId() : null);
         Instant activeSince = Instant.now().minus(DEVICE_ACTIVE_WINDOW_DAYS, ChronoUnit.DAYS);
         long activeCount = deviceRepository.countRecentlyActiveByUserId(userId, activeSince);
 

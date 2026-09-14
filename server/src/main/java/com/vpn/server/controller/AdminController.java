@@ -31,6 +31,7 @@ public class AdminController {
     private final TransportPolicyRepository transportPolicyRepository;
     private final ConnTelemetryRepository connTelemetryRepository;
     private final DeviceRepository deviceRepository;
+    private final TariffRepository tariffRepository;
 
     public AdminController(
             NodeManagementService nodeManagementService,
@@ -43,7 +44,8 @@ public class AdminController {
             BalanceEntryRepository balanceEntryRepository,
             TransportPolicyRepository transportPolicyRepository,
             ConnTelemetryRepository connTelemetryRepository,
-            DeviceRepository deviceRepository
+            DeviceRepository deviceRepository,
+            TariffRepository tariffRepository
     ) {
         this.nodeManagementService = nodeManagementService;
         this.nodeRepository = nodeRepository;
@@ -56,6 +58,7 @@ public class AdminController {
         this.transportPolicyRepository = transportPolicyRepository;
         this.connTelemetryRepository = connTelemetryRepository;
         this.deviceRepository = deviceRepository;
+        this.tariffRepository = tariffRepository;
     }
 
     // ==========================================
@@ -146,13 +149,19 @@ public class AdminController {
             map.put("referralEarningsUsdtMicro", referralEarningsByUser.getOrDefault(u.getId(), 0L));
 
             subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(u.getId(), "ACTIVE")
-                    .ifPresent(s -> map.put("activeSubscription", Map.of(
-                            "id", s.getId(),
-                            "tariffId", s.getTariff().getId(),
-                            "currentPeriodEnd", s.getCurrentPeriodEnd(),
-                            "trafficUsedBytes", s.getTrafficUsedBytes(),
-                            "trafficLimitBytes", s.getTrafficLimitBytes()
-                    )));
+                    .ifPresent(s -> {
+                        Map<String, Object> subMap = new HashMap<>();
+                        subMap.put("id", s.getId());
+                        subMap.put("tariffId", s.getTariff().getId());
+                        subMap.put("currentPeriodEnd", s.getCurrentPeriodEnd());
+                        subMap.put("trafficUsedBytes", s.getTrafficUsedBytes());
+                        subMap.put("trafficLimitBytes", s.getTrafficLimitBytes());
+                        // Present only while an admin-granted temporary tariff is active
+                        // (see grantTemporaryTariff below) — null once it expires/is cancelled.
+                        subMap.put("overrideTariffId", s.getOverrideTariff() != null ? s.getOverrideTariff().getId() : null);
+                        subMap.put("overrideExpiresAt", s.getOverrideExpiresAt());
+                        map.put("activeSubscription", subMap);
+                    });
 
             result.add(map);
         }
@@ -258,6 +267,95 @@ public class AdminController {
                 "newPeriodEnd", newEnd.toString(),
                 "extendedDays", days
         ));
+    }
+
+    /**
+     * Grants a user a different tariff for a fixed number of days without touching
+     * their real billing tariff/auto-renew — e.g. goodwill compensation, a temporary
+     * promo upgrade, or a support courtesy boost. While active, {@link Subscription#getEffectiveTariff()}
+     * (device limit, server pool, paid-plan gating — see DeviceManagementService/
+     * SubscriptionExportService) returns this tariff instead of the real one; the
+     * traffic limit is bumped to match it too, and both revert automatically once
+     * {@code days} pass ({@link QuotaEnforcementTask}'s minutely sweep).
+     * Calling this again while an override is already active replaces it (extends
+     * or changes the granted tariff) without losing the traffic-limit snapshot to
+     * restore to — that snapshot is only taken the first time, from the real value.
+     */
+    @PostMapping("/users/{userId}/subscription/temporary-tariff")
+    @Transactional
+    public ResponseEntity<?> grantTemporaryTariff(
+            @PathVariable Long userId,
+            @RequestBody Map<String, Object> req
+    ) {
+        Object tariffIdObj = req.get("tariffId");
+        if (tariffIdObj == null || tariffIdObj.toString().isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "tariffId is required"));
+        }
+        String tariffId = tariffIdObj.toString();
+
+        int days = 7;
+        Object daysObj = req.get("days");
+        if (daysObj != null) {
+            try {
+                days = Integer.parseInt(daysObj.toString());
+            } catch (NumberFormatException e) {
+                return ResponseEntity.badRequest().body(Map.of("error", "Invalid days format"));
+            }
+        }
+        if (days <= 0) {
+            return ResponseEntity.badRequest().body(Map.of("error", "days must be positive"));
+        }
+
+        Tariff targetTariff = tariffRepository.findById(tariffId).orElse(null);
+        if (targetTariff == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Unknown tariffId: " + tariffId));
+        }
+
+        Optional<Subscription> subOpt = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
+        if (subOpt.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No active subscription found for user"));
+        }
+        Subscription sub = subOpt.get();
+
+        if (sub.getOverrideTariff() == null) {
+            sub.setOverridePreviousTrafficLimitBytes(sub.getTrafficLimitBytes());
+        }
+        sub.setOverrideTariff(targetTariff);
+        Instant expiresAt = Instant.now().plus(days, ChronoUnit.DAYS);
+        sub.setOverrideExpiresAt(expiresAt);
+        sub.setTrafficLimitBytes(targetTariff.getTrafficQuotaBytes());
+        subscriptionRepository.save(sub);
+        agentStreamService.pushConfigSyncToAll();
+
+        return ResponseEntity.ok(Map.of(
+                "subscriptionId", sub.getId(),
+                "overrideTariffId", targetTariff.getId(),
+                "overrideExpiresAt", expiresAt.toString()
+        ));
+    }
+
+    @PostMapping("/users/{userId}/subscription/temporary-tariff/cancel")
+    @Transactional
+    public ResponseEntity<?> cancelTemporaryTariff(@PathVariable Long userId) {
+        Optional<Subscription> subOpt = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
+        if (subOpt.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No active subscription found for user"));
+        }
+        Subscription sub = subOpt.get();
+        if (sub.getOverrideTariff() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "No temporary tariff override is active for this user"));
+        }
+
+        if (sub.getOverridePreviousTrafficLimitBytes() != null) {
+            sub.setTrafficLimitBytes(sub.getOverridePreviousTrafficLimitBytes());
+        }
+        sub.setOverrideTariff(null);
+        sub.setOverrideExpiresAt(null);
+        sub.setOverridePreviousTrafficLimitBytes(null);
+        subscriptionRepository.save(sub);
+        agentStreamService.pushConfigSyncToAll();
+
+        return ResponseEntity.ok(Map.of("subscriptionId", sub.getId(), "cancelled", true));
     }
 
     // ==========================================

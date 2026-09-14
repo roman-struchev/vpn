@@ -71,7 +71,7 @@ class NodeManagementServiceTest {
         token.setAssignedType("direct");
         token.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
 
-        when(tokenRepository.findByTokenAndIsUsedFalse("bt_valid_token")).thenReturn(Optional.of(token));
+        when(tokenRepository.findByToken("bt_valid_token")).thenReturn(Optional.of(token));
         when(nodeRepository.findByHostname("node-nl-01")).thenReturn(Optional.empty());
         when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
             Node n = i.getArgument(0);
@@ -106,7 +106,7 @@ class NodeManagementServiceTest {
         token.setAssignedType("direct");
         token.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
 
-        when(tokenRepository.findByTokenAndIsUsedFalse("bt_valid_token_2")).thenReturn(Optional.of(token));
+        when(tokenRepository.findByToken("bt_valid_token_2")).thenReturn(Optional.of(token));
         when(nodeRepository.findByHostname("node-nl-02")).thenReturn(Optional.empty());
         when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
             Node n = i.getArgument(0);
@@ -140,12 +140,45 @@ class NodeManagementServiceTest {
     }
 
     @Test
+    void testRegisterNodeReusesUnexpiredTokenForASecondNode() {
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_reusable");
+        token.setAssignedPool("paid");
+        token.setAssignedType("direct");
+        token.setExpiresAt(Instant.now().plus(24, ChronoUnit.HOURS));
+
+        when(tokenRepository.findByToken("bt_reusable")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname(anyString())).thenReturn(Optional.empty());
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
+            Node n = i.getArgument(0);
+            n.setId(n.getHostname().equals("node-a") ? 20L : 21L);
+            return n;
+        });
+
+        nodeManagementService.registerNode(RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_reusable")
+                .setHostname("node-a")
+                .setPublicIp("198.51.100.10")
+                .setRegion("nl-ams")
+                .build());
+        nodeManagementService.registerNode(RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_reusable")
+                .setHostname("node-b")
+                .setPublicIp("198.51.100.11")
+                .setRegion("nl-ams")
+                .build());
+
+        assertTrue(token.getIsUsed());
+        assertEquals(2, token.getUseCount());
+    }
+
+    @Test
     void testRegisterNodeExpiredTokenThrows() {
         NodeBootstrapToken token = new NodeBootstrapToken();
         token.setToken("bt_expired");
         token.setExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
 
-        when(tokenRepository.findByTokenAndIsUsedFalse("bt_expired")).thenReturn(Optional.of(token));
+        when(tokenRepository.findByToken("bt_expired")).thenReturn(Optional.of(token));
 
         RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
                 .setBootstrapToken("bt_expired")
@@ -165,7 +198,7 @@ class NodeManagementServiceTest {
         cred.setNode(node);
         cred.setTokenHash(passwordEncoder.encode("secret-raw-token"));
 
-        when(credentialRepository.findByNodeIdAndRevokedAtIsNull(5L)).thenReturn(Optional.of(cred));
+        when(credentialRepository.findAllByNodeIdAndRevokedAtIsNull(5L)).thenReturn(List.of(cred));
 
         assertTrue(nodeManagementService.authenticateNode(5L, "secret-raw-token"));
         assertFalse(nodeManagementService.authenticateNode(5L, "wrong-token"));

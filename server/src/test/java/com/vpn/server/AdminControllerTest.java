@@ -61,6 +61,9 @@ class AdminControllerTest {
     @Mock
     private DeviceRepository deviceRepository;
 
+    @Mock
+    private TariffRepository tariffRepository;
+
     private AdminController adminController;
 
     @BeforeEach
@@ -76,7 +79,8 @@ class AdminControllerTest {
                 balanceEntryRepository,
                 transportPolicyRepository,
                 connTelemetryRepository,
-                deviceRepository
+                deviceRepository,
+                tariffRepository
         );
     }
 

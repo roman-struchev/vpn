@@ -8,5 +8,7 @@ import java.util.Optional;
 
 @Repository
 public interface NodeBootstrapTokenRepository extends JpaRepository<NodeBootstrapToken, Long> {
-    Optional<NodeBootstrapToken> findByTokenAndIsUsedFalse(String token);
+    // Multi-use within the token's validity window (see registerNode) — the
+    // expiry check there is what actually gates redemption now, not isUsed.
+    Optional<NodeBootstrapToken> findByToken(String token);
 }

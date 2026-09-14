@@ -20,6 +20,10 @@ public class NodeBootstrapToken {
     @Column(name = "assigned_type", nullable = false, length = 32)
     private String assignedType = "direct";
 
+    // No longer an exclusivity gate (see registerNode) — "has this token ever
+    // been used" plus usedAt/usedByNode as "most recent use", both for admin
+    // visibility. useCount is the source of truth for how many times it's
+    // actually been redeemed.
     @Column(name = "is_used", nullable = false)
     private Boolean isUsed = false;
 
@@ -29,6 +33,9 @@ public class NodeBootstrapToken {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "used_by_node_id")
     private Node usedByNode;
+
+    @Column(name = "use_count", nullable = false)
+    private Integer useCount = 0;
 
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
@@ -58,6 +65,9 @@ public class NodeBootstrapToken {
 
     public Node getUsedByNode() { return usedByNode; }
     public void setUsedByNode(Node usedByNode) { this.usedByNode = usedByNode; }
+
+    public Integer getUseCount() { return useCount; }
+    public void setUseCount(Integer useCount) { this.useCount = useCount; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }

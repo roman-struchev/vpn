@@ -310,6 +310,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(25L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(25L);
 
@@ -326,10 +327,103 @@ class SubscriptionExportServiceTest {
         // Neither node reports throughput/memory, so loadLevelFor's weighting
         // renormalizes onto CPU alone — same result as the pre-blend formula.
         assertEquals("LOW", ams.loadLevel());
+        // Both regions are in the "pro" tariff's own pool ("paid"), so both
+        // should read as accessible to this caller.
+        assertTrue(ams.accessible());
 
         assertEquals(1, lax.nodeCount());
         assertEquals(90.0, lax.avgCpuPercent());
         assertEquals("HIGH", lax.loadLevel());
+        assertTrue(lax.accessible());
+    }
+
+    @Test
+    void testGetAvailableRegionsMarksOtherPoolRegionsInaccessibleButStillLists() {
+        // The reported bug: a trial user's region picker only ever showed paid-pool
+        // regions (hardcoded), so their own reachable trial region was invisible,
+        // while an unreachable paid region looked pickable — picking it then
+        // silently fell back to the real (trial) node with a vague "unavailable"
+        // message. getAvailableRegions must now list every online region regardless
+        // of pool, and flag which ones the caller's own tariff can actually reach.
+        User user = new User();
+        user.setId(33L);
+
+        Tariff trial = new Tariff();
+        trial.setId("trial");
+        trial.setServerPool("trial");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(trial);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node trialNode = new Node();
+        trialNode.setId(13L);
+        trialNode.setRegion("in-mumbai");
+        trialNode.setStatus("ONLINE");
+        trialNode.setPool("trial");
+        trialNode.setActiveConnections(1);
+
+        Node paidNode = new Node();
+        paidNode.setId(14L);
+        paidNode.setRegion("fi-hel");
+        paidNode.setStatus("ONLINE");
+        paidNode.setPool("paid");
+        paidNode.setActiveConnections(0);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(33L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("trial", "ONLINE")).thenReturn(List.of(trialNode));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(trialNode, paidNode));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(33L);
+
+        assertEquals(2, regions.size());
+        SubscriptionExportService.RegionSummary mumbai = regions.stream()
+                .filter(r -> r.region().equals("in-mumbai")).findFirst().orElseThrow();
+        SubscriptionExportService.RegionSummary helsinki = regions.stream()
+                .filter(r -> r.region().equals("fi-hel")).findFirst().orElseThrow();
+
+        assertTrue(mumbai.accessible());
+        assertFalse(helsinki.accessible());
+    }
+
+    @Test
+    void testGetAvailableRegionsEverythingAccessibleWhenOwnPoolHasNoCapacity() {
+        // Mirrors exportVlessLinks' real fallback: if the caller's own pool has
+        // zero ONLINE nodes anywhere, exportVlessLinks transparently serves any
+        // ONLINE node — so every region must read as accessible in that edge case
+        // too, not just the caller's usual pool.
+        User user = new User();
+        user.setId(34L);
+
+        Tariff trial = new Tariff();
+        trial.setId("trial");
+        trial.setServerPool("trial");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(trial);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node paidNode = new Node();
+        paidNode.setId(15L);
+        paidNode.setRegion("fi-hel");
+        paidNode.setStatus("ONLINE");
+        paidNode.setPool("paid");
+        paidNode.setActiveConnections(0);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(34L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolAndStatus("trial", "ONLINE")).thenReturn(List.of());
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(paidNode));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(34L);
+
+        assertEquals(1, regions.size());
+        assertTrue(regions.get(0).accessible());
     }
 
     @Test
@@ -368,6 +462,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(27L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(idleButCpuHigh));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(idleButCpuHigh));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(27L);
 
@@ -410,6 +505,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(29L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(wentIdle));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(wentIdle));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(29L);
 
@@ -451,6 +547,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(31L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(saturated));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(saturated));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(31L);
 
@@ -491,6 +588,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(32L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(lowCpuHighMemory));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(lowCpuHighMemory));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(32L);
 

@@ -100,18 +100,26 @@ public class SubscriptionExportService {
             long avgActiveConnections,
             Double avgBytesPerSec,
             Double avgMemoryPercent,
-            String loadLevel
+            String loadLevel,
+            // Whether the caller's own subscription can actually connect through this
+            // region right now — see getAvailableRegions. false does NOT mean "hide
+            // this row": paid regions are deliberately still listed to a trial user
+            // (so a lower tier can see, and be upsold on, what a higher plan
+            // unlocks) — a client greys these out / disables picking them instead of
+            // removing them, rather than reporting a misleading "temporarily
+            // unavailable" the way silently connecting elsewhere used to.
+            boolean accessible
     ) {}
 
     /**
-     * Lists every region that currently has at least one ONLINE node reachable
-     * by this user's subscription (same pool-selection rule as
-     * {@link #exportVlessLinksForOwnApp(Long)}: "paid" pool, falling back to any
-     * ONLINE node if that pool is empty), with a rough per-region load indicator
-     * so a client can show "pick a less-congested region" without exposing any
-     * node-level identity (hostname/IP already only ever appears inside a vless
-     * link, never here). Not a precise capacity/load-balancing model — see
-     * {@link #loadLevelFor} — just enough for a user to glance and compare.
+     * Lists every region that currently has at least one ONLINE node, regardless
+     * of pool — including ones the caller's own plan can't reach, so a trial
+     * user still sees paid regions exist (see {@link RegionSummary#accessible}
+     * doc) — with a rough per-region load indicator so a client can show "pick a
+     * less-congested region" without exposing any node-level identity (hostname/
+     * IP already only ever appears inside a vless link, never here). Not a
+     * precise capacity/load-balancing model — see {@link #loadLevelFor} — just
+     * enough for a user to glance and compare.
      */
     @Transactional(readOnly = true)
     public List<RegionSummary> getAvailableRegions(Long userId) {
@@ -124,10 +132,19 @@ public class SubscriptionExportService {
             throw new IllegalStateException("Subscription has expired");
         }
 
-        List<Node> activeNodes = nodeRepository.findByPoolAndStatus("paid", "ONLINE");
-        if (activeNodes.isEmpty()) {
-            activeNodes = nodeRepository.findByStatus("ONLINE");
-        }
+        Tariff effectiveTariff = sub.getEffectiveTariff();
+        String targetPool = (effectiveTariff != null && effectiveTariff.getServerPool() != null)
+                ? effectiveTariff.getServerPool()
+                : "paid";
+
+        // Mirrors exportVlessLinks' real selection rule: normally restricted to
+        // the caller's own pool, but if that whole pool has no ONLINE node
+        // anywhere right now, exportVlessLinks transparently serves any ONLINE
+        // node instead — so in that edge case every region is actually reachable
+        // too, not just the caller's usual pool.
+        boolean ownPoolHasCapacity = !nodeRepository.findByPoolAndStatus(targetPool, "ONLINE").isEmpty();
+
+        List<Node> activeNodes = nodeRepository.findByStatus("ONLINE");
 
         Map<String, List<Node>> byRegion = activeNodes.stream()
                 .filter(n -> n.getRegion() != null && !n.getRegion().isBlank())
@@ -160,9 +177,13 @@ public class SubscriptionExportService {
                     .average();
             Double avgMemoryPercent = avgMemoryPercentOpt.isPresent() ? round1(avgMemoryPercentOpt.getAsDouble()) : null;
 
+            boolean accessible = !ownPoolHasCapacity
+                    || nodes.stream().anyMatch(n -> targetPool.equalsIgnoreCase(n.getPool()));
+
             summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
                     avgBytesPerSec, avgMemoryPercent,
-                    loadLevelFor(avgCpu, avgConnections, avgBytesPerSec, avgMemoryPercent)));
+                    loadLevelFor(avgCpu, avgConnections, avgBytesPerSec, avgMemoryPercent),
+                    accessible));
         }
         summaries.sort(Comparator.comparing(RegionSummary::region));
         return summaries;
@@ -283,7 +304,9 @@ public class SubscriptionExportService {
             throw new IllegalStateException("Account is suspended or blocked");
         }
 
-        if (restrictToPaidPlans && "trial".equalsIgnoreCase(sub.getTariff().getId())) {
+        Tariff effectiveTariff = sub.getEffectiveTariff();
+
+        if (restrictToPaidPlans && "trial".equalsIgnoreCase(effectiveTariff.getId())) {
             throw new IllegalStateException("Subscription link export is available for paid plans only");
         }
 
@@ -305,8 +328,8 @@ public class SubscriptionExportService {
         }
 
         Device primaryDevice = devices.get(0);
-        String targetPool = (sub.getTariff() != null && sub.getTariff().getServerPool() != null)
-                ? sub.getTariff().getServerPool()
+        String targetPool = (effectiveTariff != null && effectiveTariff.getServerPool() != null)
+                ? effectiveTariff.getServerPool()
                 : "paid";
         List<Node> activeNodes = nodeRepository.findByPoolAndStatus(targetPool, "ONLINE");
         if (activeNodes.isEmpty()) {

@@ -65,7 +65,7 @@ cd web && npm install && npm run dev
 ### Регистрация первой ноды
 
 1. Как ADMIN дёрните `POST /api/v1/admin/nodes/bootstrap-token` — получите
-   одноразовый `bootstrap_token`.
+   `bootstrap_token` (действует многократно, пока не истёк `validHours`).
 2. Запустите на VPS установщик `scripts/install-node.sh` (см. §5 для точной команды
    через `ssh`/`curl` и опционального `[cdn_hostname]`).
 3. Нода сама подключится по gRPC-стриму и зарегистрируется.

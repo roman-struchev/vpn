@@ -22,6 +22,9 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     @Query("SELECT s FROM Subscription s WHERE s.status = 'ACTIVE' AND s.trafficUsedBytes >= s.trafficLimitBytes")
     List<Subscription> findQuotaExceededSubscriptions();
 
+    @Query("SELECT s FROM Subscription s WHERE s.overrideTariff IS NOT NULL AND s.overrideExpiresAt <= :now")
+    List<Subscription> findExpiredTariffOverrides(@Param("now") Instant now);
+
     long countByStatus(String status);
 
     @Query("SELECT COALESCE(SUM(s.trafficUsedBytes), 0) FROM Subscription s")

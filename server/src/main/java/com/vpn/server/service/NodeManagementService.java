@@ -82,8 +82,11 @@ public class NodeManagementService {
     public RegisterNodeResponse registerNode(RegisterNodeRequest request) {
         log.info("Node registration attempt for hostname: {}, publicIp: {}", request.getHostname(), request.getPublicIp());
 
-        NodeBootstrapToken bootstrapToken = tokenRepository.findByTokenAndIsUsedFalse(request.getBootstrapToken())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid or already used bootstrap token"));
+        // Reusable within its validity window (ops provisioning several VPS off
+        // one token) — expiresAt is the only real gate now, isUsed/usedAt/
+        // usedByNode/useCount are updated below purely for admin visibility.
+        NodeBootstrapToken bootstrapToken = tokenRepository.findByToken(request.getBootstrapToken())
+                .orElseThrow(() -> new IllegalArgumentException("Invalid bootstrap token"));
 
         if (bootstrapToken.getExpiresAt().isBefore(Instant.now())) {
             throw new IllegalArgumentException("Bootstrap token has expired");
@@ -108,6 +111,7 @@ public class NodeManagementService {
         bootstrapToken.setIsUsed(true);
         bootstrapToken.setUsedAt(Instant.now());
         bootstrapToken.setUsedByNode(node);
+        bootstrapToken.setUseCount(bootstrapToken.getUseCount() + 1);
         tokenRepository.save(bootstrapToken);
 
         // Revoke any credential(s) left over from a previous registration of this
