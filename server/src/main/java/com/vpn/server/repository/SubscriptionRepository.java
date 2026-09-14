@@ -16,7 +16,13 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     List<Subscription> findByUserId(Long userId);
     boolean existsByUserIdAndTariffId(Long userId, String tariffId);
     
-    @Query("SELECT s FROM Subscription s WHERE s.status = 'ACTIVE' AND s.currentPeriodEnd < :now")
+    // Excludes a subscription still covered by an active admin-granted
+    // temporary tariff (see Subscription#isExpired) — otherwise a user given
+    // e.g. 30 days of Pro as compensation would get flipped to EXPIRED (and
+    // lose all access) the moment their *real* trial/billing period ends,
+    // regardless of how much override time was left.
+    @Query("SELECT s FROM Subscription s WHERE s.status = 'ACTIVE' AND s.currentPeriodEnd < :now "
+            + "AND (s.overrideExpiresAt IS NULL OR s.overrideExpiresAt < :now)")
     List<Subscription> findExpiredSubscriptions(@Param("now") Instant now);
 
     @Query("SELECT s FROM Subscription s WHERE s.status = 'ACTIVE' AND s.trafficUsedBytes >= s.trafficLimitBytes")

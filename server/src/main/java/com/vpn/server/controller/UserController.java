@@ -133,10 +133,10 @@ public class UserController {
         response.put("hasUsedTrial", subscriptionRepository.existsByUserIdAndTariffId(userId, "trial"));
         response.put("subscription", sub.map(s -> Map.of(
                 "id", s.getId(),
-                "tariffId", s.getTariff().getId(),
+                "tariffId", s.getEffectiveTariff().getId(),
                 "trafficUsedBytes", s.getTrafficUsedBytes(),
                 "trafficLimitBytes", s.getTrafficLimitBytes(),
-                "expiresAt", s.getCurrentPeriodEnd().toString()
+                "expiresAt", s.getEffectiveExpiresAt().toString()
         )).orElse(null));
 
         return ResponseEntity.ok(response);

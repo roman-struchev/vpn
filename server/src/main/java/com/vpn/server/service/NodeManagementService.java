@@ -287,7 +287,7 @@ public class NodeManagementService {
             // BLOCKED user with an unexpired subscription kept working VLESS keys.
             boolean hasActiveSub = "ACTIVE".equalsIgnoreCase(user.getStatus())
                     && subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE")
-                            .map(sub -> sub.getTrafficUsedBytes() < sub.getTrafficLimitBytes() && sub.getCurrentPeriodEnd().isAfter(Instant.now()))
+                            .map(sub -> sub.getTrafficUsedBytes() < sub.getTrafficLimitBytes() && !sub.isExpired())
                             .orElse(false);
 
             clients.add(ClientConfig.newBuilder()

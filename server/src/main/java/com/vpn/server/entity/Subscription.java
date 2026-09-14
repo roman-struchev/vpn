@@ -115,6 +115,37 @@ public class Subscription {
         return tariff;
     }
 
+    /**
+     * Whether neither the real billing period nor an active admin-granted
+     * override still covers "now" — an active override keeps access alive
+     * past the real currentPeriodEnd (e.g. a temporary tariff grant meant to
+     * outlast a trial's real period), so this must never be replaced with a
+     * bare {@code currentPeriodEnd.isBefore(now)} check. Used both for
+     * per-request access checks (SubscriptionExportService,
+     * DeviceManagementService, TelegramBotService) and by
+     * QuotaEnforcementTask to decide whether to flip status to EXPIRED.
+     */
+    public boolean isExpired() {
+        Instant now = Instant.now();
+        if (overrideTariff != null && overrideExpiresAt != null && overrideExpiresAt.isAfter(now)) {
+            return false;
+        }
+        return currentPeriodEnd.isBefore(now);
+    }
+
+    /**
+     * When to actually tell the user their access ends — the real
+     * currentPeriodEnd, except while an active override outlasts it (an
+     * override is meant to extend access, never to cut a still-running real
+     * period short, so this is a max, not a plain override).
+     */
+    public Instant getEffectiveExpiresAt() {
+        if (overrideTariff != null && overrideExpiresAt != null && overrideExpiresAt.isAfter(currentPeriodEnd)) {
+            return overrideExpiresAt;
+        }
+        return currentPeriodEnd;
+    }
+
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 

@@ -128,7 +128,7 @@ public class SubscriptionExportService {
         if (!"ACTIVE".equals(sub.getUser().getStatus())) {
             throw new IllegalStateException("Account is suspended or blocked");
         }
-        if (sub.getCurrentPeriodEnd().isBefore(Instant.now())) {
+        if (sub.isExpired()) {
             throw new IllegalStateException("Subscription has expired");
         }
 
@@ -310,7 +310,7 @@ public class SubscriptionExportService {
             throw new IllegalStateException("Subscription link export is available for paid plans only");
         }
 
-        if (sub.getCurrentPeriodEnd().isBefore(Instant.now())) {
+        if (sub.isExpired()) {
             throw new IllegalStateException("Subscription has expired");
         }
 

@@ -76,7 +76,7 @@ public class DeviceManagementService {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription required to add a device"));
 
-        if (sub.getCurrentPeriodEnd().isBefore(Instant.now())) {
+        if (sub.isExpired()) {
             throw new IllegalStateException("Subscription has expired");
         }
 

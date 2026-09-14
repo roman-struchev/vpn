@@ -389,7 +389,7 @@ public class TelegramBotService {
     private void sendVpnStatus(long chatId, User user) {
         Optional<Subscription> subOpt = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE");
 
-        if (subOpt.isEmpty() || subOpt.get().getCurrentPeriodEnd().isBefore(Instant.now())) {
+        if (subOpt.isEmpty() || subOpt.get().isExpired()) {
             String text = "⚠️ <b>У вас нет активной подписки</b>\n\n" +
                     "Пополните баланс в меню /balance или перейдите в веб-кабинет для выбора тарифа.";
             sendTextMessage(chatId, text, null);
@@ -408,8 +408,8 @@ public class TelegramBotService {
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append("🛡 <b>Ваша подписка: ").append(sub.getTariff().getName()).append("</b>\n\n");
-        sb.append("⏳ Действует до: <b>").append(sub.getCurrentPeriodEnd()).append("</b>\n");
+        sb.append("🛡 <b>Ваша подписка: ").append(sub.getEffectiveTariff().getName()).append("</b>\n\n");
+        sb.append("⏳ Действует до: <b>").append(sub.getEffectiveExpiresAt()).append("</b>\n");
         sb.append(String.format("📊 Трафик: <b>%.2f / %.0f GB</b>\n\n", usedGb, limitGb));
 
         if (!links.isEmpty()) {
