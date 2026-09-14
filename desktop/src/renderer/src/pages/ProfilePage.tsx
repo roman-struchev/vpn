@@ -97,20 +97,18 @@ export default function ProfilePage({
     <div className="flex flex-col gap-4 px-6 py-5">
       {/* Profile & Subscription Info */}
       <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-sm font-semibold text-white">{profile?.email ?? '—'}</h1>
-            <p className="mt-0.5 text-xs text-white/50">
-              {t.balance}: <span className="font-medium text-white/80">{profile ? (profile.balanceUsdtMicro / 1_000_000).toFixed(2) : '—'} USDT</span>
-            </p>
-          </div>
-          <button
-            className="rounded-xl border border-dark-750 bg-dark-800 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-dark-750 transition-colors"
-            onClick={() => void openBilling()}
-          >
-            {t.manageBilling}
-          </button>
+        <div className="min-w-0">
+          <h1 className="text-sm font-semibold text-white truncate">{profile?.email ?? '—'}</h1>
+          <p className="mt-0.5 text-xs text-white/50">
+            {t.balance}: <span className="font-medium text-white/80">{profile ? (profile.balanceUsdtMicro / 1_000_000).toFixed(2) : '—'} USDT</span>
+          </p>
         </div>
+        <button
+          className="mt-3 w-full rounded-xl border border-dark-750 bg-dark-800 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-dark-750 transition-colors"
+          onClick={() => void openBilling()}
+        >
+          {t.manageBilling}
+        </button>
         {billingError && <p className="mt-2 text-xs text-state-error">{billingError}</p>}
       </div>
 

@@ -27,6 +27,15 @@ interface StoredAuth {
    * start on the trial tariff without registration — see ApiClient#deviceLogin.
    */
   deviceUuid?: string;
+  /**
+   * Whether this install's public IP geolocated to Russia the first time it
+   * was ever checked (before the VPN could have connected and changed the
+   * apparent exit IP) — see main/geoLocale.ts. Undefined means "not checked
+   * yet, or the one check we tried failed/timed out" (deliberately left
+   * uncached on failure so a flaky first launch gets retried, unlike the
+   * fields above which cache unconditionally).
+   */
+  originalIpIsRussia?: boolean;
 }
 
 /**
@@ -117,6 +126,17 @@ export class TokenStore {
     return deviceUuid;
   }
 
+  /** Undefined = not yet successfully checked — caller should run the geo-IP lookup. */
+  getOriginalIpIsRussia(): boolean | undefined {
+    return this.load()?.originalIpIsRussia;
+  }
+
+  /** Works even before any login, like getOrCreateDeviceUuid — this is a per-install fact, not per-session. */
+  saveOriginalIpIsRussia(isRussia: boolean): void {
+    const current = this.load();
+    this.writePayload({ ...current, originalIpIsRussia: isRussia });
+  }
+
   /**
    * Clears the session (token/userId/deviceId) but deliberately keeps
    * deviceUuid/selectedRegion — same per-install fields save() already
@@ -129,6 +149,10 @@ export class TokenStore {
    */
   clear(): void {
     const current = this.load();
-    this.writePayload({ deviceUuid: current?.deviceUuid, selectedRegion: current?.selectedRegion });
+    this.writePayload({
+      deviceUuid: current?.deviceUuid,
+      selectedRegion: current?.selectedRegion,
+      originalIpIsRussia: current?.originalIpIsRussia,
+    });
   }
 }

@@ -4,7 +4,9 @@ import { parseVlessUri } from '../../shared/vlessUri';
 import { pingTcp } from '../vpn/pingUtil';
 import type { TokenStore } from './tokenStore';
 
-const DEFAULT_BASE_URL = 'https://vpn.struchev.site/';
+// Temporarily pointed at the test server (217.216.79.46:8080) instead of the
+// vpn.struchev.site production domain — switch back once that's live again.
+const DEFAULT_BASE_URL = 'http://217.216.79.46:8080/';
 const DEV_DEFAULT_BASE_URL = 'http://localhost:8080/';
 
 export interface AuthResponse {
@@ -58,6 +60,13 @@ export interface RegionInfo {
   avgCpuPercent: number | null;
   avgActiveConnections: number;
   loadLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  // Whether the caller's own subscription can actually connect through this
+  // region right now (see SubscriptionExportService.RegionSummary#accessible
+  // on the server) — false does NOT mean hidden: paid regions are still
+  // listed to a trial user so they can see what a higher plan unlocks, the
+  // client just has to grey those out / block picking them instead of
+  // reporting a misleading "temporarily unavailable" after the fact.
+  accessible: boolean;
 }
 
 export interface SubscriptionLinksResponse {

@@ -10,7 +10,7 @@ import { ConnectionStateMachine } from '../../shared/connectionState';
 import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnectBackoffPolicy';
 import { TransportFallbackPolicy, type Transport } from '../../shared/transportFallbackPolicy';
 import { parseVlessUri, type ParsedVlessUri } from '../../shared/vlessUri';
-import { buildXrayConfig, HTTP_PORT, type GrpcFallback } from '../../shared/xrayConfigFactory';
+import { buildXrayConfig, HTTP_PORT, type GrpcFallback, type RussianRoutingMode } from '../../shared/xrayConfigFactory';
 
 export interface VpnControllerEvents {
   state: [ConnectionState];
@@ -38,7 +38,9 @@ export class VpnController extends EventEmitter {
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
   private retryTimer: NodeJS.Timeout | null = null;
-  private bypassRussianTraffic: boolean = true;
+  // Default preserves the old always-on bypass-RU behavior for anyone who
+  // never touches the new control.
+  private russianRoutingMode: RussianRoutingMode = 'bypassRu';
 
   constructor(
     private readonly apiClient: ApiClient,
@@ -51,12 +53,12 @@ export class VpnController extends EventEmitter {
     return this.stateMachine.getState();
   }
 
-  getBypassRussianTraffic(): boolean {
-    return this.bypassRussianTraffic;
+  getRussianRoutingMode(): RussianRoutingMode {
+    return this.russianRoutingMode;
   }
 
-  setBypassRussianTraffic(enabled: boolean): void {
-    this.bypassRussianTraffic = enabled;
+  setRussianRoutingMode(mode: RussianRoutingMode): void {
+    this.russianRoutingMode = mode;
   }
 
   async checkLiveness(): Promise<void> {
@@ -85,7 +87,7 @@ export class VpnController extends EventEmitter {
       // fix that only ever got registered *after* a tunnel came up.
       await this.registerOrTouchDevice();
 
-      const preferredRegion = this.apiClient.getSelectedRegion();
+      const preferredRegion = await this.resolvePreferredRegion();
       const [policy, linksResp] = await Promise.all([
         this.apiClient.getRoutingConfig(null, null),
         this.apiClient.getSubscriptionLinks(preferredRegion),
@@ -141,6 +143,31 @@ export class VpnController extends EventEmitter {
     }
   }
 
+  /**
+   * Normally just the user's manually-pinned region (or null = auto). In
+   * 'onlyRu' mode with no manual pin, prefer a Russia-located node instead —
+   * required for RU-geo-restricted sites to actually work through the tunnel;
+   * a non-Russian exit is useless for that regardless of the routing rules.
+   * Falls back to the manual/no preference if no Russian node is currently
+   * online — surfaced to the user via the region list's own accessibility
+   * info in the renderer, not silently pretended to work here.
+   */
+  private async resolvePreferredRegion(): Promise<string | null> {
+    const manualRegion = this.apiClient.getSelectedRegion();
+    if (this.russianRoutingMode !== 'onlyRu' || manualRegion) {
+      return manualRegion;
+    }
+    try {
+      const regions = await this.apiClient.getRegions();
+      const ruRegion = regions.find((r) => r.accessible && /russia/i.test(r.region));
+      if (ruRegion) return ruRegion.region;
+      console.warn('RU-only routing mode is active but no Russian-region node is currently online; connecting without a region preference.');
+    } catch (e) {
+      console.warn('Failed to look up a Russian-region node for RU-only routing mode', e);
+    }
+    return manualRegion;
+  }
+
   async disconnect(): Promise<void> {
     this.stopping = true;
     if (this.retryTimer) {
@@ -172,7 +199,7 @@ export class VpnController extends EventEmitter {
         this.backoff.getFingerprint(),
         transport,
         this.grpcByHost.get(vless.host),
-        { bypassRussianTraffic: this.bypassRussianTraffic }
+        { russianRoutingMode: this.russianRoutingMode }
       );
       this.xrayProcess.start(config, (code, signal) => this.onXrayExit(code, signal));
 

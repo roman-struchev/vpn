@@ -39,7 +39,8 @@ Server endpoints consumed (see `server/src/main/java/com/vpn/server/controller`)
 `GET /api/v1/client/config` (transport policy: fingerprint, backoff timing, node list),
 `POST /api/v1/client/telemetry` (failure and connect time telemetry).
 
-`BuildConfig.API_BASE_URL` defaults to the production server (`https://vpn.struchev.site/`);
+`BuildConfig.API_BASE_URL` defaults to `http://217.216.79.46:8080/` (temporarily
+pointed at the test server instead of the `vpn.struchev.site` production domain);
 override per environment with `-PapiBaseUrl=https://...`. Phase 10: comma-separated
 backup domains, tried in order on a network-level (not HTTP-error) failure —
 `-PapiBaseUrlsBackup=https://api-backup1.example/,https://api-backup2.example/`

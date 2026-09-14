@@ -34,6 +34,9 @@ export interface RegionInfo {
   avgCpuPercent: number | null;
   avgActiveConnections: number;
   loadLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  // false = requires a higher plan than the account currently has — still
+  // shown in the picker (not removed) but not selectable, see ConnectPage.
+  accessible: boolean;
 }
 
 export interface DeviceDto {

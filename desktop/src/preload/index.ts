@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { ConnectionState } from '../shared/connectionState';
+import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
 
 const vpnApi = {
   platform: process.platform,
@@ -25,8 +26,18 @@ const vpnApi = {
   getSelectedRegion: (): Promise<string | null> => ipcRenderer.invoke('region:get'),
   setSelectedRegion: (region: string | null) => ipcRenderer.invoke('region:set', region),
 
-  getBypassRussianTraffic: (): Promise<boolean> => ipcRenderer.invoke('vpn:getBypassRu'),
-  setBypassRussianTraffic: (enabled: boolean): Promise<void> => ipcRenderer.invoke('vpn:setBypassRu', enabled),
+  /**
+   * 'off': no RU-specific routing. 'bypassRu': RU sites go direct, everything
+   * else through the tunnel (for a user physically in Russia). 'onlyRu': the
+   * reverse — RU sites go through the tunnel (ideally via a Russia-located
+   * node), everything else direct (for a Russian speaker outside Russia who
+   * needs RU-geo-restricted sites specifically).
+   */
+  getRussianRoutingMode: (): Promise<RussianRoutingMode> => ipcRenderer.invoke('vpn:getRussianRoutingMode'),
+  setRussianRoutingMode: (mode: RussianRoutingMode): Promise<void> =>
+    ipcRenderer.invoke('vpn:setRussianRoutingMode', mode),
+  /** True if this install's public IP was Russian the first time it was ever checked, pre-VPN — see main/geoLocale.ts. */
+  getOriginalIpIsRussia: (): Promise<boolean> => ipcRenderer.invoke('locale:originalIpIsRussia'),
 
   listDevices: () => ipcRenderer.invoke('devices:list'),
   deleteDevice: (deviceId: number) => ipcRenderer.invoke('devices:delete', deviceId),

@@ -98,7 +98,7 @@ app.whenReady().then(() => {
 
   vpnController = new VpnController(apiClient, systemProxyManager);
 
-  registerIpcHandlers(mainWindow, apiClient, vpnController);
+  registerIpcHandlers(mainWindow, apiClient, vpnController, tokenStore);
   initAutoUpdater();
   trayHandle = createAppTray(vpnController, showMainWindow);
 

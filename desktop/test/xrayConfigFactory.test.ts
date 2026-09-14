@@ -62,13 +62,30 @@ describe('buildXrayConfig', () => {
     expect(() => buildXrayConfig(uri, 'firefox', 'GRPC')).toThrow();
   });
 
-  it('includes direct routing rules for RU domains and IPs when bypassRussianTraffic is enabled', () => {
+  it('includes direct routing rules for RU domains and IPs in bypassRu mode', () => {
     const uri = parseVlessUri(LINK);
-    const config = buildXrayConfig(uri, 'firefox', 'XHTTP', undefined, { bypassRussianTraffic: true }) as any;
+    const config = buildXrayConfig(uri, 'firefox', 'XHTTP', undefined, { russianRoutingMode: 'bypassRu' }) as any;
     const rules = config.routing.rules;
     const directRules = rules.filter((r: any) => r.outboundTag === 'direct');
     expect(directRules.length).toBe(2);
     expect(config.outbounds.some((o: any) => o.tag === 'direct' && o.protocol === 'freedom')).toBe(true);
+  });
+
+  it('routes RU domains/IPs through the proxy and everything else direct in onlyRu mode', () => {
+    const uri = parseVlessUri(LINK);
+    const config = buildXrayConfig(uri, 'firefox', 'XHTTP', undefined, { russianRoutingMode: 'onlyRu' }) as any;
+    const rules = config.routing.rules;
+    const ruProxyRules = rules.filter((r: any) => r.outboundTag === 'proxy' && (r.domain || r.ip));
+    expect(ruProxyRules.length).toBe(2);
+    const catchAll = rules.find((r: any) => r.outboundTag === 'direct' && r.network === 'tcp,udp');
+    expect(catchAll).toBeDefined();
+  });
+
+  it('adds no RU-specific rules in off mode', () => {
+    const uri = parseVlessUri(LINK);
+    const config = buildXrayConfig(uri, 'firefox', 'XHTTP', undefined, { russianRoutingMode: 'off' }) as any;
+    const rules = config.routing.rules;
+    expect(rules.some((r: any) => r.domain || r.ip?.includes('geoip:ru'))).toBe(false);
   });
 });
 

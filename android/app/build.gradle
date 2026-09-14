@@ -22,7 +22,9 @@ android {
 
         // Placeholder backend host; override per-environment with
         // -PapiBaseUrl=https://... or a release-specific gradle.properties.
-        buildConfigField "String", "API_BASE_URL", "\"${project.findProperty('apiBaseUrl') ?: 'https://vpn.struchev.site/'}\""
+        // Temporarily pointed at the test server (217.216.79.46:8080) instead
+        // of the vpn.struchev.site production domain — switch back once that's live again.
+        buildConfigField "String", "API_BASE_URL", "\"${project.findProperty('apiBaseUrl') ?: 'http://217.216.79.46:8080/'}\""
         // Phase 10: comma-separated backup domains tried in order if the
         // primary is unreachable (see ApiHostRotation). Empty by default.
         buildConfigField "String", "API_BASE_URLS_BACKUP", "\"${project.findProperty('apiBaseUrlsBackup') ?: ''}\""

@@ -1,10 +1,18 @@
 import { ipcMain, shell, type BrowserWindow } from 'electron';
 import type { ApiClient } from './api/apiClient';
+import type { TokenStore } from './api/tokenStore';
 import { runGoogleLoginFlow } from './auth/googleOAuth';
+import { isPublicIpRussian } from './geoLocale';
 import type { VpnController } from './vpn/vpnController';
+import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
 
 /** All main<->renderer channels in one place; preload/index.ts exposes a matching typed surface. */
-export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vpn: VpnController): void {
+export function registerIpcHandlers(
+  win: BrowserWindow,
+  apiClient: ApiClient,
+  vpn: VpnController,
+  tokenStore: TokenStore
+): void {
   ipcMain.handle('auth:login', (_e, email: string, password: string) => apiClient.login(email, password));
   ipcMain.handle('auth:register', (_e, email: string, password: string, referralCode?: string) =>
     apiClient.register(email, password, referralCode)
@@ -60,8 +68,20 @@ export function registerIpcHandlers(win: BrowserWindow, apiClient: ApiClient, vp
   ipcMain.handle('vpn:connect', () => vpn.connect());
   ipcMain.handle('vpn:disconnect', () => vpn.disconnect());
   ipcMain.handle('vpn:getState', () => vpn.getState());
-  ipcMain.handle('vpn:getBypassRu', () => vpn.getBypassRussianTraffic());
-  ipcMain.handle('vpn:setBypassRu', (_e, enabled: boolean) => vpn.setBypassRussianTraffic(enabled));
+  ipcMain.handle('vpn:getRussianRoutingMode', () => vpn.getRussianRoutingMode());
+  ipcMain.handle('vpn:setRussianRoutingMode', (_e, mode: RussianRoutingMode) => vpn.setRussianRoutingMode(mode));
+
+  // One-shot, cached-forever check of whether this install's public IP was
+  // originally (pre-VPN) Russian — see geoLocale.ts. Only the bypass-RU
+  // toggle's visibility depends on this, so a slow/failed lookup just leaves
+  // that one row hidden this run rather than blocking anything else.
+  ipcMain.handle('locale:originalIpIsRussia', async () => {
+    const cached = tokenStore.getOriginalIpIsRussia();
+    if (cached !== undefined) return cached;
+    const result = await isPublicIpRussian();
+    if (result !== null) tokenStore.saveOriginalIpIsRussia(result);
+    return result ?? false;
+  });
 
   vpn.on('state', (state) => {
     if (!win.isDestroyed()) win.webContents.send('vpn:state', state);

@@ -28,8 +28,20 @@ export interface GrpcFallback {
   serviceName?: string;
 }
 
+/**
+ * 'off': no special RU routing, everything through the proxy.
+ * 'bypassRu': for a user physically in Russia — RU domains/IPs go direct
+ *   (banks/Gosuslugi work normally), everything else through the proxy.
+ * 'onlyRu': the reverse, for a Russian-speaking user physically outside
+ *   Russia who wants to reach RU-geo-restricted services — RU domains/IPs
+ *   route through the proxy (which must be a Russia-located exit node for
+ *   this to actually satisfy RU geo-restrictions — see vpnController's
+ *   region preference for 'onlyRu'), everything else goes direct.
+ */
+export type RussianRoutingMode = 'off' | 'bypassRu' | 'onlyRu';
+
 export interface XrayConfigOptions {
-  bypassRussianTraffic?: boolean;
+  russianRoutingMode?: RussianRoutingMode;
 }
 
 export function buildXrayConfig(
@@ -63,7 +75,8 @@ export function buildXrayConfig(
     },
   ];
 
-  if (options?.bypassRussianTraffic) {
+  const mode = options?.russianRoutingMode ?? 'off';
+  if (mode === 'bypassRu') {
     rules.push(
       {
         type: 'field',
@@ -73,6 +86,29 @@ export function buildXrayConfig(
       {
         type: 'field',
         ip: ['geoip:ru'],
+        outboundTag: 'direct',
+      }
+    );
+  } else if (mode === 'onlyRu') {
+    // Reverse of 'bypassRu': RU traffic goes through the proxy, everything
+    // else direct. Xray's implicit "no rule matched -> first outbound"
+    // default would still pick 'proxy' (outbound #1) here, so an explicit
+    // catch-all is required to make 'direct' the actual default instead of
+    // reordering the outbounds array.
+    rules.push(
+      {
+        type: 'field',
+        domain: ['geosite:category-ru', 'domain:ru'],
+        outboundTag: PROXY_OUTBOUND_TAG,
+      },
+      {
+        type: 'field',
+        ip: ['geoip:ru'],
+        outboundTag: PROXY_OUTBOUND_TAG,
+      },
+      {
+        type: 'field',
+        network: 'tcp,udp',
         outboundTag: 'direct',
       }
     );
