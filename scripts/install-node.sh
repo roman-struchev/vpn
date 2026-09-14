@@ -60,11 +60,12 @@ if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
     echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname] [region]"
     echo "Example (direct Reality node):     $0 vpn.example.com:9090 bst_abc12345"
     echo "Example (CDN node, Phase 9):       $0 vpn.example.com:9090 bst_abc12345 edge.example.com"
-    echo "Example (force a region label):    $0 vpn.example.com:9090 bst_abc12345 \"\" \"Amsterdam, NL\""
+    echo "Example (force a region label):    $0 vpn.example.com:9090 bst_abc12345 \"\" \"Netherlands, Amsterdam\""
     echo "  cdn_hostname must already resolve (via the CDN) to this host's IP on port 80/443"
     echo "  before running this script, so certbot's HTTP-01 challenge can complete."
     echo "  region is auto-detected from this host's public IP via geo-IP lookup if omitted"
     echo "  (falls back to \"default\" if that lookup fails — never fatal, unlike public IP)."
+    echo "  format is \"Country\" or \"Country, City\" — full country name, city optional."
     exit 1
 fi
 
@@ -121,6 +122,83 @@ echo "==> [3/5] Detecting region..."
 # this exact string — see docs/ARCHITECTURE.md §4.3/§5) — unlike PUBLIC_IP
 # above, getting this wrong doesn't break the node, so a failed lookup falls
 # back to "default" instead of aborting the install.
+#
+# Clients show this string verbatim as the region's display name, so it must
+# read as a country, not a 2-letter ISO code — country_name_for_code() below
+# expands the code both geo-IP providers return; the city (if known) is
+# appended after the country, not before, and dropped entirely if unknown.
+country_name_for_code() {
+    case "$1" in
+        AD) echo "Andorra" ;; AE) echo "United Arab Emirates" ;; AF) echo "Afghanistan" ;;
+        AG) echo "Antigua and Barbuda" ;; AI) echo "Anguilla" ;; AL) echo "Albania" ;;
+        AM) echo "Armenia" ;; AO) echo "Angola" ;; AQ) echo "Antarctica" ;; AR) echo "Argentina" ;;
+        AS) echo "American Samoa" ;; AT) echo "Austria" ;; AU) echo "Australia" ;; AW) echo "Aruba" ;;
+        AX) echo "Aland Islands" ;; AZ) echo "Azerbaijan" ;; BA) echo "Bosnia and Herzegovina" ;;
+        BB) echo "Barbados" ;; BD) echo "Bangladesh" ;; BE) echo "Belgium" ;; BF) echo "Burkina Faso" ;;
+        BG) echo "Bulgaria" ;; BH) echo "Bahrain" ;; BI) echo "Burundi" ;; BJ) echo "Benin" ;;
+        BL) echo "Saint Barthelemy" ;; BM) echo "Bermuda" ;; BN) echo "Brunei" ;; BO) echo "Bolivia" ;;
+        BQ) echo "Bonaire, Sint Eustatius and Saba" ;; BR) echo "Brazil" ;; BS) echo "Bahamas" ;;
+        BT) echo "Bhutan" ;; BV) echo "Bouvet Island" ;; BW) echo "Botswana" ;; BY) echo "Belarus" ;;
+        BZ) echo "Belize" ;; CA) echo "Canada" ;; CC) echo "Cocos Islands" ;;
+        CD) echo "DR Congo" ;; CF) echo "Central African Republic" ;; CG) echo "Congo" ;;
+        CH) echo "Switzerland" ;; CI) echo "Ivory Coast" ;; CK) echo "Cook Islands" ;; CL) echo "Chile" ;;
+        CM) echo "Cameroon" ;; CN) echo "China" ;; CO) echo "Colombia" ;; CR) echo "Costa Rica" ;;
+        CU) echo "Cuba" ;; CV) echo "Cabo Verde" ;; CW) echo "Curacao" ;; CX) echo "Christmas Island" ;;
+        CY) echo "Cyprus" ;; CZ) echo "Czechia" ;; DE) echo "Germany" ;; DJ) echo "Djibouti" ;;
+        DK) echo "Denmark" ;; DM) echo "Dominica" ;; DO) echo "Dominican Republic" ;; DZ) echo "Algeria" ;;
+        EC) echo "Ecuador" ;; EE) echo "Estonia" ;; EG) echo "Egypt" ;; EH) echo "Western Sahara" ;;
+        ER) echo "Eritrea" ;; ES) echo "Spain" ;; ET) echo "Ethiopia" ;; FI) echo "Finland" ;;
+        FJ) echo "Fiji" ;; FK) echo "Falkland Islands" ;; FM) echo "Micronesia" ;; FO) echo "Faroe Islands" ;;
+        FR) echo "France" ;; GA) echo "Gabon" ;; GB) echo "United Kingdom" ;; GD) echo "Grenada" ;;
+        GE) echo "Georgia" ;; GF) echo "French Guiana" ;; GG) echo "Guernsey" ;; GH) echo "Ghana" ;;
+        GI) echo "Gibraltar" ;; GL) echo "Greenland" ;; GM) echo "Gambia" ;; GN) echo "Guinea" ;;
+        GP) echo "Guadeloupe" ;; GQ) echo "Equatorial Guinea" ;; GR) echo "Greece" ;;
+        GS) echo "South Georgia" ;; GT) echo "Guatemala" ;; GU) echo "Guam" ;; GW) echo "Guinea-Bissau" ;;
+        GY) echo "Guyana" ;; HK) echo "Hong Kong" ;; HM) echo "Heard Island" ;; HN) echo "Honduras" ;;
+        HR) echo "Croatia" ;; HT) echo "Haiti" ;; HU) echo "Hungary" ;; ID) echo "Indonesia" ;;
+        IE) echo "Ireland" ;; IL) echo "Israel" ;; IM) echo "Isle of Man" ;; IN) echo "India" ;;
+        IO) echo "British Indian Ocean Territory" ;; IQ) echo "Iraq" ;; IR) echo "Iran" ;;
+        IS) echo "Iceland" ;; IT) echo "Italy" ;; JE) echo "Jersey" ;; JM) echo "Jamaica" ;;
+        JO) echo "Jordan" ;; JP) echo "Japan" ;; KE) echo "Kenya" ;; KG) echo "Kyrgyzstan" ;;
+        KH) echo "Cambodia" ;; KI) echo "Kiribati" ;; KM) echo "Comoros" ;; KN) echo "Saint Kitts and Nevis" ;;
+        KP) echo "North Korea" ;; KR) echo "South Korea" ;; KW) echo "Kuwait" ;; KY) echo "Cayman Islands" ;;
+        KZ) echo "Kazakhstan" ;; LA) echo "Laos" ;; LB) echo "Lebanon" ;; LC) echo "Saint Lucia" ;;
+        LI) echo "Liechtenstein" ;; LK) echo "Sri Lanka" ;; LR) echo "Liberia" ;; LS) echo "Lesotho" ;;
+        LT) echo "Lithuania" ;; LU) echo "Luxembourg" ;; LV) echo "Latvia" ;; LY) echo "Libya" ;;
+        MA) echo "Morocco" ;; MC) echo "Monaco" ;; MD) echo "Moldova" ;; ME) echo "Montenegro" ;;
+        MF) echo "Saint Martin" ;; MG) echo "Madagascar" ;; MH) echo "Marshall Islands" ;;
+        MK) echo "North Macedonia" ;; ML) echo "Mali" ;; MM) echo "Myanmar" ;; MN) echo "Mongolia" ;;
+        MO) echo "Macao" ;; MP) echo "Northern Mariana Islands" ;; MQ) echo "Martinique" ;;
+        MR) echo "Mauritania" ;; MS) echo "Montserrat" ;; MT) echo "Malta" ;; MU) echo "Mauritius" ;;
+        MV) echo "Maldives" ;; MW) echo "Malawi" ;; MX) echo "Mexico" ;; MY) echo "Malaysia" ;;
+        MZ) echo "Mozambique" ;; NA) echo "Namibia" ;; NC) echo "New Caledonia" ;; NE) echo "Niger" ;;
+        NF) echo "Norfolk Island" ;; NG) echo "Nigeria" ;; NI) echo "Nicaragua" ;; NL) echo "Netherlands" ;;
+        "NO") echo "Norway" ;; NP) echo "Nepal" ;; NR) echo "Nauru" ;; NU) echo "Niue" ;;
+        NZ) echo "New Zealand" ;; OM) echo "Oman" ;; PA) echo "Panama" ;; PE) echo "Peru" ;;
+        PF) echo "French Polynesia" ;; PG) echo "Papua New Guinea" ;; PH) echo "Philippines" ;;
+        PK) echo "Pakistan" ;; PL) echo "Poland" ;; PM) echo "Saint Pierre and Miquelon" ;;
+        PN) echo "Pitcairn" ;; PR) echo "Puerto Rico" ;; PS) echo "Palestine" ;; PT) echo "Portugal" ;;
+        PW) echo "Palau" ;; PY) echo "Paraguay" ;; QA) echo "Qatar" ;; RE) echo "Reunion" ;;
+        RO) echo "Romania" ;; RS) echo "Serbia" ;; RU) echo "Russia" ;; RW) echo "Rwanda" ;;
+        SA) echo "Saudi Arabia" ;; SB) echo "Solomon Islands" ;; SC) echo "Seychelles" ;; SD) echo "Sudan" ;;
+        SE) echo "Sweden" ;; SG) echo "Singapore" ;; SH) echo "Saint Helena" ;; SI) echo "Slovenia" ;;
+        SJ) echo "Svalbard and Jan Mayen" ;; SK) echo "Slovakia" ;; SL) echo "Sierra Leone" ;;
+        SM) echo "San Marino" ;; SN) echo "Senegal" ;; SO) echo "Somalia" ;; SR) echo "Suriname" ;;
+        SS) echo "South Sudan" ;; ST) echo "Sao Tome and Principe" ;; SV) echo "El Salvador" ;;
+        SX) echo "Sint Maarten" ;; SY) echo "Syria" ;; SZ) echo "Eswatini" ;; TC) echo "Turks and Caicos Islands" ;;
+        TD) echo "Chad" ;; TF) echo "French Southern Territories" ;; TG) echo "Togo" ;; TH) echo "Thailand" ;;
+        TJ) echo "Tajikistan" ;; TK) echo "Tokelau" ;; TL) echo "Timor-Leste" ;; TM) echo "Turkmenistan" ;;
+        TN) echo "Tunisia" ;; TO) echo "Tonga" ;; TR) echo "Turkey" ;; TT) echo "Trinidad and Tobago" ;;
+        TV) echo "Tuvalu" ;; TW) echo "Taiwan" ;; TZ) echo "Tanzania" ;; UA) echo "Ukraine" ;;
+        UG) echo "Uganda" ;; UM) echo "United States Minor Outlying Islands" ;; US) echo "United States" ;;
+        UY) echo "Uruguay" ;; UZ) echo "Uzbekistan" ;; VA) echo "Vatican City" ;;
+        VC) echo "Saint Vincent and the Grenadines" ;; VE) echo "Venezuela" ;; VG) echo "British Virgin Islands" ;;
+        VI) echo "United States Virgin Islands" ;; VN) echo "Vietnam" ;; VU) echo "Vanuatu" ;;
+        WF) echo "Wallis and Futuna" ;; WS) echo "Samoa" ;; YE) echo "Yemen" ;; YT) echo "Mayotte" ;;
+        ZA) echo "South Africa" ;; ZM) echo "Zambia" ;; ZW) echo "Zimbabwe" ;;
+        *) echo "" ;;
+    esac
+}
 if [ -n "$REGION_OVERRIDE" ]; then
     REGION="$REGION_OVERRIDE"
 else
@@ -136,11 +214,17 @@ else
         GEO_CITY=$(echo "$GEO_JSON" | grep -o '"city"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
         GEO_COUNTRY=$(echo "$GEO_JSON" | grep -o '"countryCode"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4)
     fi
-    if [ -n "$GEO_CITY" ] && [ -n "$GEO_COUNTRY" ]; then
-        REGION="${GEO_CITY}, ${GEO_COUNTRY}"
+    if [ -n "$GEO_COUNTRY" ]; then
+        COUNTRY_NAME=$(country_name_for_code "$GEO_COUNTRY")
+        [ -z "$COUNTRY_NAME" ] && COUNTRY_NAME="$GEO_COUNTRY"
+        if [ -n "$GEO_CITY" ]; then
+            REGION="${COUNTRY_NAME}, ${GEO_CITY}"
+        else
+            REGION="${COUNTRY_NAME}"
+        fi
     else
         echo "WARNING: geo-IP lookup failed — using \"default\" as this node's region."
-        echo "         Re-run with a 4th argument to set one explicitly, e.g. \"Amsterdam, NL\"."
+        echo "         Re-run with a 4th argument to set one explicitly, e.g. \"Netherlands, Amsterdam\"."
         REGION="default"
     fi
 fi

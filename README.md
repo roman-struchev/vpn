@@ -225,7 +225,7 @@ ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/
 ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 edge.example.com'
 
 # С принудительным регионом (пустой 3-й аргумент — не CDN-нода):
-ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 "" "Amsterdam, NL"'
+ssh root@<node-ip> 'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- vpn.example.com:9090 bst_abc12345 "" "Netherlands, Amsterdam"'
 ```
 
 Если репозиторий приватный — скопируйте скрипт со своей машины (где уже есть SSH-доступ

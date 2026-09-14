@@ -39,6 +39,12 @@ VPN_API_BASE_URLS_BACKUP=https://backup1.example.com/,https://backup2.example.co
 npm run dev
 ```
 
+Example against a plain HTTP test server on a bare IP:
+
+```bash
+VPN_API_BASE_URL=http://217.216.79.46:8080/ npm run dev
+```
+
 For a packaged release build, set it at build time the same way (or edit
 the default in `apiClient.ts` before `npm run build`) — there's no runtime
 settings screen for this yet.
