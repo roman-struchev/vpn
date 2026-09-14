@@ -386,7 +386,12 @@ public class SubscriptionExportService {
         String sid = (node.getRealityShortIds() != null && node.getRealityShortIds().length > 0)
                 ? node.getRealityShortIds()[0]
                 : "0123456789abcdef";
-        String remark = URLEncoder.encode(node.getRegion() + "-" + node.getHostname(), StandardCharsets.UTF_8);
+        // URLEncoder.encode is form encoding (space -> "+"), not RFC 3986 percent-encoding —
+        // clients decode this URI fragment with decodeURIComponent, which leaves a literal
+        // "+" alone instead of turning it back into a space, so a form-encoded remark showed
+        // up as garbled text like "India,+Mumbai-vmi3163824" instead of "India, Mumbai-vmi3163824".
+        String remark = URLEncoder.encode(node.getRegion() + "-" + node.getHostname(), StandardCharsets.UTF_8)
+                .replace("+", "%20");
 
         // VLESS + XHTTP + Reality URL
         return String.format(
