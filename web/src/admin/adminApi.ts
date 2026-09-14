@@ -60,6 +60,9 @@ export interface AdminUser {
     currentPeriodEnd: string;
     trafficUsedBytes: number;
     trafficLimitBytes: number;
+    /** Present only while an admin-granted temporary tariff is active (see grantTemporaryTariff). */
+    overrideTariffId: string | null;
+    overrideExpiresAt: string | null;
   };
 }
 
@@ -110,6 +113,13 @@ export const adminApi = {
     req(`/users/${userId}/status`, { method: 'POST', body: JSON.stringify({ status }) }),
   extendSubscription: (userId: number, days: number) =>
     req(`/users/${userId}/subscription/extend`, { method: 'POST', body: JSON.stringify({ days }) }),
+  grantTemporaryTariff: (userId: number, tariffId: string, days: number) =>
+    req(`/users/${userId}/subscription/temporary-tariff`, {
+      method: 'POST',
+      body: JSON.stringify({ tariffId, days }),
+    }),
+  cancelTemporaryTariff: (userId: number) =>
+    req(`/users/${userId}/subscription/temporary-tariff/cancel`, { method: 'POST' }),
 
   listNodes: () => req<AdminNode[]>('/nodes'),
   createBootstrapToken: (pool: string, type: string, validHours: number) =>

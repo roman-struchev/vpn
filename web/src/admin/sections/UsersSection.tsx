@@ -4,6 +4,8 @@ import { Column } from 'primereact/column';
 import { Dialog } from 'primereact/dialog';
 import { adminApi, AdminUser } from '../adminApi';
 import { AdminT } from '../adminI18n';
+import { api } from '../../api';
+import type { Tariff } from '../../types';
 
 /**
  * True for accounts auto-created by the desktop app's no-signup trial flow
@@ -151,6 +153,19 @@ function UserDetailDialog({
   const [days, setDays] = useState('30');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [tariffs, setTariffs] = useState<Tariff[]>([]);
+  const [tariffId, setTariffId] = useState('');
+  const [tariffDays, setTariffDays] = useState('7');
+
+  useEffect(() => {
+    api
+      .getTariffs()
+      .then((list) => {
+        setTariffs(list);
+        if (list.length > 0) setTariffId(list[0].id);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -281,6 +296,72 @@ function UserDetailDialog({
             <button
               disabled={busy || !user.activeSubscription}
               onClick={() => run(() => adminApi.extendSubscription(user.id, parseInt(days || '0', 10)))}
+              className="px-3 py-2 rounded-xl bg-dark-800 hover:bg-dark-700 border border-dark-700 font-semibold disabled:opacity-50"
+            >
+              {t.apply}
+            </button>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-dark-800 space-y-2">
+          <label className="block text-slate-400" title={t.changeTariffHint}>
+            {t.changeTariff}
+          </label>
+          {user.activeSubscription?.overrideTariffId && (
+            <div className="flex items-center justify-between gap-2 text-amber-400">
+              <span>
+                {t.temporaryTariffActive
+                  .replace('{tariff}', user.activeSubscription.overrideTariffId.toUpperCase())
+                  .replace(
+                    '{date}',
+                    user.activeSubscription.overrideExpiresAt
+                      ? new Date(user.activeSubscription.overrideExpiresAt).toLocaleString()
+                      : ''
+                  )}
+              </span>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  const msg = t.cancelTemporaryTariffConfirm.replace('{email}', user.email);
+                  if (!window.confirm(msg)) return;
+                  run(() => adminApi.cancelTemporaryTariff(user.id));
+                }}
+                className="shrink-0 px-3 py-1.5 rounded-xl bg-dark-800 hover:bg-dark-700 border border-dark-700 font-semibold disabled:opacity-50"
+              >
+                {t.cancelTemporaryTariff}
+              </button>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <select
+              value={tariffId}
+              onChange={(e) => setTariffId(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 outline-none focus:border-brand-500"
+            >
+              {tariffs.map((tf) => (
+                <option key={tf.id} value={tf.id}>
+                  {tf.name} ({tf.id})
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              value={tariffDays}
+              onChange={(e) => setTariffDays(e.target.value)}
+              placeholder={t.days}
+              className="w-24 px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 outline-none focus:border-brand-500"
+            />
+            <button
+              disabled={busy || !user.activeSubscription || !tariffId}
+              onClick={() => {
+                const tf = tariffs.find((x) => x.id === tariffId);
+                const msg = t.changeTariffConfirm
+                  .replace('{email}', user.email)
+                  .replace('{tariff}', (tf?.name ?? tariffId).toString())
+                  .replace('{days}', tariffDays || '0');
+                if (!window.confirm(msg)) return;
+                run(() => adminApi.grantTemporaryTariff(user.id, tariffId, parseInt(tariffDays || '0', 10)));
+              }}
               className="px-3 py-2 rounded-xl bg-dark-800 hover:bg-dark-700 border border-dark-700 font-semibold disabled:opacity-50"
             >
               {t.apply}
