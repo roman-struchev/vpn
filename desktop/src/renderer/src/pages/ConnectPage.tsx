@@ -282,9 +282,7 @@ export default function ConnectPage({
       {showBypassRuToggle && (
         <div className="w-full rounded-xl bg-dark-900 border border-dark-800/80 px-3 py-1.5">
           <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-medium text-white/70" title={t.bypassRuDesc}>
-              {t.russianModeTitle}
-            </span>
+            <span className="text-[11px] font-medium text-white/70">{t.russianModeTitle}</span>
             <div className="flex rounded-lg bg-dark-800 border border-dark-750/70 p-0.5 text-[10px] font-semibold">
               {(
                 [
@@ -309,8 +307,16 @@ export default function ConnectPage({
               ))}
             </div>
           </div>
+          {/* Short labels alone ("RU direct" / "RU only") don't say which
+              direction traffic goes — always spell out the current mode's
+              actual behavior instead of relying on the pill text alone. */}
+          <p className="mt-1.5 text-[10px] text-white/45 leading-snug">
+            {russianMode === 'off' && t.russianModeOffDesc}
+            {russianMode === 'bypassRu' && t.russianModeBypassDesc}
+            {russianMode === 'onlyRu' && t.russianModeOnlyRuDesc}
+          </p>
           {russianMode === 'onlyRu' && !hasAccessibleRussianRegion && (
-            <p className="mt-1.5 text-[10px] text-state-connecting">{t.russianModeNoRuNodeWarning}</p>
+            <p className="mt-1 text-[10px] text-state-connecting">{t.russianModeNoRuNodeWarning}</p>
           )}
         </div>
       )}
