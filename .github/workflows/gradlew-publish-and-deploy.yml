@@ -55,8 +55,14 @@ jobs:
           cache: 'gradle'
           cache-dependency-path: 'android/**/*.gradle*'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # android-actions/setup-android@v3 started failing here ("Failed to find
+      # package 'tools'") once GitHub's ubuntu-latest runner image moved its
+      # bundled cmdline-tools forward — that action still calls `sdkmanager
+      # tools`, a legacy package Google removed from the SDK repository long
+      # ago. ubuntu-latest already ships a licensed Android SDK (ANDROID_HOME
+      # preinstalled, per actions/runner-images) sufficient for AGP to pull
+      # whatever compileSdk platform it needs on its own, so this step was
+      # redundant on top of being broken — dropped instead of pinned/patched.
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew scripts/fetch-libxray.sh
