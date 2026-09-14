@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Toast;
 
 import java.time.Instant;
 import java.time.ZoneId;
@@ -31,6 +32,7 @@ import com.vpn.android.api.model.RegionInfo;
 import com.vpn.android.api.model.UserProfile;
 import com.vpn.android.databinding.FragmentConnectBinding;
 import com.vpn.android.util.Async;
+import com.vpn.android.util.GeoLocale;
 import com.vpn.android.util.WebHandoffLauncher;
 import com.vpn.android.vpn.VpnStatusBus;
 import com.vpn.android.vpn.XrayVpnService;
@@ -41,6 +43,7 @@ import com.vpn.android.vpn.state.ConnectionState;
 public class ConnectFragment extends Fragment {
 
     public static final String ARG_IS_GUEST = "is_guest";
+    private static final long TRAFFIC_REFRESH_INTERVAL_MS = 60_000;
 
     private FragmentConnectBinding binding;
     private ApiClient apiClient;
@@ -49,6 +52,17 @@ public class ConnectFragment extends Fragment {
     private List<RegionInfo> availableRegions = new ArrayList<>();
     private final Map<String, Integer> regionPings = new ConcurrentHashMap<>();
     private boolean isGuest = false;
+    private final android.os.Handler trafficRefreshHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    // Silent 60s background poll while this screen is visible, on top of the
+    // manual refreshUsageButton — traffic usage otherwise only ever loaded
+    // once on fragment creation, same fix as the desktop client's.
+    private final Runnable trafficRefreshRunnable = new Runnable() {
+        @Override
+        public void run() {
+            loadProfile();
+            trafficRefreshHandler.postDelayed(this, TRAFFIC_REFRESH_INTERVAL_MS);
+        }
+    };
 
     public static ConnectFragment newInstance(boolean isGuest) {
         ConnectFragment fragment = new ConnectFragment();
@@ -95,10 +109,7 @@ public class ConnectFragment extends Fragment {
         });
         renderGuestCard();
 
-        binding.bypassRuSwitch.setChecked(tokenStore.isBypassRussianTraffic());
-        binding.bypassRuSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
-            tokenStore.setBypassRussianTraffic(isChecked);
-        });
+        setUpRussianRoutingControl();
 
         binding.autoBootSwitch.setChecked(tokenStore.isAutoConnectOnBoot());
         binding.autoBootSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
@@ -114,12 +125,31 @@ public class ConnectFragment extends Fragment {
                 binding.regionText.setVisibility(View.GONE);
             }
         });
-        VpnStatusBus.regionFallback.observe(getViewLifecycleOwner(), fellBack ->
-                binding.regionFallbackNotice.setVisibility(Boolean.TRUE.equals(fellBack) ? View.VISIBLE : View.GONE));
+        VpnStatusBus.regionFallback.observe(getViewLifecycleOwner(), fellBack -> {
+            if (!Boolean.TRUE.equals(fellBack)) {
+                binding.regionFallbackNotice.setVisibility(View.GONE);
+                return;
+            }
+            // Two different reasons look identical to the plain server flag: a
+            // genuine capacity outage (every node in the region is offline —
+            // temporary, retrying later may work), vs. a previously-selected
+            // region that became locked after a plan change (permanent until
+            // upgrading — retrying never helps). Tell them apart client-side
+            // by checking whether the current selection is a known, now-locked
+            // region, same distinction the desktop client makes.
+            RegionInfo selected = findRegion(tokenStore.getSelectedRegion());
+            boolean becauseLocked = selected != null && !selected.accessible;
+            binding.regionFallbackNotice.setText(
+                    becauseLocked ? R.string.region_requires_upgrade_notice : R.string.region_unavailable_notice);
+            binding.regionFallbackNotice.setVisibility(View.VISIBLE);
+        });
+
+        binding.refreshUsageButton.setOnClickListener(v -> loadProfile());
 
         renderSelectedRegion();
         loadProfile();
         loadRegions();
+        trafficRefreshHandler.postDelayed(trafficRefreshRunnable, TRAFFIC_REFRESH_INTERVAL_MS);
     }
 
     private void loadRegions() {
@@ -129,8 +159,75 @@ public class ConnectFragment extends Fragment {
                     availableRegions = regions;
                     renderSelectedRegion();
                     loadRegionPings();
+                    updateRussianRoutingWarning();
                 },
                 error -> { /* keep whatever the last "Auto" default shows; not fatal to the connect flow */ });
+    }
+
+    /**
+     * Shown only to a user actually in Russia, or a Russian-speaking user
+     * abroad (see GeoLocale) — everyone else has no use for RU-specific
+     * routing and the control would just be confusing clutter.
+     */
+    private void setUpRussianRoutingControl() {
+        if (GeoLocale.isDeviceLocaleRussian()) {
+            showRussianRoutingControl();
+            return;
+        }
+        Boolean originalIpIsRussia = tokenStore.getOriginalIpIsRussia();
+        if (originalIpIsRussia != null) {
+            if (originalIpIsRussia) showRussianRoutingControl();
+            return;
+        }
+        GeoLocale.lookupOriginalIpIsRussiaAsync(tokenStore, isRussia -> {
+            if (isRussia && binding != null) showRussianRoutingControl();
+        });
+    }
+
+    private void showRussianRoutingControl() {
+        if (binding == null) return;
+        binding.russianRoutingContainer.setVisibility(View.VISIBLE);
+
+        String mode = tokenStore.getRussianRoutingMode();
+        setRussianRoutingModeUi(mode);
+
+        binding.russianRoutingToggleGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
+            if (!isChecked) return;
+            String newMode = checkedId == binding.russianRoutingBypassButton.getId()
+                    ? TokenStore.RUSSIAN_ROUTING_BYPASS
+                    : checkedId == binding.russianRoutingOnlyRuButton.getId()
+                    ? TokenStore.RUSSIAN_ROUTING_ONLY_RU
+                    : TokenStore.RUSSIAN_ROUTING_OFF;
+            tokenStore.setRussianRoutingMode(newMode);
+            setRussianRoutingModeUi(newMode);
+        });
+    }
+
+    private void setRussianRoutingModeUi(String mode) {
+        int buttonId = TokenStore.RUSSIAN_ROUTING_BYPASS.equals(mode)
+                ? binding.russianRoutingBypassButton.getId()
+                : TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(mode)
+                ? binding.russianRoutingOnlyRuButton.getId()
+                : binding.russianRoutingOffButton.getId();
+        binding.russianRoutingToggleGroup.check(buttonId);
+
+        int descRes = TokenStore.RUSSIAN_ROUTING_BYPASS.equals(mode)
+                ? R.string.russian_routing_bypass_desc
+                : TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(mode)
+                ? R.string.russian_routing_only_ru_desc
+                : R.string.russian_routing_off_desc;
+        binding.russianRoutingDescText.setText(descRes);
+        updateRussianRoutingWarning();
+    }
+
+    /** Only RU-only mode needs an actual Russia-located node to do anything useful. */
+    private void updateRussianRoutingWarning() {
+        if (binding == null) return;
+        boolean isOnlyRu = TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(tokenStore.getRussianRoutingMode());
+        boolean hasAccessibleRussianRegion = availableRegions.stream()
+                .anyMatch(r -> r.accessible && r.region != null && r.region.toLowerCase().contains("russia"));
+        binding.russianRoutingWarningText.setVisibility(
+                isOnlyRu && !hasAccessibleRussianRegion ? View.VISIBLE : View.GONE);
     }
 
     private void loadRegionPings() {
@@ -163,6 +260,12 @@ public class ConnectFragment extends Fragment {
     }
 
     private String formatRegionRow(RegionInfo r) {
+        // Locked (out-of-plan) regions stay listed — not hidden — so a lower
+        // tier can see what upgrading unlocks, but show "requires a paid
+        // plan" instead of load stats that don't matter if you can't pick it.
+        if (!r.accessible) {
+            return getString(R.string.region_row_locked_format, r.region);
+        }
         Integer ping = regionPings.get(r.region);
         if (ping != null && ping > 0) {
             return getString(R.string.region_row_with_ping, r.region, ping, loadLabel(r.loadLevel), r.nodeCount);
@@ -180,11 +283,14 @@ public class ConnectFragment extends Fragment {
     private void showRegionPicker() {
         List<String> labels = new ArrayList<>();
         List<String> values = new ArrayList<>();
+        List<Boolean> accessible = new ArrayList<>();
         labels.add(getString(R.string.region_auto));
         values.add(null);
+        accessible.add(true);
         for (RegionInfo r : availableRegions) {
             labels.add(formatRegionRow(r));
             values.add(r.region);
+            accessible.add(r.accessible);
         }
         String current = tokenStore.getSelectedRegion();
         int checked = values.indexOf(current);
@@ -193,6 +299,15 @@ public class ConnectFragment extends Fragment {
         new AlertDialog.Builder(requireContext())
                 .setTitle(R.string.region_picker_title)
                 .setSingleChoiceItems(labels.toArray(new String[0]), checked, (dialog, which) -> {
+                    // Locked regions stay in the list (so a lower tier can see what
+                    // upgrading unlocks) but can't actually be picked — same
+                    // "visible, not selectable" treatment as the desktop client,
+                    // instead of silently letting the pick through and reassigning
+                    // elsewhere later with a vague "unavailable" message.
+                    if (!accessible.get(which)) {
+                        Toast.makeText(requireContext(), R.string.region_locked_toast, Toast.LENGTH_SHORT).show();
+                        return;
+                    }
                     tokenStore.saveSelectedRegion(values.get(which));
                     renderSelectedRegion();
                     dialog.dismiss();
@@ -347,6 +462,7 @@ public class ConnectFragment extends Fragment {
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        trafficRefreshHandler.removeCallbacks(trafficRefreshRunnable);
         binding = null;
     }
 }

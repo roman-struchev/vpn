@@ -75,6 +75,48 @@ public class TokenStoreTest {
     }
 
     @Test
+    public void russianRoutingModeDefaultsToOffOnAFreshInstall() {
+        assertEquals(TokenStore.RUSSIAN_ROUTING_OFF, tokenStore.getRussianRoutingMode());
+    }
+
+    @Test
+    public void russianRoutingModeIsPersisted() {
+        tokenStore.setRussianRoutingMode(TokenStore.RUSSIAN_ROUTING_ONLY_RU);
+        assertEquals(TokenStore.RUSSIAN_ROUTING_ONLY_RU, tokenStore.getRussianRoutingMode());
+    }
+
+    @Test
+    public void russianRoutingModeMigratesPreExistingBypassBooleanOnFirstRead() {
+        // Simulates an app update: the old boolean pref exists (set true, pre-3-way-mode),
+        // the new string pref doesn't exist yet.
+        tokenStore.setBypassRussianTraffic(true);
+
+        assertEquals(TokenStore.RUSSIAN_ROUTING_BYPASS, tokenStore.getRussianRoutingMode());
+        // Migration must stick (not re-derive from the boolean every time) so an explicit
+        // later choice of "off" isn't clobbered back to "bypassRu" on the next read.
+        tokenStore.setRussianRoutingMode(TokenStore.RUSSIAN_ROUTING_OFF);
+        assertEquals(TokenStore.RUSSIAN_ROUTING_OFF, tokenStore.getRussianRoutingMode());
+    }
+
+    @Test
+    public void originalIpIsRussiaIsNullUntilLookedUp() {
+        assertNull(tokenStore.getOriginalIpIsRussia());
+        tokenStore.saveOriginalIpIsRussia(true);
+        assertTrue(tokenStore.getOriginalIpIsRussia());
+    }
+
+    @Test
+    public void clearPreservesOriginalIpIsRussia() {
+        tokenStore.saveOriginalIpIsRussia(true);
+        tokenStore.save("jwt-token-123", 42L);
+
+        tokenStore.clear();
+
+        assertFalse(tokenStore.isLoggedIn());
+        assertTrue("originalIpIsRussia is a device property, not session state", tokenStore.getOriginalIpIsRussia());
+    }
+
+    @Test
     public void autoConnectOnBootSetting() {
         assertFalse(tokenStore.isAutoConnectOnBoot());
         tokenStore.setAutoConnectOnBoot(true);

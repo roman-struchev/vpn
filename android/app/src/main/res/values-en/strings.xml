@@ -13,6 +13,8 @@
     <string name="field_required">This field is required</string>
     <string name="login_google_action">Sign in with Google</string>
     <string name="google_signin_error">Could not sign in with Google. Please try again.</string>
+    <string name="server_unavailable_message">Server unavailable. Check your internet connection and try again.</string>
+    <string name="retry_action">Retry</string>
 
     <!-- Guest profile -->
     <string name="guest_profile_title">Trial access</string>
@@ -45,8 +47,20 @@
     <string name="region_load_medium">medium load</string>
     <string name="region_load_high">high load</string>
     <string name="region_unavailable_notice">The selected region is unavailable right now — using automatic selection</string>
+    <string name="refresh_usage_action">Refresh</string>
+    <string name="region_requires_upgrade_notice">The selected region requires a higher plan — using automatic selection</string>
+    <string name="region_row_locked_format">🔒 %1$s — requires a paid plan</string>
+    <string name="region_locked_toast">This region isn\'t available on your current plan</string>
 
     <string name="settings_section_title">Connection settings</string>
+    <string name="russian_routing_title">Route for Russian sites</string>
+    <string name="russian_routing_off">Normal</string>
+    <string name="russian_routing_bypass">RU direct</string>
+    <string name="russian_routing_only_ru">RU only</string>
+    <string name="russian_routing_off_desc">No special routing — every site goes through the VPN the same way</string>
+    <string name="russian_routing_bypass_desc">Russian banks, state portals and other RU sites connect directly, no VPN. Everything else goes through the VPN</string>
+    <string name="russian_routing_only_ru_desc">Only RU sites go through the VPN (needs a Russian server). Everything else connects directly, no VPN</string>
+    <string name="russian_routing_no_ru_node_warning">No Russian server is online right now — this mode won\'t work for RU-restricted sites until one is available</string>
     <string name="bypass_ru_title">Bypass Russian services</string>
     <string name="bypass_ru_desc">Banks, Gosuslugi and RU apps bypass VPN directly</string>
     <string name="auto_boot_title">Connect on boot</string>

@@ -22,6 +22,11 @@ public class TokenStore {
     private static final String KEY_SELECTED_REGION = "selected_region";
     private static final String KEY_DEVICE_UUID = "device_uuid";
     private static final String KEY_BYPASS_RUSSIAN_TRAFFIC = "bypass_russian_traffic";
+    private static final String KEY_RUSSIAN_ROUTING_MODE = "russian_routing_mode";
+    public static final String RUSSIAN_ROUTING_OFF = "off";
+    public static final String RUSSIAN_ROUTING_BYPASS = "bypassRu";
+    public static final String RUSSIAN_ROUTING_ONLY_RU = "onlyRu";
+    private static final String KEY_ORIGINAL_IP_IS_RUSSIA = "original_ip_is_russia";
     private static final String KEY_AUTO_CONNECT_ON_BOOT = "auto_connect_on_boot";
     private static final String KEY_DISALLOWED_APPS = "disallowed_apps";
 
@@ -122,12 +127,58 @@ public class TokenStore {
         return deviceUuid;
     }
 
+    /**
+     * @deprecated superseded by {@link #getRussianRoutingMode()}'s 3-way mode
+     * (off / bypassRu / onlyRu). Kept only so {@link #getRussianRoutingMode()}
+     * can migrate a pre-existing boolean pref on first read after an app
+     * update; new code should not call this.
+     */
+    @Deprecated
     public boolean isBypassRussianTraffic() {
         return prefs.getBoolean(KEY_BYPASS_RUSSIAN_TRAFFIC, false);
     }
 
+    /** @deprecated see {@link #isBypassRussianTraffic()} — kept for the same reason. */
+    @Deprecated
     public void setBypassRussianTraffic(boolean enabled) {
         prefs.edit().putBoolean(KEY_BYPASS_RUSSIAN_TRAFFIC, enabled).apply();
+    }
+
+    /**
+     * One of {@link #RUSSIAN_ROUTING_OFF}, {@link #RUSSIAN_ROUTING_BYPASS} (RU
+     * sites/apps go direct, everything else through the VPN — for a user
+     * physically in Russia) or {@link #RUSSIAN_ROUTING_ONLY_RU} (the reverse:
+     * only RU sites/apps go through the VPN, through a Russia-located node —
+     * for a Russian-speaking user physically outside Russia who wants to
+     * reach RU-geo-restricted services). Migrates the old boolean pref
+     * (true -> bypassRu, false/absent -> off) the first time this is read
+     * after an app update, so existing installs keep their prior behavior.
+     */
+    public String getRussianRoutingMode() {
+        String mode = prefs.getString(KEY_RUSSIAN_ROUTING_MODE, null);
+        if (mode != null) return mode;
+        String migrated = prefs.getBoolean(KEY_BYPASS_RUSSIAN_TRAFFIC, false) ? RUSSIAN_ROUTING_BYPASS : RUSSIAN_ROUTING_OFF;
+        prefs.edit().putString(KEY_RUSSIAN_ROUTING_MODE, migrated).apply();
+        return migrated;
+    }
+
+    public void setRussianRoutingMode(String mode) {
+        prefs.edit().putString(KEY_RUSSIAN_ROUTING_MODE, mode).apply();
+    }
+
+    /**
+     * One-time geo-IP result for this install's original public IP (before
+     * ever connecting the VPN), used alongside the device locale to decide
+     * whether to show the Russian-routing control at all — see
+     * ConnectFragment. {@code null} means "not looked up yet."
+     */
+    public Boolean getOriginalIpIsRussia() {
+        if (!prefs.contains(KEY_ORIGINAL_IP_IS_RUSSIA)) return null;
+        return prefs.getBoolean(KEY_ORIGINAL_IP_IS_RUSSIA, false);
+    }
+
+    public void saveOriginalIpIsRussia(boolean isRussia) {
+        prefs.edit().putBoolean(KEY_ORIGINAL_IP_IS_RUSSIA, isRussia).apply();
     }
 
     public boolean isAutoConnectOnBoot() {
@@ -156,12 +207,21 @@ public class TokenStore {
     public void clear() {
         String deviceUuid = prefs.getString(KEY_DEVICE_UUID, null);
         String selectedRegion = prefs.getString(KEY_SELECTED_REGION, null);
+        boolean hasOriginalIpIsRussia = prefs.contains(KEY_ORIGINAL_IP_IS_RUSSIA);
+        boolean originalIpIsRussia = prefs.getBoolean(KEY_ORIGINAL_IP_IS_RUSSIA, false);
         SharedPreferences.Editor editor = prefs.edit().clear();
         if (deviceUuid != null) {
             editor.putString(KEY_DEVICE_UUID, deviceUuid);
         }
         if (selectedRegion != null) {
             editor.putString(KEY_SELECTED_REGION, selectedRegion);
+        }
+        // A device/install property (which country this phone first launched
+        // from), not session state — losing it on logout would just trigger a
+        // redundant geo-IP re-lookup on next launch, not a functional bug, but
+        // there's no reason to throw it away.
+        if (hasOriginalIpIsRussia) {
+            editor.putBoolean(KEY_ORIGINAL_IP_IS_RUSSIA, originalIpIsRussia);
         }
         editor.apply();
     }

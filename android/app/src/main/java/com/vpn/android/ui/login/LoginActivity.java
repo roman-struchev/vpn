@@ -76,6 +76,7 @@ public class LoginActivity extends AppCompatActivity {
         binding.submitButton.setOnClickListener(v -> submit());
         binding.toggleModeButton.setOnClickListener(v -> toggleMode());
         binding.googleSignInButton.setOnClickListener(v -> signInWithGoogle());
+        binding.retryButton.setOnClickListener(v -> attemptDeviceLogin());
         applyMode();
 
         if (forceForm) {
@@ -94,14 +95,28 @@ public class LoginActivity extends AppCompatActivity {
 
     private void attemptDeviceLogin() {
         setLoading(true);
+        binding.retryButton.setVisibility(View.GONE);
         String deviceUuid = tokenStore.getOrCreateDeviceUuid();
         Async.run(
                 () -> apiClient.deviceAuth(deviceUuid, null),
                 (AuthResponse resp) -> goToMain(),
                 error -> {
-                    // No network / server unreachable — fall back to the
-                    // manual login/register form so the app isn't unusable.
                     setLoading(false);
+                    if (error instanceof java.io.IOException) {
+                        // Plain network failure (DNS/connect/timeout — server
+                        // unreachable), not a real "invalid session" response
+                        // from the server (that would be an ApiException).
+                        // Previously this fell through to the login/register
+                        // form exactly like a real auth failure, which reads
+                        // as "you need to sign in" when the actual problem is
+                        // connectivity and retrying is what would actually
+                        // help — same class of bug fixed on the desktop client.
+                        showError(getString(R.string.server_unavailable_message));
+                        binding.retryButton.setVisibility(View.VISIBLE);
+                        return;
+                    }
+                    // A real (if unexpected) HTTP error response — fall back to
+                    // the manual login/register form so the app isn't unusable.
                     binding.formContainer.setVisibility(View.VISIBLE);
                 });
     }

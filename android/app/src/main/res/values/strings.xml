@@ -14,6 +14,8 @@
     <string name="field_required">Заполните это поле</string>
     <string name="login_google_action">Войти через Google</string>
     <string name="google_signin_error">Не удалось войти через Google. Попробуйте снова.</string>
+    <string name="server_unavailable_message">Сервер недоступен. Проверьте подключение к интернету и попробуйте снова.</string>
+    <string name="retry_action">Повторить</string>
     <!-- OAuth "Web application"-type Client ID from Google Cloud Console (the audience
          the backend's vpn.google.client-id property expects) — replace before release. -->
     <string name="google_web_client_id" translatable="false">REPLACE_WITH_GOOGLE_WEB_CLIENT_ID</string>
@@ -50,8 +52,20 @@
     <string name="region_load_medium">средняя загрузка</string>
     <string name="region_load_high">высокая загрузка</string>
     <string name="region_unavailable_notice">Выбранный регион сейчас недоступен — используется автоматический выбор</string>
+    <string name="refresh_usage_action">Обновить</string>
+    <string name="region_requires_upgrade_notice">Выбранный регион требует более высокого тарифа — используется автоматический выбор</string>
+    <string name="region_row_locked_format">🔒 %1$s — нужен платный тариф</string>
+    <string name="region_locked_toast">Этот регион недоступен на вашем текущем тарифе</string>
 
     <string name="settings_section_title">Настройки подключения</string>
+    <string name="russian_routing_title">Маршрут для сайтов РФ</string>
+    <string name="russian_routing_off">Обычный</string>
+    <string name="russian_routing_bypass">РФ напрямую</string>
+    <string name="russian_routing_only_ru">Только РФ</string>
+    <string name="russian_routing_off_desc">Особый маршрут выключен — все сайты идут через VPN одинаково</string>
+    <string name="russian_routing_bypass_desc">Банки, Госуслуги и другие сайты РФ — напрямую, без VPN. Всё остальное — через VPN</string>
+    <string name="russian_routing_only_ru_desc">Через VPN — только сайты РФ (нужен российский сервер). Всё остальное — напрямую, без VPN</string>
+    <string name="russian_routing_no_ru_node_warning">Сейчас нет доступной ноды в России — этот режим временно не сработает для сайтов с гео-ограничением по РФ</string>
     <string name="bypass_ru_title">Обход сервисов РФ</string>
     <string name="bypass_ru_desc">Банки, Госуслуги и российские сервисы работают напрямую без VPN</string>
     <string name="auto_boot_title">Автоподключение при включении</string>

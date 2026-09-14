@@ -110,5 +110,18 @@
             android:gravity="center"
             android:visibility="gone" />
 
+        <!-- Shown only when the silent device-login attempt on launch fails
+             with a network error (server unreachable), instead of dropping to
+             the login/register form as if the account just weren't
+             authenticated — see LoginActivity#attemptDeviceLogin. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/retryButton"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/retry_action"
+            android:visibility="gone" />
+
     </LinearLayout>
 </ScrollView>

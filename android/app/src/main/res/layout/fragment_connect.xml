@@ -131,11 +131,31 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
-                <TextView
-                    android:id="@+id/trafficText"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:id="@+id/trafficText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                    <!-- Traffic usage otherwise only ever loaded once on fragment
+                         creation (see loadProfile()/refreshTrafficPeriodically()
+                         in ConnectFragment) — a manual nudge for "I want it now",
+                         same fix as the desktop client's refresh button. -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/refreshUsageButton"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="0dp"
+                        android:text="@string/refresh_usage_action" />
+                </LinearLayout>
 
                 <ProgressBar
                     android:id="@+id/trafficProgress"
@@ -175,19 +195,79 @@
                     android:text="@string/settings_section_title"
                     android:textAppearance="?attr/textAppearanceLabelMedium" />
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/bypassRuSwitch"
+                <!--
+                Only relevant to a user actually in Russia, or a Russian-speaking
+                user abroad — ConnectFragment hides this whole block otherwise
+                (see GeoLocale). Short toggle labels alone can't carry the full
+                behavior, so russianRoutingDescText always spells out what the
+                selected mode does, mirroring the desktop client's fix for the
+                same "these labels aren't intuitive" feedback.
+                -->
+                <LinearLayout
+                    android:id="@+id/russianRoutingContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:orientation="vertical"
                     android:layout_marginTop="8dp"
-                    android:text="@string/bypass_ru_title" />
+                    android:visibility="gone">
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/bypass_ru_desc"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textAppearance="?attr/textAppearanceBodySmall" />
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/russian_routing_title"
+                        android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/russianRoutingToggleGroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        app:singleSelection="true"
+                        app:selectionRequired="true">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/russianRoutingOffButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/russian_routing_off" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/russianRoutingBypassButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/russian_routing_bypass" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/russianRoutingOnlyRuButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/russian_routing_only_ru" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                    <TextView
+                        android:id="@+id/russianRoutingDescText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textAppearance="?attr/textAppearanceBodySmall" />
+
+                    <TextView
+                        android:id="@+id/russianRoutingWarningText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/russian_routing_no_ru_node_warning"
+                        android:textColor="@color/state_reconnecting"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:visibility="gone" />
+                </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"

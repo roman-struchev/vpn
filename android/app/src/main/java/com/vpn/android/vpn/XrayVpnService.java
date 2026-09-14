@@ -128,7 +128,7 @@ public class XrayVpnService extends VpnService implements DialerController {
             // and the server only includes nodes/keys for existing devices.
             registerOrTouchDevice();
             RoutingConfigResponse policy = apiClient.getRoutingConfig(null, null);
-            String preferredRegion = tokenStore.getSelectedRegion();
+            String preferredRegion = resolveConnectRegion();
             SubscriptionLinksResponse linksResp = apiClient.getSubscriptionLinks(preferredRegion);
             boolean regionFellBack = preferredRegion != null && Boolean.FALSE.equals(linksResp.requestedRegionAvailable);
             if (regionFellBack) {
@@ -182,6 +182,33 @@ public class XrayVpnService extends VpnService implements DialerController {
             transition(ConnectionEvent.FATAL_ERROR);
             updateNotification();
         }
+    }
+
+    /**
+     * The user's manual region pick always wins. Otherwise, in RU-only routing
+     * mode (see TokenStore#RUSSIAN_ROUTING_ONLY_RU), prefer an accessible
+     * region whose name mentions Russia — that mode's whole point is reaching
+     * RU-geo-restricted services, which requires a Russia-located exit node.
+     * No Russian-region node existed anywhere as of this writing, so this
+     * currently always falls through to null (server's own "auto" pick) in
+     * practice — correctly wired, not faked, just inert until ops provisions
+     * one; logged so that's visible rather than silently doing nothing.
+     */
+    private String resolveConnectRegion() {
+        String manual = tokenStore.getSelectedRegion();
+        if (manual != null) return manual;
+        if (!TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(tokenStore.getRussianRoutingMode())) return null;
+        try {
+            for (com.vpn.android.api.model.RegionInfo r : apiClient.getRegions()) {
+                if (r.accessible && r.region != null && r.region.toLowerCase(java.util.Locale.ROOT).contains("russia")) {
+                    return r.region;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to look up a Russian region for RU-only routing mode; falling back to auto", e);
+        }
+        Log.w(TAG, "RU-only routing mode is active but no accessible Russian-region node exists right now");
+        return null;
     }
 
     private static String normalizeFingerprint(String fingerprint) {
@@ -380,20 +407,45 @@ public class XrayVpnService extends VpnService implements DialerController {
             builder.setMetered(false);
         }
 
-        if (tokenStore.isBypassRussianTraffic()) {
+        // App-based split tunneling (Android has no per-domain routing rule the
+        // way the desktop client's system-proxy Xray config does, but a TUN
+        // VpnService can exclude/restrict whole apps at the OS level, which is
+        // the more natural fit here). RUSSIAN_APP_PACKAGES is the same list
+        // either way; only which VpnService API call it feeds changes:
+        //  - bypassRu: those apps are DISALLOWED from the tunnel (everything
+        //    else — including all other apps — goes through the VPN).
+        //  - onlyRu (reverse): those apps are the ONLY ones ALLOWED through
+        //    the tunnel (everything else bypasses the VPN entirely). Needs an
+        //    actual Russia-located exit node to be useful for RU-geo-blocked
+        //    services — see resolveConnectRegion()'s doc.
+        // addAllowedApplication and addDisallowedApplication are mutually
+        // exclusive on one Builder (Android throws otherwise), so the custom
+        // tokenStore.getDisallowedApps() overlay below only applies outside
+        // onlyRu mode.
+        String routingMode = tokenStore.getRussianRoutingMode();
+        if (TokenStore.RUSSIAN_ROUTING_BYPASS.equals(routingMode)) {
             for (String pkg : RUSSIAN_APP_PACKAGES) {
                 try {
                     builder.addDisallowedApplication(pkg);
                 } catch (PackageManager.NameNotFoundException ignored) {
                 }
             }
-        }
-        Set<String> disallowed = tokenStore.getDisallowedApps();
-        if (disallowed != null) {
-            for (String pkg : disallowed) {
+        } else if (TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(routingMode)) {
+            for (String pkg : RUSSIAN_APP_PACKAGES) {
                 try {
-                    builder.addDisallowedApplication(pkg);
+                    builder.addAllowedApplication(pkg);
                 } catch (PackageManager.NameNotFoundException ignored) {
+                }
+            }
+        }
+        if (!TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(routingMode)) {
+            Set<String> disallowed = tokenStore.getDisallowedApps();
+            if (disallowed != null) {
+                for (String pkg : disallowed) {
+                    try {
+                        builder.addDisallowedApplication(pkg);
+                    } catch (PackageManager.NameNotFoundException ignored) {
+                    }
                 }
             }
         }
