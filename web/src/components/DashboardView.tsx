@@ -19,6 +19,7 @@ import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, Balanc
 import { api } from '../api';
 import { copyToClipboard } from '../utils/clipboard';
 import { DownloadApp } from './DownloadApp';
+import { P2pRelaySection } from './P2pRelaySection';
 
 const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
   LOW: 'bg-emerald-400',
@@ -399,6 +400,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 style={{ width: `${trafficPercent}%` }}
               />
             </div>
+            {/* Out-of-traffic P2P pitch (docs/research/P2P_RELAY_FEASIBILITY.md
+                §8, repo owner's explicit request) — only shown once the plan
+                is actually exhausted, not as a constant upsell nag. */}
+            {trafficPercent >= 100 && (
+              <p className="mt-3 text-[11px] text-slate-400">
+                {t.p2pOutOfTrafficPitch}{' '}
+                <a href="#p2p-terms" className="text-brand-500 hover:underline whitespace-nowrap">
+                  {t.p2pOutOfTrafficLink}
+                </a>
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -693,6 +705,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
         </div>
       </div>
+
+      <P2pRelaySection lang={lang} />
 
       {/* Billing History — moved to the bottom of the page: it's a reference
           list people scroll to occasionally, not something that needs to

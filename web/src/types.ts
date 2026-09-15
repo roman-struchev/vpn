@@ -39,6 +39,20 @@ export interface Tariff {
   isActive: boolean;
 }
 
+/**
+ * GET /api/v1/user/p2p/status (docs/research/P2P_RELAY_FEASIBILITY.md §8) —
+ * bytesCreditedToday/remainingCapBytesToday are a rolling sum over the last
+ * 24h server-side (P2pRelayCreditRepository#sumBytesCreditedSince), not a
+ * calendar-day counter that resets at midnight.
+ */
+export interface P2pRelayStatus {
+  termsAccepted: boolean;
+  isGuest: boolean;
+  bytesCreditedToday: number;
+  dailyCapBytes: number;
+  remainingCapBytesToday: number;
+}
+
 export interface RegionInfo {
   region: string;
   nodeCount: number;
