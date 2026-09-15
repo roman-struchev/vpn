@@ -25,6 +25,11 @@ public class BillingService {
     // only, so it reads as a welcome gift rather than a standing discount.
     private static final long REFERRER_BONUS_PERCENT = 15;
     private static final long REFEREE_WELCOME_BONUS_PERCENT = 10;
+    // Trial's "period end" sentinel for "no real time limit" (see
+    // Subscription#hasNoExpiry, which treats anything past its own 10-year
+    // threshold as unlimited) — used here and by DeviceAuthService/
+    // TelegramAuthService's trial grants.
+    static final long NO_EXPIRY_DAYS = 36_500;
 
     private final UserRepository userRepository;
     private final TariffRepository tariffRepository;
@@ -291,8 +296,13 @@ public class BillingService {
         }
 
         boolean isTrial = "trial".equalsIgnoreCase(tariffId);
+        // Trial has no real time limit — traffic quota is the only cap
+        // (QuotaEnforcementTask#findQuotaExceededSubscriptions), independent
+        // of clock time, so a P2P-relay-earned traffic credit (see
+        // docs/research/P2P_RELAY_FEASIBILITY.md) isn't capped by a
+        // meanwhile-expired trial period. See Subscription#hasNoExpiry.
         Instant periodEnd = isTrial
-                ? periodStart.plus(3, ChronoUnit.DAYS)
+                ? periodStart.plus(NO_EXPIRY_DAYS, ChronoUnit.DAYS)
                 : (isAnnual ? periodStart.plus(365, ChronoUnit.DAYS) : periodStart.plus(30, ChronoUnit.DAYS));
         boolean autoRenew = !isTrial;
 

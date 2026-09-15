@@ -335,7 +335,7 @@ class BillingServiceTest {
     }
 
     @Test
-    void testPurchaseTrialSubscriptionHasThreeDaysDurationAndNoAutoRenew() {
+    void testPurchaseTrialSubscriptionHasNoRealTimeLimitAndNoAutoRenew() {
         User user = new User();
         user.setId(5L);
         user.setBalanceUsdtMicro(0L);
@@ -355,8 +355,9 @@ class BillingServiceTest {
 
         assertNotNull(sub);
         assertFalse(sub.getAutoRenew());
-        long daysDiff = java.time.Duration.between(sub.getCurrentPeriodStart(), sub.getCurrentPeriodEnd()).toDays();
-        assertEquals(3L, daysDiff);
+        // No more real time limit for trial — only the traffic quota caps it
+        // (see BillingService.NO_EXPIRY_DAYS / Subscription#hasNoExpiry).
+        assertTrue(sub.hasNoExpiry());
     }
 
     @Test

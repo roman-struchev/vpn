@@ -96,4 +96,18 @@ class SubscriptionTest {
         Subscription sub = subscriptionWithRealPeriodEnd(realEnd);
         assertEquals(realEnd, sub.getEffectiveExpiresAt());
     }
+
+    @Test
+    void hasNoExpiry_falseForARealNearTermPeriodEnd() {
+        Subscription sub = subscriptionWithRealPeriodEnd(Instant.now().plus(3, ChronoUnit.DAYS));
+        assertFalse(sub.hasNoExpiry());
+    }
+
+    @Test
+    void hasNoExpiry_trueForTrialsFarFutureSentinel() {
+        // Mirrors BillingService.NO_EXPIRY_DAYS (36,500 days / 100 years) —
+        // trial grants no longer carry a real time limit, only a traffic cap.
+        Subscription sub = subscriptionWithRealPeriodEnd(Instant.now().plus(36_500, ChronoUnit.DAYS));
+        assertTrue(sub.hasNoExpiry());
+    }
 }

@@ -125,6 +125,19 @@ public class Subscription {
      * DeviceManagementService, TelegramBotService) and by
      * QuotaEnforcementTask to decide whether to flip status to EXPIRED.
      */
+    // Trial tariffs no longer carry a real time limit (BillingService/
+    // DeviceAuthService/TelegramAuthService set currentPeriodEnd 100 years
+    // out for trial instead of 3 days) — the traffic quota is the only real
+    // limit now (QuotaEnforcementTask#findQuotaExceededSubscriptions already
+    // enforces that independently of time). A literal ~100-years-out date is
+    // meaningless to show a user, so callers use this to render "no time
+    // limit" instead of the sentinel value itself.
+    private static final long NO_EXPIRY_THRESHOLD_DAYS = 3650; // 10 years — far beyond any real paid period
+
+    public boolean hasNoExpiry() {
+        return currentPeriodEnd.isAfter(Instant.now().plus(NO_EXPIRY_THRESHOLD_DAYS, java.time.temporal.ChronoUnit.DAYS));
+    }
+
     public boolean isExpired() {
         Instant now = Instant.now();
         if (overrideTariff != null && overrideExpiresAt != null && overrideExpiresAt.isAfter(now)) {

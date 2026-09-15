@@ -199,7 +199,9 @@ public class TelegramAuthService {
             sub.setIsAnnual(false);
             sub.setAutoRenew(false);
             sub.setCurrentPeriodStart(Instant.now());
-            sub.setCurrentPeriodEnd(Instant.now().plus(3, ChronoUnit.DAYS));
+            // No real time limit — traffic quota is the only cap, see
+            // BillingService.NO_EXPIRY_DAYS / Subscription#hasNoExpiry.
+            sub.setCurrentPeriodEnd(Instant.now().plus(com.vpn.server.service.BillingService.NO_EXPIRY_DAYS, ChronoUnit.DAYS));
             sub.setTrafficUsedBytes(0L);
             sub.setTrafficLimitBytes(trialTariff.get().getTrafficQuotaBytes());
             subscriptionRepository.save(sub);

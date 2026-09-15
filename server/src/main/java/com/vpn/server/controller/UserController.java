@@ -136,7 +136,12 @@ public class UserController {
                 "tariffId", s.getEffectiveTariff().getId(),
                 "trafficUsedBytes", s.getTrafficUsedBytes(),
                 "trafficLimitBytes", s.getTrafficLimitBytes(),
-                "expiresAt", s.getEffectiveExpiresAt().toString()
+                "expiresAt", s.getEffectiveExpiresAt().toString(),
+                // Trial has no real time limit (traffic quota is the only cap) —
+                // true only when no temporary tariff override is masking it with
+                // a real near-term expiry. Lets clients show "no time limit"
+                // instead of the ~100-years-out sentinel date.
+                "noExpiry", s.getOverrideTariff() == null && s.hasNoExpiry()
         )).orElse(null));
 
         return ResponseEntity.ok(response);
