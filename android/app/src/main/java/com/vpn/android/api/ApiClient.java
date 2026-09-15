@@ -155,7 +155,9 @@ public class ApiClient {
     /**
      * No-signup trial login (see server DeviceAuthService): idempotent per
      * deviceUuid — repeat calls just log the same auto-created account back
-     * in, granting a 3-day trial subscription on first creation. Used by
+     * in, granting a trial subscription on first creation (no real expiry
+     * date anymore, only a traffic cap — see BillingService.NO_EXPIRY_DAYS
+     * server-side). Used by
      * LoginActivity's auto-login-on-launch flow so a fresh install can start
      * using the app without registration.
      */

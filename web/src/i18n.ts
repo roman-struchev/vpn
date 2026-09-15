@@ -79,7 +79,7 @@ export const translations = {
     perYear: "/ год",
     planTraffic: "{n} ГБ трафика в месяц",
     planDevicesSuffix: "одновременно",
-    planTrialPerk: "3 дня пробного периода — без карты",
+    planTrialPerk: "Пробный период без ограничения по времени — без карты",
     planPaidPerk: "Приоритетные серверы",
     popularBadge: "Популярный",
     choosePlan: "Выбрать",
@@ -137,7 +137,10 @@ export const translations = {
     referralCodeOptional: "Реферальный код (необязательно)",
     signingUpForPlan: "Регистрация — тариф {plan}",
     // --- Trial duration (Quick Win #8) ---
-    trialDurationLabel: "Пробный период 3 дня",
+    // Trial no longer has a real expiry date (server-side: BillingService.NO_EXPIRY_DAYS,
+    // Subscription#hasNoExpiry) -- only the traffic quota shown alongside this label
+    // actually limits it now, so the copy says so instead of a stale "3 days".
+    trialDurationLabel: "Без ограничения по времени",
     // --- P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8) ---
     p2pTitle: "Режим ретрансляции (P2P)",
     p2pSummary: "Разрешите приложению помогать другим пользователям подключаться, ретранслируя их зашифрованный трафик через ваше устройство — за это начисляется трафик на ваш аккаунт. 1 ГБ ретранслировано → 0,5 ГБ на баланс, до 50 ГБ в сутки.",
@@ -233,7 +236,7 @@ export const translations = {
     perYear: "/ yr",
     planTraffic: "{n} GB of traffic per month",
     planDevicesSuffix: "at once",
-    planTrialPerk: "3-day trial, no card needed",
+    planTrialPerk: "No time limit on the trial, no card needed",
     planPaidPerk: "Priority servers",
     popularBadge: "Popular",
     choosePlan: "Choose",
@@ -291,7 +294,7 @@ export const translations = {
     referralCodeOptional: "Referral Code (Optional)",
     signingUpForPlan: "Signing up for the {plan} plan",
     // --- Trial duration (Quick Win #8) ---
-    trialDurationLabel: "3-day trial",
+    trialDurationLabel: "No time limit",
     // --- P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8) ---
     p2pTitle: "Relay Mode (P2P)",
     p2pSummary: "Let the app help other users connect by relaying their encrypted traffic through your device — you earn traffic on your own account for it. 1 GB relayed → 0.5 GB credited, up to 50 GB per day.",

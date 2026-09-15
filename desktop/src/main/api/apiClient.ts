@@ -149,8 +149,10 @@ export class ApiClient {
   /**
    * No-signup trial entry point: logs in with this install's stable device
    * UUID (see TokenStore#getOrCreateDeviceUuid), which the server
-   * find-or-creates a User for and grants a 3-day trial to on first call —
-   * idempotent on subsequent calls (same account, no extra trial). Lets a
+   * find-or-creates a User for and grants a trial subscription to on first
+   * call (no real expiry date anymore, only a traffic cap — see
+   * BillingService.NO_EXPIRY_DAYS server-side) — idempotent on subsequent
+   * calls (same account, no extra trial). Lets a
    * fresh install land on the connect screen without ever seeing LoginPage.
    */
   async deviceLogin(deviceUuid: string, referralCode?: string): Promise<AuthResponse> {
