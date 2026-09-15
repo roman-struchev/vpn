@@ -138,6 +138,22 @@ export const translations = {
     signingUpForPlan: "Регистрация — тариф {plan}",
     // --- Trial duration (Quick Win #8) ---
     trialDurationLabel: "Пробный период 3 дня",
+    // --- P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8) ---
+    p2pTitle: "Режим ретрансляции (P2P)",
+    p2pSummary: "Разрешите приложению помогать другим пользователям подключаться, ретранслируя их зашифрованный трафик через ваше устройство — за это начисляется трафик на ваш аккаунт. 1 ГБ ретранслировано → 0,5 ГБ на баланс, до 50 ГБ в сутки.",
+    p2pTermsLink: "Условия и риски режима ретрансляции",
+    p2pGuestBlocked: "Недоступно для гостевого профиля — нужен аккаунт с почтой, Telegram или Google.",
+    p2pAcceptCheckbox: "Я прочитал(а) условия и принимаю риски режима ретрансляции",
+    p2pAcceptBtn: "Принять и включить видимость статуса",
+    p2pAccepted: "Условия приняты",
+    p2pStatsToday: "Начислено сегодня",
+    p2pCapHint: "Лимит: {cap} ГБ/сутки",
+    p2pEnableHint: "Чтобы начать зарабатывать трафик, включите режим ретрансляции в приложении Desktop или Android.",
+    p2pAcceptError: "Не удалось принять условия",
+    p2pOutOfTrafficPitch: "Заканчивается трафик? Включите режим ретрансляции в приложении и получайте до 50 ГБ бесплатного трафика в сутки.",
+    p2pOutOfTrafficLink: "Узнать больше",
+    p2pBackToDashboard: "Назад в кабинет",
+    p2pDraftNotice: "ЧЕРНОВИК — страница ожидает юридической проверки перед полноценным запуском функции.",
   },
   en: {
     brandName: "Aura VPN",
@@ -276,5 +292,21 @@ export const translations = {
     signingUpForPlan: "Signing up for the {plan} plan",
     // --- Trial duration (Quick Win #8) ---
     trialDurationLabel: "3-day trial",
+    // --- P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8) ---
+    p2pTitle: "Relay Mode (P2P)",
+    p2pSummary: "Let the app help other users connect by relaying their encrypted traffic through your device — you earn traffic on your own account for it. 1 GB relayed → 0.5 GB credited, up to 50 GB per day.",
+    p2pTermsLink: "Relay mode terms & risks",
+    p2pGuestBlocked: "Not available on a guest profile — requires an account with email, Telegram, or Google.",
+    p2pAcceptCheckbox: "I've read the terms and accept the risks of relay mode",
+    p2pAcceptBtn: "Accept and show my status",
+    p2pAccepted: "Terms accepted",
+    p2pStatsToday: "Credited today",
+    p2pCapHint: "Cap: {cap} GB/day",
+    p2pEnableHint: "To start earning traffic, turn on relay mode in the Desktop or Android app.",
+    p2pAcceptError: "Failed to accept the terms",
+    p2pOutOfTrafficPitch: "Running low on traffic? Turn on relay mode in the app and earn up to 50 GB of free traffic a day.",
+    p2pOutOfTrafficLink: "Learn more",
+    p2pBackToDashboard: "Back to dashboard",
+    p2pDraftNotice: "DRAFT — pending legal review before this feature has a general launch.",
   }
 };

@@ -1,4 +1,4 @@
-import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo } from './types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo, P2pRelayStatus } from './types';
 
 const TOKEN_KEY = 'vpn_auth_token';
 
@@ -232,5 +232,31 @@ export const api = {
     if (!res.ok) return [];
     const data = await res.json();
     return data.regions || [];
+  },
+
+  /**
+   * P2P relay consent/credit status (docs/research/P2P_RELAY_FEASIBILITY.md
+   * §8.6) -- actually turning relay mode ON only happens in the native
+   * desktop/Android clients (phases 2/3, built separately); the web
+   * dashboard only surfaces consent + read-only stats.
+   */
+  async getP2pStatus(): Promise<P2pRelayStatus> {
+    const res = await fetch('/api/v1/user/p2p/status', {
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) throw new Error('Failed to load P2P relay status');
+    return res.json();
+  },
+
+  async acceptP2pTerms(): Promise<{ acceptedAt: string }> {
+    const res = await fetch('/api/v1/user/p2p/accept-terms', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to accept terms' }));
+      throw new Error(err.error || 'Failed to accept terms');
+    }
+    return res.json();
   },
 };

@@ -7,6 +7,7 @@ import { LandingView } from './components/LandingView';
 import { DashboardView } from './components/DashboardView';
 import { AuthModal } from './components/AuthModal';
 import { AdminPanel } from './admin/AdminPanel';
+import { P2pRelayTermsPage } from './components/P2pRelayTermsPage';
 
 declare global {
   interface Window {
@@ -72,6 +73,12 @@ export function App() {
   // back to the dashboard with no way to tell you'd been in admin at all).
   // #admin, or #admin/<tab> once AdminPanel starts tracking its own tab.
   const [showAdmin, setShowAdmin] = useState(() => window.location.hash.startsWith('#admin'));
+  // Public P2P relay terms page (docs/research/P2P_RELAY_FEASIBILITY.md §8.6)
+  // — reachable via a stable #p2p-terms hash link regardless of login state,
+  // same hash-routing convention as #admin above (this SPA has no server-side
+  // routing for arbitrary paths, so a hash fragment is the zero-backend-
+  // changes way to give the feature a stable, linkable URL: <origin>/#p2p-terms).
+  const [showP2pTerms, setShowP2pTerms] = useState(() => window.location.hash.startsWith('#p2p-terms'));
 
   const openAdmin = () => {
     if (!window.location.hash.startsWith('#admin')) window.location.hash = 'admin';
@@ -83,6 +90,13 @@ export function App() {
       history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     setShowAdmin(false);
+  };
+
+  const closeP2pTerms = () => {
+    if (window.location.hash.startsWith('#p2p-terms')) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    setShowP2pTerms(false);
   };
 
   useEffect(() => {
@@ -109,7 +123,10 @@ export function App() {
       await initApp();
     })();
 
-    const onHashChange = () => setShowAdmin(window.location.hash.startsWith('#admin'));
+    const onHashChange = () => {
+      setShowAdmin(window.location.hash.startsWith('#admin'));
+      setShowP2pTerms(window.location.hash.startsWith('#p2p-terms'));
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
@@ -193,7 +210,9 @@ export function App() {
         />
 
         <main className="pb-16">
-          {user && showAdmin && user.role === 'ADMIN' ? (
+          {showP2pTerms ? (
+            <P2pRelayTermsPage lang={lang} onBack={closeP2pTerms} />
+          ) : user && showAdmin && user.role === 'ADMIN' ? (
             <AdminPanel lang={lang} onBack={closeAdmin} />
           ) : user ? (
             <DashboardView
