@@ -73,6 +73,27 @@ const vpnApi = {
     ipcRenderer.on('vpn:regionFallback', listener);
     return () => ipcRenderer.removeListener('vpn:regionFallback', listener);
   },
+
+  /**
+   * P2P relay mode (docs/research/P2P_RELAY_FEASIBILITY.md §8) — opt-in,
+   * authenticated-only, relays other users' encrypted VPN traffic for a
+   * traffic credit on this account. acceptP2pTerms is required once before
+   * setP2pRelayMode will do anything real (the server rejects a bootstrap-
+   * token mint otherwise).
+   */
+  acceptP2pTerms: (): Promise<{ acceptedAt: string }> => ipcRenderer.invoke('p2p:acceptTerms'),
+  getP2pStatus: (): Promise<{
+    termsAccepted: boolean;
+    isGuest: boolean;
+    bytesCreditedToday: number;
+    dailyCapBytes: number;
+    remainingCapBytesToday: number;
+  }> => ipcRenderer.invoke('p2p:getStatus'),
+  getP2pRelayMode: (): Promise<{ mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null }> =>
+    ipcRenderer.invoke('p2p:getMode'),
+  setP2pRelayMode: (mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null): Promise<void> =>
+    ipcRenderer.invoke('p2p:setMode', mode, expiresAtEpochMs),
+  getP2pTermsUrl: (): Promise<string> => ipcRenderer.invoke('p2p:getTermsUrl'),
 };
 
 contextBridge.exposeInMainWorld('vpnApi', vpnApi);

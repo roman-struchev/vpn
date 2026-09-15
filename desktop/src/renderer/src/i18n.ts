@@ -83,6 +83,20 @@ const translations = {
     serverUnavailableTitle: 'Сервер недоступен',
     serverUnavailableBody: 'Не удалось связаться с сервером. Проверьте подключение к интернету и попробуйте снова.',
     retry: 'Повторить',
+
+    p2pTitle: 'Режим ретрансляции (P2P)',
+    p2pDesc: 'Разрешите приложению ретранслировать зашифрованный трафик других пользователей — за это на ваш аккаунт начисляется трафик: 1 ГБ ретранслировано → 0.5 ГБ на баланс, до 50 ГБ в сутки.',
+    p2pTermsLinkText: 'Условия и риски режима ретрансляции',
+    p2pAcceptTerms: 'Согласиться и включить',
+    p2pGuestNotice: 'Недоступно для гостевого профиля — войдите или зарегистрируйтесь.',
+    p2pModeOff: 'Выключено',
+    p2pMode1h: 'На 1 час',
+    p2pMode8h: 'На 8 часов',
+    p2pModeAlways: 'Всегда',
+    p2pStatusToday: 'Начислено сегодня',
+    p2pStatusOf: 'из',
+    p2pExpiresAt: 'Действует до',
+    p2pError: 'Не удалось изменить режим ретрансляции',
   },
 
   en: {
@@ -167,6 +181,20 @@ const translations = {
     serverUnavailableTitle: 'Server unavailable',
     serverUnavailableBody: "Couldn't reach the server. Check your internet connection and try again.",
     retry: 'Retry',
+
+    p2pTitle: 'Relay mode (P2P)',
+    p2pDesc: 'Let this app relay other users’ encrypted VPN traffic — in return, your account earns traffic: 1 GB relayed → 0.5 GB credited, up to 50 GB per day.',
+    p2pTermsLinkText: 'Relay mode terms and risks',
+    p2pAcceptTerms: 'Agree and enable',
+    p2pGuestNotice: 'Not available for a guest profile — sign in or register.',
+    p2pModeOff: 'Off',
+    p2pMode1h: 'For 1 hour',
+    p2pMode8h: 'For 8 hours',
+    p2pModeAlways: 'Always',
+    p2pStatusToday: 'Credited today',
+    p2pStatusOf: 'of',
+    p2pExpiresAt: 'Active until',
+    p2pError: 'Failed to change relay mode',
   },
 } satisfies Record<Lang, Record<string, string>>;
 

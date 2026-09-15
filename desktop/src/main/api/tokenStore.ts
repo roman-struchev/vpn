@@ -36,6 +36,16 @@ interface StoredAuth {
    * fields above which cache unconditionally).
    */
   originalIpIsRussia?: boolean;
+  /**
+   * P2P relay mode (docs/research/P2P_RELAY_FEASIBILITY.md §8.5), persisted
+   * so ALWAYS mode survives an app restart without the user reopening
+   * settings (see main/index.ts's startup resume logic), and so TIMED mode
+   * shows the correct remaining countdown across a restart. This is a
+   * display/resume convenience only — the server (Node#isEligibleForRelay)
+   * is the real enforcement, not this locally-cached value.
+   */
+  p2pRelayMode?: 'OFF' | 'TIMED' | 'ALWAYS';
+  p2pRelayExpiresAtEpochMs?: number;
 }
 
 /**
@@ -135,6 +145,20 @@ export class TokenStore {
   saveOriginalIpIsRussia(isRussia: boolean): void {
     const current = this.load();
     this.writePayload({ ...current, originalIpIsRussia: isRussia });
+  }
+
+  getP2pRelayMode(): { mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null } {
+    const current = this.load();
+    return { mode: current?.p2pRelayMode ?? 'OFF', expiresAtEpochMs: current?.p2pRelayExpiresAtEpochMs ?? null };
+  }
+
+  saveP2pRelayMode(mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null): void {
+    const current = this.load();
+    this.writePayload({
+      ...current,
+      p2pRelayMode: mode,
+      p2pRelayExpiresAtEpochMs: expiresAtEpochMs ?? undefined,
+    });
   }
 
   /**

@@ -348,6 +348,53 @@ export class ApiClient {
     return this.tokenStore.getDeviceId();
   }
 
+  /** docs/research/P2P_RELAY_FEASIBILITY.md §8.6 — required once before a p2p bootstrap token can ever be minted. */
+  acceptP2pRelayTerms(): Promise<{ acceptedAt: string }> {
+    return this.post('api/v1/user/p2p/accept-terms', {}, true);
+  }
+
+  getP2pRelayStatus(): Promise<{
+    termsAccepted: boolean;
+    isGuest: boolean;
+    bytesCreditedToday: number;
+    dailyCapBytes: number;
+    remainingCapBytesToday: number;
+  }> {
+    return this.get('api/v1/user/p2p/status');
+  }
+
+  /** Mints a fresh, user-bound, short-lived (1h) bootstrap token for this device's own relay agent to register with. */
+  createP2pBootstrapToken(): Promise<{ token: string; expiresAt: string }> {
+    return this.post('api/v1/user/p2p/bootstrap-token', {}, true);
+  }
+
+  /**
+   * host:port for the server's gRPC control-plane (AgentRegistrationService/
+   * AgentStreamService, see agent/src/config.ts's identical SERVER_GRPC_URL
+   * env var for the VPS-agent equivalent) — derived from the current REST
+   * base URL's hostname since both live on the same server, unless
+   * VPN_API_GRPC_URL overrides it explicitly (useful for local dev, where
+   * the REST port is on a Vite dev proxy but gRPC isn't).
+   */
+  getGrpcTarget(): string {
+    if (process.env.VPN_API_GRPC_URL) return process.env.VPN_API_GRPC_URL;
+    const hostname = new URL(this.hostRotation.current()).hostname;
+    return `${hostname}:9090`;
+  }
+
+  /**
+   * Origin of the web dashboard/landing page (same host the server itself
+   * serves via copyWebDist — there's no separate web deployment), for
+   * building a link to a page that only exists there, like the P2P relay
+   * terms page. That page is hash-routed (web/src/App.tsx's #p2p-terms,
+   * same convention as #admin — this SPA has no server-side path routing),
+   * so callers append "#p2p-terms" themselves rather than this method
+   * assuming any one specific page.
+   */
+  getWebOrigin(): string {
+    return new URL(this.hostRotation.current()).origin;
+  }
+
   saveDeviceId(deviceId: number): void {
     this.tokenStore.saveDeviceId(deviceId);
   }

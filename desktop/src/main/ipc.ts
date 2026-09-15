@@ -3,6 +3,8 @@ import { ApiError, type ApiClient } from './api/apiClient';
 import type { TokenStore } from './api/tokenStore';
 import { runGoogleLoginFlow } from './auth/googleOAuth';
 import { isPublicIpRussian } from './geoLocale';
+import type { RelayManager } from './p2p/relayManager';
+import type { RelayMode } from './p2p/relayAgent';
 import type { VpnController } from './vpn/vpnController';
 import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
 
@@ -27,7 +29,8 @@ export function registerIpcHandlers(
   win: BrowserWindow,
   apiClient: ApiClient,
   vpn: VpnController,
-  tokenStore: TokenStore
+  tokenStore: TokenStore,
+  relayManager: RelayManager
 ): void {
   ipcMain.handle('auth:login', (_e, email: string, password: string) => apiClient.login(email, password));
   ipcMain.handle('auth:register', (_e, email: string, password: string, referralCode?: string) =>
@@ -98,6 +101,22 @@ export function registerIpcHandlers(
     if (result !== null) tokenStore.saveOriginalIpIsRussia(result);
     return result ?? false;
   });
+
+  // P2P relay mode (docs/research/P2P_RELAY_FEASIBILITY.md §8) — earning
+  // traffic credit by relaying other users' encrypted VPN traffic. See
+  // RelayManager for the actual lifecycle/autostart logic this proxies to.
+  ipcMain.handle('p2p:acceptTerms', () => apiClient.acceptP2pRelayTerms());
+  ipcMain.handle('p2p:getStatus', () => apiClient.getP2pRelayStatus().catch(rethrowTagged));
+  ipcMain.handle('p2p:getMode', () => relayManager.getMode());
+  // "#p2p-terms" matches the web dashboard's own hash-routed path
+  // (web/src/App.tsx) for the phase-5 terms page — computed from the
+  // current server origin rather than hardcoded, since that page lives on
+  // whichever host apiClient is actually talking to (production IP today,
+  // a real domain later), not a fixed guess.
+  ipcMain.handle('p2p:getTermsUrl', () => `${apiClient.getWebOrigin()}/#p2p-terms`);
+  ipcMain.handle('p2p:setMode', (_e, mode: RelayMode, expiresAtEpochMs: number | null) =>
+    relayManager.setMode(mode, expiresAtEpochMs)
+  );
 
   vpn.on('state', (state) => {
     if (!win.isDestroyed()) win.webContents.send('vpn:state', state);

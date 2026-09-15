@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import P2pRelaySection from '../components/P2pRelaySection';
 import type { DeviceDto, UserProfile } from '../types';
 import { t } from '../i18n';
 
@@ -175,6 +176,9 @@ export default function ProfilePage({
         )}
         <p className="mt-2 text-[11px] leading-relaxed text-white/45">{t.referralDesc}</p>
       </div>
+
+      {/* P2P Relay Mode */}
+      <P2pRelaySection />
 
       {/* Logout */}
       <button

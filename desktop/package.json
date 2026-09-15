@@ -6,17 +6,21 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
+    "dev": "npm run sync:proto && electron-vite dev",
+    "build": "npm run sync:proto && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run",
+    "test": "npm run sync:proto && vitest run",
     "fetch:xray": "node scripts/fetch-xray-core.mjs",
+    "sync:proto": "node scripts/sync-proto.mjs",
     "postinstall": "electron-builder install-app-deps",
     "pack": "npm run build && electron-builder --dir",
     "release": "npm run build && electron-builder --publish always"
   },
   "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@grpc/proto-loader": "^0.8.1",
     "electron-updater": "^6.3.9",
+    "node-datachannel": "^0.9.0",
     "undici": "^6.21.1"
   },
   "devDependencies": {
@@ -50,12 +54,23 @@
       {
         "from": "resources/bin/${os}-${arch}",
         "to": "bin",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/tray",
         "to": "tray",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/proto",
+        "to": "proto",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "publish": {
