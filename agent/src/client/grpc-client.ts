@@ -5,6 +5,8 @@ import { AgentConfig, savePersistedState } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { XraySupervisor } from '../xray/xray-supervisor.js';
 import { StatsCollector } from '../xray/stats-collector.js';
+import { P2pManager } from '../p2p/p2p-manager.js';
+import { SignalEnvelope } from '../p2p/relay-session.js';
 
 export class AgentGrpcClient {
   private config: AgentConfig;
@@ -28,11 +30,31 @@ export class AgentGrpcClient {
   // os.loadavg()[0], which is a decaying ~1-minute average, not an
   // instantaneous "percent busy right now" figure.
   private lastCpuSnapshot: { idle: number; total: number } | null = null;
+  // Bridges every active p2p relay session this node is currently handling
+  // (docs/research/P2P_RELAY_FEASIBILITY.md §8) — only ever populated once
+  // this.nodeType resolves to p2p (see resolveNodeTypeAfterRegistration()
+  // and handleServerMessage()'s p2pSignal branch below). A direct/cdn node
+  // never touches this.
+  private readonly p2pManager: P2pManager;
+  // Known after registerNode()'s response (assignedType) or from
+  // config.nodeType when NODE_ID/NODE_TOKEN skip registration entirely.
+  // Gates whether ConfigSync is ever handed to XraySupervisor at all — a p2p
+  // node never runs Xray-core (see relay-session.ts's header comment).
+  private nodeType: string | undefined;
 
   constructor(config: AgentConfig, xraySupervisor: XraySupervisor, statsCollector: StatsCollector) {
     this.config = config;
     this.xraySupervisor = xraySupervisor;
     this.statsCollector = statsCollector;
+    this.nodeType = config.nodeType;
+    this.p2pManager = new P2pManager({
+      sendSignalToServer: (sessionId, envelope) => this.sendP2pSignal(sessionId, envelope),
+      reportTraffic: (sessionId, bytesRelayedTotal) => this.sendP2pTrafficReport(sessionId, bytesRelayedTotal),
+    });
+  }
+
+  private isP2pNode(): boolean {
+    return (this.nodeType || '').toUpperCase() === 'NODE_TYPE_P2P' || (this.nodeType || '').toLowerCase() === 'p2p';
   }
 
   public async init(): Promise<void> {
@@ -67,11 +89,17 @@ export class AgentGrpcClient {
       const req = {
         bootstrapToken: this.config.bootstrapToken,
         hostname: this.config.hostname,
+        // Meaningless for a p2p node (docs §8.4) — the server never dials it
+        // out for a direct-dial VLESS link, so any placeholder is fine; this
+        // agent still sends whatever PUBLIC_IP/default was configured rather
+        // than special-casing it, since the value truly doesn't matter here.
         publicIp: this.config.publicIp,
         agentVersion: '1.0.0',
         region: this.config.region,
         asn: this.config.asn,
         supportedTransports: ['xhttp', 'reality', 'vless'],
+        relayMode: this.config.relayMode,
+        relayExpiresAtEpochMs: this.config.relayExpiresAtEpochMs || 0,
       };
 
       regClient.registerNode(req, (err: any, response: any) => {
@@ -80,11 +108,17 @@ export class AgentGrpcClient {
           return reject(err);
         }
 
-        logger.info(`Registration successful! Assigned Node ID: ${response.nodeId}, Pool: ${response.assignedPool}`);
+        logger.info(
+          `Registration successful! Assigned Node ID: ${response.nodeId}, Pool: ${response.assignedPool}, Type: ${response.assignedType}`
+        );
         this.config.nodeId = parseInt(response.nodeId, 10);
         this.config.nodeToken = String(response.nodeToken);
+        this.nodeType = response.assignedType ? String(response.assignedType) : this.nodeType;
+        if (this.isP2pNode()) {
+          logger.info('This node is registered as a p2p relay node — Xray-core will not be started (see docs §8).');
+        }
         if (this.config.nodeId && this.config.nodeToken) {
-          savePersistedState(this.config.nodeId, this.config.nodeToken);
+          savePersistedState(this.config.nodeId, this.config.nodeToken, this.nodeType);
         }
         resolve();
       });
@@ -207,6 +241,13 @@ export class AgentGrpcClient {
         xrayRunning: xrayStatus.isRunning,
         uptimeSeconds: Math.round(os.uptime()),
         activeConnections: this.lastActiveUserCount,
+        // Re-sent on every heartbeat so a running relay agent can change/
+        // extend/cancel its own relay window without re-registering (docs
+        // §8.5) — meaningless for a direct/cdn node, which never sets these
+        // away from the OFF default and whose heartbeat the server simply
+        // ignores for eligibility purposes either way.
+        relayMode: this.config.relayMode,
+        relayExpiresAtEpochMs: this.config.relayExpiresAtEpochMs || 0,
       },
     };
 
@@ -255,7 +296,14 @@ export class AgentGrpcClient {
       const sync = message.configSync;
       logger.info(`Received ConfigSync version ${sync.configVersion} with ${sync.clients?.length || 0} clients`);
 
-      const success = await this.xraySupervisor.applyConfig(sync);
+      // A p2p node never runs Xray-core (docs §8: it's a protocol-blind
+      // WebRTC<->TCP byte pipe, see relay-session.ts's header comment) — its
+      // ConfigSync carries no meaningful inbound (Reality disabled, no TLS
+      // cert configured either, per NodeManagementService#buildNodeConfigSync's
+      // isP2p branch on the server side), so applying it would be pointless
+      // at best. Ack success unconditionally instead: there is genuinely
+      // nothing to fail here.
+      const success = this.isP2pNode() ? true : await this.xraySupervisor.applyConfig(sync);
 
       this.currentConfigVersion = parseInt(sync.configVersion, 10);
       this.currentConfigHash = sync.configHash;
@@ -292,6 +340,54 @@ export class AgentGrpcClient {
       // SubscriptionExportService): flipping a node to DRAINING stops new
       // clients from being routed to it while existing sessions are left
       // alone, which is the outcome that matters for planned maintenance.
+    } else if (message.p2pSignal) {
+      // A connecting client's SDP offer / ICE candidate, forwarded to this
+      // node by AgentStreamServiceImpl (docs §8.1) — opaque to both this
+      // agent and the server beyond the JSON envelope P2pManager/RelaySession
+      // parse themselves (see relay-session.ts's SignalEnvelope). Routed
+      // purely by session_id; the server never inspects it either.
+      const sessionId = String(message.p2pSignal.sessionId);
+      const payload = Buffer.isBuffer(message.p2pSignal.payload)
+        ? message.p2pSignal.payload
+        : Buffer.from(message.p2pSignal.payload || '', 'base64');
+      await this.p2pManager.handleIncomingSignal(sessionId, payload);
+    }
+  }
+
+  private sendP2pSignal(sessionId: string, envelope: SignalEnvelope): void {
+    if (!this.activeStream || !this.config.nodeId || !this.config.nodeToken) return;
+    const msg = {
+      nodeId: this.config.nodeId,
+      nodeToken: this.config.nodeToken,
+      timestampEpochMs: Date.now(),
+      p2pSignal: {
+        sessionId,
+        payload: Buffer.from(JSON.stringify(envelope), 'utf-8'),
+      },
+    };
+    try {
+      this.activeStream.write(msg);
+    } catch (err) {
+      logger.warn(`Failed to send p2p signal for session ${sessionId}:`, err);
+    }
+  }
+
+  private sendP2pTrafficReport(sessionId: string, bytesRelayedTotal: number): void {
+    if (!this.activeStream || !this.config.nodeId || !this.config.nodeToken) return;
+    const msg = {
+      nodeId: this.config.nodeId,
+      nodeToken: this.config.nodeToken,
+      timestampEpochMs: Date.now(),
+      p2pTrafficReport: {
+        sessionId,
+        bytesRelayed: bytesRelayedTotal,
+      },
+    };
+    try {
+      this.activeStream.write(msg);
+      logger.debug(`Reported p2p traffic for session ${sessionId}: ${bytesRelayedTotal} bytes relayed so far`);
+    } catch (err) {
+      logger.warn(`Failed to send p2p traffic report for session ${sessionId}:`, err);
     }
   }
 
@@ -321,6 +417,7 @@ export class AgentGrpcClient {
   public async shutdown(): Promise<void> {
     this.isShuttingDown = true;
     this.cleanupStream();
+    this.p2pManager.shutdown();
     await this.xraySupervisor.stop();
     logger.info('Agent client shut down successfully');
   }
