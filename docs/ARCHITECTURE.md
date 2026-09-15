@@ -263,3 +263,4 @@ flowchart TD
 * [`BUGS_AND_OBSERVATIONS.md`](BUGS_AND_OBSERVATIONS.md) — Отчёт технического аудита кодовой базы.
 * [`research/UX_REVIEW.md`](research/UX_REVIEW.md) — UX-аудит веб-дашборда, админки, десктопа и Android.
 * [`research/WEB_HANDOFF_RESEARCH.md`](research/WEB_HANDOFF_RESEARCH.md) — Исследование и дизайн механизма client→web SSO handoff.
+* [`research/COMPETITOR_ANALYSIS.md`](research/COMPETITOR_ANALYSIS.md) — Обзор популярных VPN-сервисов и приоритизированные рекомендации по доработке.
