@@ -167,6 +167,21 @@ public class NodeManagementService {
     }
 
     /**
+     * Server-side gate for dispatching a P2P signal to a node (docs §8.5) —
+     * called from AgentStreamServiceImpl.sendSignalToNodeAndAwaitReply before
+     * every forward, not just checked at registration/heartbeat time. Node#
+     * isEligibleForRelay() alone is inert unless something actually calls it
+     * on the hot path; this is that call site, so a node whose TIMED window
+     * has lapsed (or that never enabled relay at all) stops being handed new
+     * sessions the moment its window closes, without needing another
+     * heartbeat to notice. Also true (a no-op check) for a non-p2p node,
+     * though those never receive signals in practice.
+     */
+    public boolean isNodeEligibleForRelay(Long nodeId) {
+        return nodeRepository.findById(nodeId).map(Node::isEligibleForRelay).orElse(false);
+    }
+
+    /**
      * Derives the two independent tariff-access flags (docs §8.3) from a
      * node's pool/type at registration time — mirrors V11's backfill exactly
      * so a newly-registered node behaves identically to a pre-existing one

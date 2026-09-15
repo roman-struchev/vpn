@@ -150,6 +150,17 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
      * client can't act on.
      */
     public byte[] sendSignalToNodeAndAwaitReply(Long nodeId, String sessionId, byte[] payload) {
+        // The actual enforcement point for Node#isEligibleForRelay (docs
+        // §8.5) — a node's relay window/eligibility is otherwise just stored
+        // state nothing consults, letting an already-expired TIMED node (or
+        // one that never turned relay on) keep answering signals until its
+        // next heartbeat happens to overwrite relayMode. Checked here, on
+        // every dispatch, not only at registration/heartbeat time.
+        if (!nodeManagementService.isNodeEligibleForRelay(nodeId)) {
+            log.warn("P2P signal for session {} rejected — node {} is not currently eligible for relay", sessionId, nodeId);
+            return null;
+        }
+
         StreamObserver<ServerMessage> observer = activeStreams.get(nodeId);
         if (observer == null) {
             log.warn("P2P signal for session {} could not be sent — node {} has no active stream", sessionId, nodeId);

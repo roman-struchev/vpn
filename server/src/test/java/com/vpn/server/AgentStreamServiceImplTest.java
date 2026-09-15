@@ -64,6 +64,7 @@ class AgentStreamServiceImplTest {
         }).when(responseObserver).onNext(any());
 
         StreamObserver<AgentMessage> nodeStream = connectNode(7L, responseObserver);
+        when(nodeManagementService.isNodeEligibleForRelay(7L)).thenReturn(true);
 
         // sendSignalToNodeAndAwaitReply blocks the calling thread waiting for
         // the node's reply — simulate the relay node replying shortly after,
@@ -88,6 +89,21 @@ class AgentStreamServiceImplTest {
         assertEquals("answer-sdp", new String(reply));
         assertTrue(sentToNode.stream().anyMatch(m -> m.hasP2PSignal() && "sess-x".equals(m.getP2PSignal().getSessionId())),
                 "the offer must have actually been forwarded over the node's own stream");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void sendSignalToNodeAndAwaitReply_returnsNull_whenNodeNotEligibleForRelay() {
+        StreamObserver<ServerMessage> responseObserver = mock(StreamObserver.class);
+        connectNode(10L, responseObserver);
+        // Connected but not eligible (e.g. relayMode=OFF, or a TIMED window
+        // that already lapsed) — must never forward, regardless of stream state.
+        when(nodeManagementService.isNodeEligibleForRelay(10L)).thenReturn(false);
+
+        byte[] reply = service.sendSignalToNodeAndAwaitReply(10L, "sess-ineligible", "offer".getBytes());
+
+        assertNull(reply);
+        verify(responseObserver, never()).onNext(argThat(m -> m.hasP2PSignal()));
     }
 
     @Test
