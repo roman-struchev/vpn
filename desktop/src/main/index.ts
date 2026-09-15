@@ -6,6 +6,7 @@ import { ApiClient } from './api/apiClient';
 import { installDohDispatcher } from './api/dohDispatcher';
 import { TokenStore } from './api/tokenStore';
 import { registerIpcHandlers } from './ipc';
+import { RelayManager } from './p2p/relayManager';
 import { createSystemProxyManager } from './proxy/systemProxy';
 import { createAppTray, type TrayHandle } from './tray';
 import { VpnController } from './vpn/vpnController';
@@ -15,6 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let vpnController: VpnController | null = null;
 let trayHandle: TrayHandle | null = null;
+let relayManagerRef: RelayManager | null = null;
 
 
 // Now that a tray icon exists, the main window's "X" (or the red traffic
@@ -98,7 +100,21 @@ app.whenReady().then(() => {
 
   vpnController = new VpnController(apiClient, systemProxyManager);
 
-  registerIpcHandlers(mainWindow, apiClient, vpnController, tokenStore);
+  const relayManager = new RelayManager(apiClient, tokenStore);
+  relayManagerRef = relayManager;
+  // Silently resumes ALWAYS (survives a reboot: this app is itself a login
+  // item while ALWAYS is active — see RelayManager#syncLoginItem) or a still
+  // -unexpired TIMED window from before this launch (survives a plain app
+  // restart). Only meaningful once actually signed in — a device-trial guest
+  // or logged-out user has no p2p bootstrap token to mint in the first place,
+  // and ApiClient's own auth header handling already no-ops such calls
+  // safely, but there is deliberately nothing to resume before login anyway
+  // since setP2pRelayMode is never reachable from LoginPage's UI.
+  if (tokenStore.getToken()) {
+    void relayManager.resumeIfNeeded().catch((err) => console.warn('[p2p relay] resume failed:', err));
+  }
+
+  registerIpcHandlers(mainWindow, apiClient, vpnController, tokenStore, relayManager);
   initAutoUpdater();
   trayHandle = createAppTray(vpnController, showMainWindow);
 
@@ -140,7 +156,10 @@ app.on('before-quit', (event) => {
   isQuitting = true;
   if (quitTeardownDone || !vpnController) return;
   event.preventDefault();
-  void vpnController.disconnect().finally(() => {
+  // Relay-agent teardown (closing any live DataChannels/sockets cleanly)
+  // matters for the same reason vpnController's does — best-effort, must
+  // never block the actual quit if it hangs or errors.
+  void Promise.allSettled([vpnController.disconnect(), relayManagerRef?.shutdown()]).finally(() => {
     trayHandle?.destroy();
     quitTeardownDone = true;
     app.quit();

@@ -1,0 +1,258 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+option java_multiple_files = true;
+option java_package = "com.vpn.server.grpc.agent.v1";
+option java_outer_classname = "AgentProto";
+
+// Service for initial node registration using one-time bootstrap token.
+service AgentRegistrationService {
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+}
+
+// Service for live communication between node agent and server over a bidirectional stream.
+service AgentStreamService {
+  rpc SyncStream(stream AgentMessage) returns (stream ServerMessage);
+}
+
+message RegisterNodeRequest {
+  string bootstrap_token = 1;
+  string hostname = 2;
+  // Meaningless/not a real routable address for a p2p-type node (see
+  // NodeType.NODE_TYPE_P2P) — never used to build a direct-dial VLESS link
+  // for one; any placeholder value is fine.
+  string public_ip = 3;
+  string agent_version = 4;
+  string region = 5;
+  string asn = 6;
+  repeated string supported_transports = 7;
+  // P2P relay window (docs/research/P2P_RELAY_FEASIBILITY.md §8.5) — ignored
+  // for a non-p2p node. "" / unset means OFF.
+  string relay_mode = 8; // OFF, TIMED, ALWAYS
+  int64 relay_expires_at_epoch_ms = 9; // meaningful only when relay_mode = TIMED
+}
+
+enum NodePool {
+  NODE_POOL_UNSPECIFIED = 0;
+  NODE_POOL_TRIAL = 1;
+  NODE_POOL_PAID = 2;
+  NODE_POOL_QUARANTINE = 3;
+}
+
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  NODE_TYPE_DIRECT = 1; // VLESS + XHTTP + Reality directly on node
+  NODE_TYPE_CDN = 2;    // VLESS + XHTTP behind CDN
+  NODE_TYPE_P2P = 3;    // client-in-relay-mode or headless Linux relay agent — see docs/research/P2P_RELAY_FEASIBILITY.md §8
+}
+
+message RegisterNodeResponse {
+  int64 node_id = 1;
+  string node_token = 2; // Auth token for subsequent gRPC streaming
+  NodePool assigned_pool = 3;
+  NodeType assigned_type = 4;
+  int32 heartbeat_interval_seconds = 5;
+  int32 stats_interval_seconds = 6;
+}
+
+message AgentMessage {
+  int64 node_id = 1;
+  string node_token = 2;
+  int64 timestamp_epoch_ms = 3;
+
+  oneof payload {
+    Heartbeat heartbeat = 4;
+    ConfigAck config_ack = 5;
+    TrafficStatsReport traffic_stats = 6;
+    ConnTelemetryReport conn_telemetry = 7;
+    // A p2p relay node's SDP answer / ICE candidate, addressed back to
+    // whichever connecting client is waiting on session_id (docs §8.1) — the
+    // server only ever routes this by session_id, never inspects payload.
+    P2pSignal p2p_signal = 8;
+    // A p2p relay node's own self-reported byte count for one session — one
+    // half of the dual self-report cross-check (docs §8.2); the connecting
+    // client's half arrives over REST (UserController's p2p endpoints), not
+    // this stream, since ordinary clients don't hold an AgentStream.
+    P2pSessionTrafficReport p2p_traffic_report = 9;
+  }
+}
+
+// Opaque WebRTC signaling blob (SDP offer/answer or an ICE candidate) — the
+// server is a pure passthrough broker between a connecting client and a p2p
+// relay node's existing control-plane stream (docs §8.1); it never parses,
+// understands, or persists `payload`.
+message P2pSignal {
+  string session_id = 1;
+  bytes payload = 2;
+}
+
+// One relay node's self-reported byte count for a p2p session, tied to the
+// connecting client's own independent report via session_id — credited only
+// when both agree within tolerance (docs §8.2, P2pRelayAccountingService).
+message P2pSessionTrafficReport {
+  string session_id = 1;
+  int64 bytes_relayed = 2;
+}
+
+message Heartbeat {
+  // Actual CPU-busy percentage sampled over this heartbeat interval, via
+  // os.cpus() tick-count diffing (see AgentGrpcClient#computeCpuPercent) —
+  // deliberately NOT the raw Unix load average, which decays over ~1 minute
+  // and keeps reading elevated well after real load has already dropped to
+  // zero. cpu_count is sent alongside it purely so the admin UI can show
+  // "23% (4 cores)" instead of leaving the viewer to wonder what the
+  // percentage is relative to.
+  double cpu_percent = 1;
+  int64 memory_used_bytes = 2;
+  int64 memory_total_bytes = 3;
+  bool xray_running = 4;
+  int64 uptime_seconds = 5;
+  // Distinct users with traffic in the last stats interval (see
+  // TrafficStatsReport) — a recency-based proxy for "active now", not a
+  // literal live TCP connection count (xray's Stats API doesn't expose that
+  // directly per-user without also tracking connection open/close events).
+  int32 active_connections = 6;
+  int32 cpu_count = 7;
+  // Current P2P relay window, re-sent on every heartbeat so a running relay
+  // client can change/extend/cancel it without re-registering (docs §8.5).
+  // Ignored for a non-p2p node. "" / unset leaves relay_mode unchanged from
+  // whatever registration set (a node that never touches these fields keeps
+  // "OFF" forever, which is every existing VPS node).
+  string relay_mode = 8; // OFF, TIMED, ALWAYS
+  int64 relay_expires_at_epoch_ms = 9;
+}
+
+enum AckStatus {
+  ACK_STATUS_UNSPECIFIED = 0;
+  ACK_STATUS_SUCCESS = 1;
+  ACK_STATUS_ERROR = 2;
+}
+
+message ConfigAck {
+  int64 config_version = 1;
+  string config_hash = 2;
+  AckStatus status = 3;
+  string error_message = 4;
+}
+
+message TrafficStatsReport {
+  repeated ClientTrafficDelta deltas = 1;
+}
+
+message ClientTrafficDelta {
+  int64 user_id = 1;
+  int64 device_id = 2;
+  string uuid = 3;
+  int64 uplink_bytes = 4;
+  int64 downlink_bytes = 5;
+}
+
+message ConnTelemetryReport {
+  repeated ConnTelemetryRecord records = 1;
+}
+
+message ConnTelemetryRecord {
+  int64 timestamp_epoch_ms = 1;
+  string operator = 2;
+  string region = 3;
+  string transport = 4;
+  int32 connect_time_ms = 5;
+  int32 failure_count = 6;
+  bool is_whitelist_suspected = 7;
+}
+
+message ServerMessage {
+  int64 timestamp_epoch_ms = 1;
+
+  oneof payload {
+    HeartbeatAck heartbeat_ack = 2;
+    ConfigSync config_sync = 3;
+    ClientDeltaUpdate client_update = 4;
+    ServerCommand command = 5;
+    // A connecting client's SDP offer / ICE candidate, forwarded to this p2p
+    // relay node (docs §8.1) — same opaque-blob contract as AgentMessage's
+    // p2p_signal, just the other direction.
+    P2pSignal p2p_signal = 6;
+  }
+}
+
+message HeartbeatAck {
+  int64 server_time_epoch_ms = 1;
+}
+
+message ConfigSync {
+  int64 config_version = 1;
+  string config_hash = 2;
+  NodeType node_type = 3;
+  InboundConfig inbound = 4;
+  repeated ClientConfig clients = 5;
+  // Optional second inbound the node listens on concurrently with `inbound`,
+  // e.g. gRPC+Reality as a client-selectable fallback when XHTTP degrades
+  // (docs/ROADMAP_PROGRESS.md Phase 9). Unset when no fallback is configured.
+  InboundConfig fallback_inbound = 6;
+}
+
+message InboundConfig {
+  int32 listen_port = 1;
+  string protocol = 2; // "vless"
+  string transport = 3; // "xhttp" | "grpc"
+  RealityConfig reality = 4;
+  XhttpSettings xhttp_settings = 5;
+  GrpcSettings grpc_settings = 6;
+  // Real TLS instead of Reality — used for CDN nodes (NodeType.NODE_TYPE_CDN),
+  // since a CDN terminates TLS itself and Reality's cert-stealing handshake
+  // does not survive that. Unset/disabled for direct Reality nodes.
+  TlsSettings tls_settings = 7;
+}
+
+message RealityConfig {
+  bool enabled = 1;
+  string dest = 2; // e.g. "dl.google.com:443"
+  repeated string server_names = 3;
+  string private_key = 4;
+  repeated string short_ids = 5;
+}
+
+message XhttpSettings {
+  string path = 1;
+  string host = 2;
+  string mode = 3; // "auto", "stream-one", "stream-up"
+}
+
+message GrpcSettings {
+  string service_name = 1;
+}
+
+message TlsSettings {
+  bool enabled = 1;
+  string server_name = 2; // SNI / certificate CN — typically the node's public hostname
+  string cert_path = 3;   // e.g. /etc/xray/certs/<hostname>/fullchain.pem
+  string key_path = 4;    // e.g. /etc/xray/certs/<hostname>/privkey.pem
+}
+
+message ClientConfig {
+  int64 user_id = 1;
+  int64 device_id = 2;
+  string uuid = 3;
+  string email_tag = 4; // Format: "user_<userId>_dev_<deviceId>"
+  bool is_active = 5;
+}
+
+message ClientDeltaUpdate {
+  int64 config_version = 1;
+  repeated ClientConfig added_or_updated = 2;
+  repeated string removed_uuids = 3;
+}
+
+enum CommandType {
+  COMMAND_TYPE_UNSPECIFIED = 0;
+  COMMAND_TYPE_RECONCILE = 1;
+  COMMAND_TYPE_DRAIN = 2;
+  COMMAND_TYPE_RESTART_XRAY = 3;
+}
+
+message ServerCommand {
+  CommandType command_type = 1;
+  string payload = 2;
+}
