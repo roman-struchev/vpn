@@ -1,3 +1,11 @@
 plugins {
     id 'com.android.application' version '9.0.1' apply false
+    // Generates Java stubs from ../proto/vpn/agent/v1/agent.proto (docs/research/
+    // P2P_RELAY_FEASIBILITY.md §8) — same plugin/version server/build.gradle
+    // already uses, kept in sync so both sides decode the same wire format.
+    // 0.10.0, not server/build.gradle's 0.9.4 — that older release doesn't
+    // support AGP 9's new variant API (crashes casting the decorated
+    // ApplicationExtension to the legacy BaseExtension); only the codegen
+    // OUTPUT needs to match the server, not this build-tool version.
+    id 'com.google.protobuf' version '0.10.0' apply false
 }

@@ -19,6 +19,7 @@ import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
 import com.vpn.android.databinding.FragmentProfileBinding;
+import com.vpn.android.p2p.P2pRelaySettingsActivity;
 import com.vpn.android.ui.login.LoginActivity;
 import com.vpn.android.util.Async;
 import com.vpn.android.util.WebHandoffLauncher;
@@ -50,6 +51,8 @@ public class ProfileFragment extends Fragment {
         binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
         binding.manageBillingButton.setOnClickListener(v -> openBillingPage());
+        binding.p2pRelayButton.setOnClickListener(v ->
+                startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
         loadProfile();
     }
 

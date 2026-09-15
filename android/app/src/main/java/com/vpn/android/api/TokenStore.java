@@ -29,6 +29,22 @@ public class TokenStore {
     private static final String KEY_ORIGINAL_IP_IS_RUSSIA = "original_ip_is_russia";
     private static final String KEY_AUTO_CONNECT_ON_BOOT = "auto_connect_on_boot";
     private static final String KEY_DISALLOWED_APPS = "disallowed_apps";
+    // P2P relay mode (docs/research/P2P_RELAY_FEASIBILITY.md §8) — this
+    // device's own persisted node identity, separate from the user's JWT
+    // above, plus a locally-cached copy of the last relay window the user
+    // picked. The server (Node#isEligibleForRelay) is the real enforcement
+    // point for whether relaying is actually allowed right now; these are
+    // only for (a) reconnecting as the same node instead of re-registering
+    // every time, and (b) BootReceiver deciding whether to restart the relay
+    // service after a device reboot without needing a network round-trip
+    // first.
+    private static final String KEY_P2P_NODE_ID = "p2p_node_id";
+    private static final String KEY_P2P_NODE_TOKEN = "p2p_node_token";
+    private static final String KEY_P2P_RELAY_MODE = "p2p_relay_mode";
+    private static final String KEY_P2P_RELAY_EXPIRES_AT = "p2p_relay_expires_at_epoch_ms";
+    public static final String P2P_RELAY_OFF = "OFF";
+    public static final String P2P_RELAY_TIMED = "TIMED";
+    public static final String P2P_RELAY_ALWAYS = "ALWAYS";
 
     private final SharedPreferences prefs;
 
@@ -187,6 +203,34 @@ public class TokenStore {
 
     public void setAutoConnectOnBoot(boolean enabled) {
         prefs.edit().putBoolean(KEY_AUTO_CONNECT_ON_BOOT, enabled).apply();
+    }
+
+    public void saveP2pNode(long nodeId, String nodeToken) {
+        prefs.edit().putLong(KEY_P2P_NODE_ID, nodeId).putString(KEY_P2P_NODE_TOKEN, nodeToken).apply();
+    }
+
+    public long getP2pNodeId() {
+        return prefs.getLong(KEY_P2P_NODE_ID, -1);
+    }
+
+    public String getP2pNodeToken() {
+        return prefs.getString(KEY_P2P_NODE_TOKEN, null);
+    }
+
+    /** One of {@link #P2P_RELAY_OFF}, {@link #P2P_RELAY_TIMED}, {@link #P2P_RELAY_ALWAYS} — defaults to OFF for an install that never touched this feature. */
+    public String getP2pRelayMode() {
+        return prefs.getString(KEY_P2P_RELAY_MODE, P2P_RELAY_OFF);
+    }
+
+    public void saveP2pRelayState(String relayMode, long relayExpiresAtEpochMs) {
+        prefs.edit()
+                .putString(KEY_P2P_RELAY_MODE, relayMode)
+                .putLong(KEY_P2P_RELAY_EXPIRES_AT, relayExpiresAtEpochMs)
+                .apply();
+    }
+
+    public long getP2pRelayExpiresAt() {
+        return prefs.getLong(KEY_P2P_RELAY_EXPIRES_AT, 0L);
     }
 
     public Set<String> getDisallowedApps() {

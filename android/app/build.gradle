@@ -1,5 +1,6 @@
 plugins {
     id 'com.android.application'
+    id 'com.google.protobuf'
 }
 
 android {
@@ -32,6 +33,13 @@ android {
         // building the shareable referral link (`<site>/?ref=CODE`); normally the
         // server hands the finished link back in GET /api/v1/user/profile.
         buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'https://vpn.struchev.site/'}\""
+        // P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8): the gRPC
+        // control-plane host:port a p2p-mode device registers/streams
+        // against as a node — separate from API_BASE_URL/HTTPS above since
+        // this is the same plaintext gRPC port (server/application.yml's
+        // grpc.server.port) every VPS node agent already dials. Same
+        // temporary test-server override as API_BASE_URL until DNS is live.
+        buildConfigField "String", "P2P_GRPC_ADDRESS", "\"${project.findProperty('p2pGrpcAddress') ?: '217.216.79.46:9090'}\""
 
         // libXray bundles a Go runtime per ABI (~20-25MB each); drop legacy 32-bit x86.
         ndk {
@@ -66,6 +74,49 @@ android {
     lint {
         abortOnError false
     }
+
+    // Android modules configure source dirs under `android.sourceSets`, not a
+    // top-level `sourceSets {}` (that's the plain-Java-project DSL and
+    // collides with the Android plugin's own configuration of that name).
+    sourceSets {
+        main {
+            proto {
+                srcDir '../../proto'
+            }
+        }
+    }
+}
+
+// Must match server/build.gradle's protobufVersion/grpcCodegenVersion exactly
+// (docs §8) — these two projects decode the same wire messages, and a codegen
+// skew across grpc-java versions is exactly the failure mode that comment
+// over there warns about.
+def protobufVersion = '4.29.3'
+def grpcVersion = '1.83.1'
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:${protobufVersion}"
+    }
+    plugins {
+        grpc {
+            artifact = "io.grpc:protoc-gen-grpc-java:${grpcVersion}"
+        }
+    }
+    generateProtoTasks {
+        // "lite" runtime/codegen: the full protobuf-java + grpc-java runtime
+        // pulls in a lot of reflection-based machinery this app has no use
+        // for and that bloats the APK; javalite is the standard choice for
+        // Android gRPC clients (see grpc-java's own android examples).
+        all().configureEach { task ->
+            task.builtins {
+                java { option 'lite' }
+            }
+            task.plugins {
+                grpc { option 'lite' }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -97,6 +148,24 @@ dependencies {
 
     // Prebuilt XTLS/libXray .aar, fetched by scripts/fetch-libxray.sh (not committed to git).
     implementation files('libs/libXray.aar')
+
+    // P2P relay (docs §8): node-role gRPC client (registration + the
+    // AgentStream bidi stream), javalite runtime to match the codegen config
+    // above.
+    implementation "io.grpc:grpc-okhttp:${grpcVersion}"
+    implementation "io.grpc:grpc-protobuf-lite:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    implementation "com.google.protobuf:protobuf-javalite:${protobufVersion}"
+    // javax.annotation.Generated, referenced by protoc-gen-grpc-java's output
+    // on JDK/Android toolchains where that annotation isn't already on the
+    // bootclasspath — a well-known grpc-java-on-Android compile gotcha.
+    compileOnly 'org.apache.tomcat:annotations-api:6.0.53'
+
+    // Actively-maintained fork of Google's original org.webrtc AAR, which was
+    // pulled from Maven years ago — this is the de facto standard drop-in
+    // replacement for WebRTC on Android now (docs §8.1: DataChannel + STUN,
+    // no TURN fallback).
+    implementation 'io.getstream:stream-webrtc-android:1.3.8'
 
     testImplementation 'junit:junit:4.13.2'
 

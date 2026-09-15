@@ -91,6 +91,14 @@
         android:text="@string/profile_manage_billing" />
 
     <com.google.android.material.button.MaterialButton
+        android:id="@+id/p2pRelayButton"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        android:text="@string/profile_p2p_relay" />
+
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/signInExistingButton"
         style="@style/Widget.Material3.Button.OutlinedButton"
         android:layout_width="match_parent"
