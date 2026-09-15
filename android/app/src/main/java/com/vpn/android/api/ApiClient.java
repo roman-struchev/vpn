@@ -5,6 +5,7 @@ import com.google.gson.JsonObject;
 import com.vpn.android.BuildConfig;
 import com.vpn.android.api.model.AuthResponse;
 import com.vpn.android.api.model.DeviceDto;
+import com.vpn.android.api.model.P2pStatusResponse;
 import com.vpn.android.api.model.RegionInfo;
 import com.vpn.android.api.model.RegionsResponse;
 import com.vpn.android.api.model.RoutingConfigResponse;
@@ -15,6 +16,7 @@ import com.vpn.android.api.model.WebHandoffResponse;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -342,6 +344,23 @@ public class ApiClient {
             }
         }
         tokenStore.clear();
+    }
+
+    // --- P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8) ------------------
+
+    public Instant acceptP2pTerms() throws ApiException, IOException {
+        JsonObject resp = post("api/v1/user/p2p/accept-terms", new JsonObject(), JsonObject.class, true);
+        return Instant.parse(resp.get("acceptedAt").getAsString());
+    }
+
+    public P2pStatusResponse getP2pStatus() throws ApiException, IOException {
+        return get("api/v1/user/p2p/status", P2pStatusResponse.class);
+    }
+
+    /** @return a fresh bootstrap token bound to this user (docs §8.4) — consumed immediately by P2pRelayAgent's RegisterNode call, never stockpiled. */
+    public String createP2pBootstrapToken() throws ApiException, IOException {
+        JsonObject resp = post("api/v1/user/p2p/bootstrap-token", new JsonObject(), JsonObject.class, true);
+        return resp.get("token").getAsString();
     }
 
     // --- internal HTTP helpers -------------------------------------------------

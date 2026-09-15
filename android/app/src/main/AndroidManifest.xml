@@ -32,6 +32,11 @@
             android:exported="false"
             android:theme="@style/Theme.VpnApp" />
 
+        <activity
+            android:name=".p2p.P2pRelaySettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VpnApp" />
+
         <service
             android:name=".vpn.XrayVpnService"
             android:exported="false"
@@ -43,6 +48,15 @@
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
+        </service>
+
+        <service
+            android:name=".p2p.P2pRelayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="p2p-relay" />
         </service>
 
         <service
