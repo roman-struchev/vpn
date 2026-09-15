@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -88,7 +89,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(10L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(node));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(node));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(100L, 1L)).thenReturn(Optional.of(key));
 
         String base64Output = exportService.exportVlessSubscription(10L);
@@ -167,7 +168,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(21L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(21L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of());
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of());
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(node));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(200L), eq(2L))).thenReturn(Optional.empty());
         when(deviceNodeKeyRepository.save(any(DeviceNodeKey.class))).thenAnswer(i -> i.getArgument(0));
@@ -216,7 +217,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(23L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(23L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsNode, laxNode));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(amsNode, laxNode));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(300L), eq(3L)))
                 .thenReturn(Optional.of(new DeviceNodeKey(device, amsNode, UUID.randomUUID())));
 
@@ -257,7 +258,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(24L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(24L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsNode));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(amsNode));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(400L), eq(5L)))
                 .thenReturn(Optional.of(new DeviceNodeKey(device, amsNode, UUID.randomUUID())));
 
@@ -309,7 +310,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(25L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(25L);
@@ -374,7 +375,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(33L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("trial", "ONLINE")).thenReturn(List.of(trialNode));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("trial"), "ONLINE")).thenReturn(List.of(trialNode));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(trialNode, paidNode));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(33L);
@@ -417,13 +418,113 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(34L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("trial", "ONLINE")).thenReturn(List.of());
+        when(nodeRepository.findByPoolInAndStatus(Set.of("trial"), "ONLINE")).thenReturn(List.of());
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(paidNode));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(34L);
 
         assertEquals(1, regions.size());
         assertTrue(regions.get(0).accessible());
+    }
+
+    @Test
+    void testGetAvailableRegionsPaidUserSeesTrialRegionAsAccessibleToo() {
+        // Pools aren't equal-standing silos: "trial" is a lesser/throttled bucket
+        // a paying user gets as bonus/fallback capacity in addition to "paid" —
+        // paid ⊇ trial. A paid user must never see their own trial-pool region
+        // locked behind "requires a paid plan" (reported bug: it read that way
+        // right after switching a trial account to a paid tariff).
+        User user = new User();
+        user.setId(35L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node trialNode = new Node();
+        trialNode.setId(16L);
+        trialNode.setRegion("in-mumbai");
+        trialNode.setStatus("ONLINE");
+        trialNode.setPool("trial");
+        trialNode.setActiveConnections(1);
+
+        Node paidNode = new Node();
+        paidNode.setId(17L);
+        paidNode.setRegion("fi-hel");
+        paidNode.setStatus("ONLINE");
+        paidNode.setPool("paid");
+        paidNode.setActiveConnections(0);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(35L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE"))
+                .thenReturn(List.of(trialNode, paidNode));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(trialNode, paidNode));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(35L);
+
+        assertEquals(2, regions.size());
+        assertTrue(regions.stream().allMatch(SubscriptionExportService.RegionSummary::accessible));
+    }
+
+    @Test
+    void testExportForOwnAppPaidUserGetsLinksForBothPaidAndTrialPoolNodes() {
+        User user = new User();
+        user.setId(36L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Device device = new Device();
+        device.setId(101L);
+        device.setUser(user);
+        device.setIsActive(true);
+
+        Node paidNode = new Node();
+        paidNode.setId(18L);
+        paidNode.setHostname("ams-01.vpn.internal");
+        paidNode.setPublicIp("198.51.100.30");
+        paidNode.setRegion("nl-ams");
+        paidNode.setRealityPublicKey("k1");
+        paidNode.setRealityShortIds(new String[]{"abcdef0123456789"});
+        paidNode.setStatus("ONLINE");
+        paidNode.setPool("paid");
+
+        Node trialNode = new Node();
+        trialNode.setId(19L);
+        trialNode.setHostname("mum-01.vpn.internal");
+        trialNode.setPublicIp("198.51.100.31");
+        trialNode.setRegion("in-mumbai");
+        trialNode.setRealityPublicKey("k2");
+        trialNode.setRealityShortIds(new String[]{"abcdef0123456789"});
+        trialNode.setStatus("ONLINE");
+        trialNode.setPool("trial");
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(36L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(deviceRepository.findByUserIdAndIsActiveTrue(36L)).thenReturn(List.of(device));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE"))
+                .thenReturn(List.of(paidNode, trialNode));
+        when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(101L), any()))
+                .thenAnswer(inv -> Optional.of(new DeviceNodeKey(device,
+                        inv.getArgument(1).equals(18L) ? paidNode : trialNode, UUID.randomUUID())));
+
+        List<String> links = exportService.exportVlessLinksForOwnApp(36L);
+
+        assertEquals(2, links.size());
     }
 
     @Test
@@ -461,7 +562,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(27L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(idleButCpuHigh));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(idleButCpuHigh));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(idleButCpuHigh));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(27L);
@@ -504,7 +605,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(29L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(wentIdle));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(wentIdle));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(wentIdle));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(29L);
@@ -546,7 +647,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(31L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(saturated));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(saturated));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(saturated));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(31L);
@@ -587,7 +688,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(32L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE")).thenReturn(List.of(lowCpuHighMemory));
+        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(lowCpuHighMemory));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(lowCpuHighMemory));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(32L);

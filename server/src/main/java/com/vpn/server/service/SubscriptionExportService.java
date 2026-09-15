@@ -133,16 +133,14 @@ public class SubscriptionExportService {
         }
 
         Tariff effectiveTariff = sub.getEffectiveTariff();
-        String targetPool = (effectiveTariff != null && effectiveTariff.getServerPool() != null)
-                ? effectiveTariff.getServerPool()
-                : "paid";
+        Set<String> accessiblePools = accessiblePoolsFor(effectiveTariff);
 
         // Mirrors exportVlessLinks' real selection rule: normally restricted to
-        // the caller's own pool, but if that whole pool has no ONLINE node
-        // anywhere right now, exportVlessLinks transparently serves any ONLINE
-        // node instead — so in that edge case every region is actually reachable
-        // too, not just the caller's usual pool.
-        boolean ownPoolHasCapacity = !nodeRepository.findByPoolAndStatus(targetPool, "ONLINE").isEmpty();
+        // the caller's own accessible pool(s), but if none of them has any
+        // ONLINE node anywhere right now, exportVlessLinks transparently
+        // serves any ONLINE node instead — so in that edge case every region
+        // is actually reachable too, not just the caller's usual pool(s).
+        boolean ownPoolHasCapacity = !nodeRepository.findByPoolInAndStatus(accessiblePools, "ONLINE").isEmpty();
 
         List<Node> activeNodes = nodeRepository.findByStatus("ONLINE");
 
@@ -178,7 +176,7 @@ public class SubscriptionExportService {
             Double avgMemoryPercent = avgMemoryPercentOpt.isPresent() ? round1(avgMemoryPercentOpt.getAsDouble()) : null;
 
             boolean accessible = !ownPoolHasCapacity
-                    || nodes.stream().anyMatch(n -> targetPool.equalsIgnoreCase(n.getPool()));
+                    || nodes.stream().anyMatch(n -> accessiblePools.stream().anyMatch(p -> p.equalsIgnoreCase(n.getPool())));
 
             summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
                     avgBytesPerSec, avgMemoryPercent,
@@ -187,6 +185,20 @@ public class SubscriptionExportService {
         }
         summaries.sort(Comparator.comparing(RegionSummary::region));
         return summaries;
+    }
+
+    /**
+     * Pools a subscription can actually connect through. Pools aren't
+     * separate silos of equal standing: "trial" nodes are a lesser, throttled
+     * bucket meant as free-tier capacity, so a paying user gets that pool
+     * too as bonus/fallback capacity in addition to their own "paid" pool —
+     * paid ⊇ trial. Trial users stay restricted to "trial" only; "paid"
+     * nodes remain exclusively for paying tariffs. Any other/unrecognized
+     * pool value maps to just itself (no assumed hierarchy).
+     */
+    private static Set<String> accessiblePoolsFor(Tariff tariff) {
+        String pool = (tariff != null && tariff.getServerPool() != null) ? tariff.getServerPool() : "paid";
+        return "paid".equalsIgnoreCase(pool) ? Set.of("paid", "trial") : Set.of(pool);
     }
 
     private static double round1(double v) {
@@ -328,10 +340,8 @@ public class SubscriptionExportService {
         }
 
         Device primaryDevice = devices.get(0);
-        String targetPool = (effectiveTariff != null && effectiveTariff.getServerPool() != null)
-                ? effectiveTariff.getServerPool()
-                : "paid";
-        List<Node> activeNodes = nodeRepository.findByPoolAndStatus(targetPool, "ONLINE");
+        Set<String> accessiblePools = accessiblePoolsFor(effectiveTariff);
+        List<Node> activeNodes = nodeRepository.findByPoolInAndStatus(accessiblePools, "ONLINE");
         if (activeNodes.isEmpty()) {
             activeNodes = nodeRepository.findByStatus("ONLINE");
         }
