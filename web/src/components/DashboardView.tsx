@@ -18,6 +18,7 @@ import { Lang, translations } from '../i18n';
 import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo } from '../types';
 import { api } from '../api';
 import { copyToClipboard } from '../utils/clipboard';
+import { DownloadApp } from './DownloadApp';
 
 const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
   LOW: 'bg-emerald-400',
@@ -442,6 +443,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         )}
       </div>
       </div>
+
+      {/* Get the App — right after subscription status/devices, since "how do I
+          actually connect" is the natural next question at this point in the page. */}
+      <DownloadApp lang={lang} compact />
 
       {/* Available Regions — read-only/informational: the web dashboard never
           establishes a tunnel itself, so it has no reason to let a user pin a

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Lang, translations } from '../i18n';
 import { Tariff } from '../types';
+import { DownloadApp } from './DownloadApp';
 
 interface LandingViewProps {
   lang: Lang;
@@ -169,6 +170,9 @@ export const LandingView: React.FC<LandingViewProps> = ({
           </ol>
         </div>
       </section>
+
+      {/* --------------------------------------------------- Download the app */}
+      <DownloadApp lang={lang} />
 
       {/* ------------------------------------------------------------ Pricing */}
       <section id="pricing" className="w-full scroll-mt-20 px-5 py-12 sm:py-16">
