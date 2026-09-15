@@ -11,13 +11,8 @@ cd android
 ./scripts/fetch-libxray.sh   # downloads XTLS/libXray's prebuilt Android .aar (~95MB, not in git)
 ```
 
-Requires a JDK the installed Gradle wrapper (8.10.2) can run on — JDK 17-21.
-If your default `java` is newer (e.g. a Java 25+ toolchain), point `JAVA_HOME`
-at a supported JDK for these commands:
-
-```bash
-JAVA_HOME=$(/usr/libexec/java_home -v 21) ./gradlew build
-```
+Requires JDK 17+ — the installed Gradle wrapper (9.1.0) and AGP (9.0.1) both
+run fine under a JDK 25 daemon, no `JAVA_HOME` override needed.
 
 ## Build & test
 

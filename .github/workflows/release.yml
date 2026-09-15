@@ -229,13 +229,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # AGP/Gradle in android/ predates Java 25 support; pin JDK 21 for this
-      # job (see android/gradle.properties), matching the CI job in
-      # gradlew-publish-and-deploy.yml.
-      - name: Set up JDK 21
+      # Gradle 9.1.0 + AGP 9.0.1 run under a JDK 25 daemon — matching the CI
+      # job in gradlew-publish-and-deploy.yml.
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: 'temurin'
           cache: 'gradle'
           cache-dependency-path: 'android/**/*.gradle*'
