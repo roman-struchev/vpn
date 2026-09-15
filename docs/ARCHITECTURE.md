@@ -264,3 +264,4 @@ flowchart TD
 * [`research/UX_REVIEW.md`](research/UX_REVIEW.md) — UX-аудит веб-дашборда, админки, десктопа и Android.
 * [`research/WEB_HANDOFF_RESEARCH.md`](research/WEB_HANDOFF_RESEARCH.md) — Исследование и дизайн механизма client→web SSO handoff.
 * [`research/COMPETITOR_ANALYSIS.md`](research/COMPETITOR_ANALYSIS.md) — Обзор популярных VPN-сервисов и приоритизированные рекомендации по доработке.
+* [`research/P2P_RELAY_FEASIBILITY.md`](research/P2P_RELAY_FEASIBILITY.md) — Оценка идеи P2P-нод без публичного IP и клиентского relay-режима с начислением на баланс: технический разбор, анализ безопасности и юридических рисков, рекомендация по поэтапному внедрению.
