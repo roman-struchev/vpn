@@ -73,6 +73,22 @@ to GitHub Releases (`build.publish.provider: "github"` in `package.json`).
 Requires a `GH_TOKEN` with repo access in the environment — see
 [electron-builder's publishing docs](https://www.electron.build/publish).
 
+## Installing on macOS
+
+The web dashboard's download section offers two options for a published
+release: the `.dmg` directly (needs a right-click → Open the first time,
+since these builds aren't notarized — see `mac.notarize: false` above), or
+[`scripts/install-mac.sh`](../scripts/install-mac.sh):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-mac.sh | sh
+```
+
+Downloads the right `.dmg` for the machine's chip from the latest GitHub
+release, installs the app into `/Applications`, and clears the quarantine
+flag (`xattr -cr`) so Gatekeeper doesn't warn on first launch — the same
+`curl | sh` pattern Homebrew casks use for unsigned formulae.
+
 ## What this talks to
 
 Same server contract as `web/src/api.ts` and the Android client:

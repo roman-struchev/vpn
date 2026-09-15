@@ -57,6 +57,9 @@ export const translations = {
     downloadAndroidSublabel: "APK, устанавливается напрямую",
     downloadComingSoon: "Скоро",
     downloadUnsignedHint: "Сборки пока не подписаны сертификатом разработчика: macOS покажет предупреждение при первом запуске — откройте приложение через правый клик → «Открыть» (или Системные настройки → Конфиденциальность и безопасность → «Всё равно открыть»). На Android нужно разрешить установку из неизвестных источников для приложения, через которое вы открыли APK.",
+    downloadMacTerminalLabel: "Или одной командой в Терминале (macOS)",
+    downloadMacTerminalHint: "Сама скачает нужную версию под ваш процессор, поставит в Applications и снимет предупреждение Gatekeeper — открывать через правый клик не понадобится.",
+    downloadCopyCommand: "Скопировать команду",
     downloadOtherClientsHint: "Windows, Linux и iOS: нативного приложения пока нет — используйте ссылку/QR-код подписки (в личном кабинете после входа) с любым VLESS-совместимым клиентом, например v2rayTun, Hiddify или Happ.",
     downloadAllReleasesLink: "Все версии на GitHub",
     // --- Landing page ---
@@ -192,6 +195,9 @@ export const translations = {
     downloadAndroidSublabel: "APK, installs directly",
     downloadComingSoon: "Coming soon",
     downloadUnsignedHint: "Builds aren't code-signed yet: macOS will warn on first launch — right-click the app → Open (or System Settings → Privacy & Security → \"Open Anyway\"). On Android, you'll need to allow installs from unknown sources for whichever app you used to open the APK.",
+    downloadMacTerminalLabel: "Or one command in Terminal (macOS)",
+    downloadMacTerminalHint: "Downloads the right build for your chip, installs it into Applications, and clears the Gatekeeper warning — no right-click-to-open needed.",
+    downloadCopyCommand: "Copy command",
     downloadOtherClientsHint: "Windows, Linux and iOS: no native app yet — use your subscription link/QR code (in your dashboard once signed in) with any VLESS-compatible client, such as v2rayTun, Hiddify, or Happ.",
     downloadAllReleasesLink: "All releases on GitHub",
     // --- Landing page ---

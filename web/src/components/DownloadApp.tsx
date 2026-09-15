@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Apple, Smartphone, ArrowRight, ExternalLink } from 'lucide-react';
+import { Apple, Smartphone, ArrowRight, ExternalLink, Copy, Check } from 'lucide-react';
 import { Lang, translations } from '../i18n';
 import { fetchLatestRelease, releasesPageUrl, LatestRelease } from '../utils/githubRelease';
+
+const MAC_INSTALL_COMMAND =
+  'curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-mac.sh | sh';
 
 interface DownloadAppProps {
   lang: Lang;
@@ -43,6 +46,41 @@ const PlatformButton: React.FC<{
       </div>
       <ArrowRight className="h-4 w-4 shrink-0 text-slate-600" />
     </a>
+  );
+};
+
+const CopyCommand: React.FC<{ command: string; label: string; copiedLabel: string }> = ({
+  command,
+  label,
+  copiedLabel,
+}) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(command).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      className={`flex w-full items-center gap-2 rounded-lg bg-dark-950 border border-dark-800 px-3 py-2 text-left font-mono text-[11px] text-slate-300 transition-colors hover:border-brand-500/40 ${focusRing}`}
+    >
+      <span className="min-w-0 flex-1 truncate">{command}</span>
+      <span className="flex shrink-0 items-center gap-1 text-slate-500">
+        {copied ? (
+          <>
+            <Check className="h-3.5 w-3.5 text-brand-500" />
+            {copiedLabel}
+          </>
+        ) : (
+          <>
+            <Copy className="h-3.5 w-3.5" />
+            {label}
+          </>
+        )}
+      </span>
+    </button>
   );
 };
 
@@ -93,6 +131,12 @@ export const DownloadApp: React.FC<DownloadAppProps> = ({ lang, compact }) => {
           </a>
         </p>
       )}
+
+      <div className="mt-3">
+        <p className="mb-1.5 text-[11px] font-semibold text-slate-400">{t.downloadMacTerminalLabel}</p>
+        <CopyCommand command={MAC_INSTALL_COMMAND} label={t.downloadCopyCommand} copiedLabel={t.copied} />
+        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">{t.downloadMacTerminalHint}</p>
+      </div>
 
       <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
         {t.downloadUnsignedHint}
