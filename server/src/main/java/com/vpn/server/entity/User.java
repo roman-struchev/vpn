@@ -57,6 +57,14 @@ public class User {
     @JoinColumn(name = "referred_by_user_id")
     private User referredBy;
 
+    // Gates the P2P relay feature entirely (docs/research/
+    // P2P_RELAY_FEASIBILITY.md §8.6) — null means never shown/accepted the
+    // consent screen, so a p2p bootstrap token can't be minted for this user
+    // yet. Set once, never cleared automatically (re-accepting isn't
+    // required just because relay mode was later turned off).
+    @Column(name = "p2p_relay_terms_accepted_at")
+    private Instant p2pRelayTermsAcceptedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -100,6 +108,9 @@ public class User {
 
     public User getReferredBy() { return referredBy; }
     public void setReferredBy(User referredBy) { this.referredBy = referredBy; }
+
+    public Instant getP2pRelayTermsAcceptedAt() { return p2pRelayTermsAcceptedAt; }
+    public void setP2pRelayTermsAcceptedAt(Instant p2pRelayTermsAcceptedAt) { this.p2pRelayTermsAcceptedAt = p2pRelayTermsAcceptedAt; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

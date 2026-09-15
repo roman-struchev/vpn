@@ -133,14 +133,16 @@ public class SubscriptionExportService {
         }
 
         Tariff effectiveTariff = sub.getEffectiveTariff();
-        Set<String> accessiblePools = accessiblePoolsFor(effectiveTariff);
 
         // Mirrors exportVlessLinks' real selection rule: normally restricted to
-        // the caller's own accessible pool(s), but if none of them has any
-        // ONLINE node anywhere right now, exportVlessLinks transparently
-        // serves any ONLINE node instead — so in that edge case every region
-        // is actually reachable too, not just the caller's usual pool(s).
-        boolean ownPoolHasCapacity = !nodeRepository.findByPoolInAndStatus(accessiblePools, "ONLINE").isEmpty();
+        // the caller's own accessible nodes, but if none of them is ONLINE
+        // anywhere right now, exportVlessLinks transparently serves any
+        // ONLINE node instead — so in that edge case every region is
+        // actually reachable too, not just the caller's usual access flag.
+        // Excludes p2p nodes for the same reason exportVlessLinks does (see
+        // findAccessibleOnlineNodesForVless) — no client can consume a p2p
+        // node via this path yet, so it shouldn't count as real capacity here.
+        boolean ownPoolHasCapacity = !findAccessibleOnlineNodesForVless(effectiveTariff).isEmpty();
 
         List<Node> activeNodes = nodeRepository.findByStatus("ONLINE");
 
@@ -176,7 +178,7 @@ public class SubscriptionExportService {
             Double avgMemoryPercent = avgMemoryPercentOpt.isPresent() ? round1(avgMemoryPercentOpt.getAsDouble()) : null;
 
             boolean accessible = !ownPoolHasCapacity
-                    || nodes.stream().anyMatch(n -> accessiblePools.stream().anyMatch(p -> p.equalsIgnoreCase(n.getPool())));
+                    || nodes.stream().anyMatch(n -> !n.isP2p() && accessibleViaFlags(n, effectiveTariff));
 
             summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
                     avgBytesPerSec, avgMemoryPercent,
@@ -188,17 +190,42 @@ public class SubscriptionExportService {
     }
 
     /**
-     * Pools a subscription can actually connect through. Pools aren't
-     * separate silos of equal standing: "trial" nodes are a lesser, throttled
-     * bucket meant as free-tier capacity, so a paying user gets that pool
-     * too as bonus/fallback capacity in addition to their own "paid" pool —
-     * paid ⊇ trial. Trial users stay restricted to "trial" only; "paid"
-     * nodes remain exclusively for paying tariffs. Any other/unrecognized
-     * pool value maps to just itself (no assumed hierarchy).
+     * Whether a tariff's own access flag is set on this node (docs/research/
+     * P2P_RELAY_FEASIBILITY.md §8.3) — availableToTrial/availableToPaid are
+     * independent per-node booleans now, not a single exclusive pool string;
+     * a P2P node can have both set. See V11 migration's backfill for how
+     * existing nodes were mapped so this reproduces prior pool-based access
+     * exactly (paid tariffs already reached "trial"-pool nodes too, so those
+     * nodes got availableToPaid=true as well at backfill time — no runtime
+     * hierarchy logic needed here).
      */
-    private static Set<String> accessiblePoolsFor(Tariff tariff) {
+    private static boolean accessibleViaFlags(Node node, Tariff tariff) {
         String pool = (tariff != null && tariff.getServerPool() != null) ? tariff.getServerPool() : "paid";
-        return "paid".equalsIgnoreCase(pool) ? Set.of("paid", "trial") : Set.of(pool);
+        return "trial".equalsIgnoreCase(pool)
+                ? Boolean.TRUE.equals(node.getAvailableToTrial())
+                : Boolean.TRUE.equals(node.getAvailableToPaid());
+    }
+
+    /** Online nodes the given tariff can actually connect through right now, VLESS-dialable p2p nodes excluded (see findAccessibleOnlineNodesForVless). */
+    private List<Node> findAccessibleOnlineNodes(Tariff tariff) {
+        String pool = (tariff != null && tariff.getServerPool() != null) ? tariff.getServerPool() : "paid";
+        return "trial".equalsIgnoreCase(pool)
+                ? nodeRepository.findByAvailableToTrialTrueAndStatus("ONLINE")
+                : nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE");
+    }
+
+    /**
+     * Same as {@link #findAccessibleOnlineNodes} but excludes type="p2p"
+     * nodes — this is the path that actually calls {@link #buildVlessUrl},
+     * which embeds node.getPublicIp() into a direct vless://ip:443 link a
+     * client would try to dial straight at. A P2P node's publicIp isn't a
+     * real reachable address (docs §8.4) — it needs the WebRTC signaling
+     * flow instead (see AgentStreamServiceImpl's p2p_signal routing), which
+     * has no client-side consumer yet (phase 2/3). Until that exists, a p2p
+     * node must never end up producing a direct-dial link here.
+     */
+    private List<Node> findAccessibleOnlineNodesForVless(Tariff tariff) {
+        return findAccessibleOnlineNodes(tariff).stream().filter(n -> !n.isP2p()).toList();
     }
 
     private static double round1(double v) {
@@ -340,10 +367,11 @@ public class SubscriptionExportService {
         }
 
         Device primaryDevice = devices.get(0);
-        Set<String> accessiblePools = accessiblePoolsFor(effectiveTariff);
-        List<Node> activeNodes = nodeRepository.findByPoolInAndStatus(accessiblePools, "ONLINE");
+        List<Node> activeNodes = findAccessibleOnlineNodesForVless(effectiveTariff);
         if (activeNodes.isEmpty()) {
-            activeNodes = nodeRepository.findByStatus("ONLINE");
+            // Same p2p exclusion as findAccessibleOnlineNodesForVless — this
+            // fallback must never hand out a p2p node's direct-dial link either.
+            activeNodes = nodeRepository.findByStatus("ONLINE").stream().filter(n -> !n.isP2p()).toList();
         }
 
         boolean requestedRegionAvailable = true;

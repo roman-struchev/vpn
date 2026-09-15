@@ -82,6 +82,7 @@ class SubscriptionExportServiceTest {
         node.setRealityShortIds(new String[]{"abcdef0123456789"});
         node.setStatus("ONLINE");
         node.setPool("paid");
+        node.setAvailableToPaid(true);
 
         UUID keyUuid = UUID.randomUUID();
         DeviceNodeKey key = new DeviceNodeKey(device, node, keyUuid);
@@ -89,7 +90,7 @@ class SubscriptionExportServiceTest {
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(10L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(node));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(node));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(100L, 1L)).thenReturn(Optional.of(key));
 
         String base64Output = exportService.exportVlessSubscription(10L);
@@ -164,11 +165,13 @@ class SubscriptionExportServiceTest {
         node.setRegion("nl-ams");
         node.setStatus("ONLINE");
         node.setPool("trial");
+        node.setAvailableToTrial(true);
+        node.setAvailableToPaid(true);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(21L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(21L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of());
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of());
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(node));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(200L), eq(2L))).thenReturn(Optional.empty());
         when(deviceNodeKeyRepository.save(any(DeviceNodeKey.class))).thenAnswer(i -> i.getArgument(0));
@@ -205,6 +208,7 @@ class SubscriptionExportServiceTest {
         amsNode.setRegion("nl-ams");
         amsNode.setStatus("ONLINE");
         amsNode.setPool("paid");
+        amsNode.setAvailableToPaid(true);
 
         Node laxNode = new Node();
         laxNode.setId(4L);
@@ -213,11 +217,12 @@ class SubscriptionExportServiceTest {
         laxNode.setRegion("us-lax");
         laxNode.setStatus("ONLINE");
         laxNode.setPool("paid");
+        laxNode.setAvailableToPaid(true);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(23L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(23L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(amsNode, laxNode));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(amsNode, laxNode));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(300L), eq(3L)))
                 .thenReturn(Optional.of(new DeviceNodeKey(device, amsNode, UUID.randomUUID())));
 
@@ -254,11 +259,12 @@ class SubscriptionExportServiceTest {
         amsNode.setRegion("nl-ams");
         amsNode.setStatus("ONLINE");
         amsNode.setPool("paid");
+        amsNode.setAvailableToPaid(true);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(24L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(24L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(amsNode));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(amsNode));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(400L), eq(5L)))
                 .thenReturn(Optional.of(new DeviceNodeKey(device, amsNode, UUID.randomUUID())));
 
@@ -289,6 +295,7 @@ class SubscriptionExportServiceTest {
         amsLow.setRegion("nl-ams");
         amsLow.setStatus("ONLINE");
         amsLow.setPool("paid");
+        amsLow.setAvailableToPaid(true);
         amsLow.setCpuPercent(new java.math.BigDecimal("20.0"));
         amsLow.setActiveConnections(10);
 
@@ -297,6 +304,7 @@ class SubscriptionExportServiceTest {
         amsHigh.setRegion("nl-ams");
         amsHigh.setStatus("ONLINE");
         amsHigh.setPool("paid");
+        amsHigh.setAvailableToPaid(true);
         amsHigh.setCpuPercent(new java.math.BigDecimal("30.0"));
         amsHigh.setActiveConnections(30);
 
@@ -305,12 +313,13 @@ class SubscriptionExportServiceTest {
         laxBusy.setRegion("us-lax");
         laxBusy.setStatus("ONLINE");
         laxBusy.setPool("paid");
+        laxBusy.setAvailableToPaid(true);
         laxBusy.setCpuPercent(new java.math.BigDecimal("90.0"));
         laxBusy.setActiveConnections(200);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(25L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(amsLow, amsHigh, laxBusy));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(25L);
@@ -364,6 +373,8 @@ class SubscriptionExportServiceTest {
         trialNode.setRegion("in-mumbai");
         trialNode.setStatus("ONLINE");
         trialNode.setPool("trial");
+        trialNode.setAvailableToTrial(true);
+        trialNode.setAvailableToPaid(true);
         trialNode.setActiveConnections(1);
 
         Node paidNode = new Node();
@@ -371,11 +382,12 @@ class SubscriptionExportServiceTest {
         paidNode.setRegion("fi-hel");
         paidNode.setStatus("ONLINE");
         paidNode.setPool("paid");
+        paidNode.setAvailableToPaid(true);
         paidNode.setActiveConnections(0);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(33L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("trial"), "ONLINE")).thenReturn(List.of(trialNode));
+        when(nodeRepository.findByAvailableToTrialTrueAndStatus("ONLINE")).thenReturn(List.of(trialNode));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(trialNode, paidNode));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(33L);
@@ -414,11 +426,12 @@ class SubscriptionExportServiceTest {
         paidNode.setRegion("fi-hel");
         paidNode.setStatus("ONLINE");
         paidNode.setPool("paid");
+        paidNode.setAvailableToPaid(true);
         paidNode.setActiveConnections(0);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(34L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("trial"), "ONLINE")).thenReturn(List.of());
+        when(nodeRepository.findByAvailableToTrialTrueAndStatus("ONLINE")).thenReturn(List.of());
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(paidNode));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(34L);
@@ -452,6 +465,8 @@ class SubscriptionExportServiceTest {
         trialNode.setRegion("in-mumbai");
         trialNode.setStatus("ONLINE");
         trialNode.setPool("trial");
+        trialNode.setAvailableToTrial(true);
+        trialNode.setAvailableToPaid(true);
         trialNode.setActiveConnections(1);
 
         Node paidNode = new Node();
@@ -459,11 +474,12 @@ class SubscriptionExportServiceTest {
         paidNode.setRegion("fi-hel");
         paidNode.setStatus("ONLINE");
         paidNode.setPool("paid");
+        paidNode.setAvailableToPaid(true);
         paidNode.setActiveConnections(0);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(35L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE"))
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE"))
                 .thenReturn(List.of(trialNode, paidNode));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(trialNode, paidNode));
 
@@ -502,6 +518,7 @@ class SubscriptionExportServiceTest {
         paidNode.setRealityShortIds(new String[]{"abcdef0123456789"});
         paidNode.setStatus("ONLINE");
         paidNode.setPool("paid");
+        paidNode.setAvailableToPaid(true);
 
         Node trialNode = new Node();
         trialNode.setId(19L);
@@ -512,11 +529,13 @@ class SubscriptionExportServiceTest {
         trialNode.setRealityShortIds(new String[]{"abcdef0123456789"});
         trialNode.setStatus("ONLINE");
         trialNode.setPool("trial");
+        trialNode.setAvailableToTrial(true);
+        trialNode.setAvailableToPaid(true);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(36L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
         when(deviceRepository.findByUserIdAndIsActiveTrue(36L)).thenReturn(List.of(device));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE"))
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE"))
                 .thenReturn(List.of(paidNode, trialNode));
         when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(101L), any()))
                 .thenAnswer(inv -> Optional.of(new DeviceNodeKey(device,
@@ -555,6 +574,7 @@ class SubscriptionExportServiceTest {
         idleButCpuHigh.setRegion("eu-fra");
         idleButCpuHigh.setStatus("ONLINE");
         idleButCpuHigh.setPool("paid");
+        idleButCpuHigh.setAvailableToPaid(true);
         idleButCpuHigh.setCpuPercent(new java.math.BigDecimal("90.0"));
         idleButCpuHigh.setMemoryUsedBytes(950L);
         idleButCpuHigh.setMemoryTotalBytes(1000L);
@@ -562,7 +582,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(27L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(idleButCpuHigh));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(idleButCpuHigh));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(idleButCpuHigh));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(27L);
@@ -599,13 +619,14 @@ class SubscriptionExportServiceTest {
         wentIdle.setRegion("ap-sgp");
         wentIdle.setStatus("ONLINE");
         wentIdle.setPool("paid");
+        wentIdle.setAvailableToPaid(true);
         wentIdle.setCpuPercent(new java.math.BigDecimal("80.0"));
         wentIdle.setRecentBytesPerSec(0.0);
         wentIdle.setActiveConnections(0);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(29L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(wentIdle));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(wentIdle));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(wentIdle));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(29L);
@@ -639,6 +660,7 @@ class SubscriptionExportServiceTest {
         saturated.setRegion("eu-fra");
         saturated.setStatus("ONLINE");
         saturated.setPool("paid");
+        saturated.setAvailableToPaid(true);
         saturated.setCpuPercent(new java.math.BigDecimal("50.0"));
         saturated.setActiveConnections(80);
         // 25,000,000 bytes/sec == 200 Mbps == loadLevelFor's throughput-score
@@ -647,7 +669,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(31L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(saturated));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(saturated));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(saturated));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(31L);
@@ -681,6 +703,7 @@ class SubscriptionExportServiceTest {
         lowCpuHighMemory.setRegion("us-lax");
         lowCpuHighMemory.setStatus("ONLINE");
         lowCpuHighMemory.setPool("paid");
+        lowCpuHighMemory.setAvailableToPaid(true);
         lowCpuHighMemory.setCpuPercent(new java.math.BigDecimal("30.0"));
         lowCpuHighMemory.setActiveConnections(20);
         lowCpuHighMemory.setMemoryUsedBytes(950L);
@@ -688,7 +711,7 @@ class SubscriptionExportServiceTest {
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(32L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
-        when(nodeRepository.findByPoolInAndStatus(Set.of("paid", "trial"), "ONLINE")).thenReturn(List.of(lowCpuHighMemory));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(lowCpuHighMemory));
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(lowCpuHighMemory));
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(32L);

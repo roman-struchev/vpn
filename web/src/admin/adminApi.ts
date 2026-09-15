@@ -73,6 +73,14 @@ export interface AdminNode {
   status: string;
   pool: string;
   type: string;
+  /** Independent of `pool` now (docs/research/P2P_RELAY_FEASIBILITY.md §8.3) — a p2p node typically has both true. */
+  availableToTrial: boolean;
+  availableToPaid: boolean;
+  /** Meaningful only for type="p2p" — OFF/TIMED/ALWAYS (docs §8.5). */
+  relayMode: string;
+  relayExpiresAt: string | null;
+  /** Which user's own device this p2p node is (relay credit goes to them) — null for every ops-deployed VPS node. */
+  ownerUserId: number | null;
   region: string;
   asn: string | null;
   configVersion: number;

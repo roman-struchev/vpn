@@ -138,6 +138,26 @@ export function NodesSection({ t }: { t: AdminT }) {
             )}
           />
           <Column
+            header={t.tariffAccess}
+            style={{ width: '9rem' }}
+            body={(n: AdminNode) => (
+              <div className="flex flex-col gap-0.5 text-[10px]">
+                <span className={n.availableToPaid ? 'text-emerald-400' : 'text-slate-600'}>
+                  {n.availableToPaid ? '✓' : '—'} {t.pricingTariffPaidLabel}
+                </span>
+                <span className={n.availableToTrial ? 'text-emerald-400' : 'text-slate-600'}>
+                  {n.availableToTrial ? '✓' : '—'} {t.pricingTariffTrialLabel}
+                </span>
+                {n.type === 'p2p' && (
+                  <span className="text-amber-400" title={n.relayExpiresAt ?? undefined}>
+                    P2P · {n.relayMode}
+                    {n.ownerUserId != null ? ` · user #${n.ownerUserId}` : ''}
+                  </span>
+                )}
+              </div>
+            )}
+          />
+          <Column
             header={t.cpu}
             body={(n: AdminNode) =>
               n.cpuPercent != null

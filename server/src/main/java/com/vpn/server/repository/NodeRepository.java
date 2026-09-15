@@ -16,4 +16,9 @@ public interface NodeRepository extends JpaRepository<Node, Long> {
     List<Node> findByPoolAndRegionAndStatus(String pool, String region, String status);
     List<Node> findByStatus(String status);
     long countByStatus(String status);
+
+    // Tariff-access lookups (docs/research/P2P_RELAY_FEASIBILITY.md §8.3) —
+    // independent of the pool/lifecycle queries above.
+    List<Node> findByAvailableToTrialTrueAndStatus(String status);
+    List<Node> findByAvailableToPaidTrueAndStatus(String status);
 }

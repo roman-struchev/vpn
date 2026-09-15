@@ -19,11 +19,18 @@ service AgentStreamService {
 message RegisterNodeRequest {
   string bootstrap_token = 1;
   string hostname = 2;
+  // Meaningless/not a real routable address for a p2p-type node (see
+  // NodeType.NODE_TYPE_P2P) — never used to build a direct-dial VLESS link
+  // for one; any placeholder value is fine.
   string public_ip = 3;
   string agent_version = 4;
   string region = 5;
   string asn = 6;
   repeated string supported_transports = 7;
+  // P2P relay window (docs/research/P2P_RELAY_FEASIBILITY.md §8.5) — ignored
+  // for a non-p2p node. "" / unset means OFF.
+  string relay_mode = 8; // OFF, TIMED, ALWAYS
+  int64 relay_expires_at_epoch_ms = 9; // meaningful only when relay_mode = TIMED
 }
 
 enum NodePool {
@@ -37,6 +44,7 @@ enum NodeType {
   NODE_TYPE_UNSPECIFIED = 0;
   NODE_TYPE_DIRECT = 1; // VLESS + XHTTP + Reality directly on node
   NODE_TYPE_CDN = 2;    // VLESS + XHTTP behind CDN
+  NODE_TYPE_P2P = 3;    // client-in-relay-mode or headless Linux relay agent — see docs/research/P2P_RELAY_FEASIBILITY.md §8
 }
 
 message RegisterNodeResponse {
@@ -58,7 +66,33 @@ message AgentMessage {
     ConfigAck config_ack = 5;
     TrafficStatsReport traffic_stats = 6;
     ConnTelemetryReport conn_telemetry = 7;
+    // A p2p relay node's SDP answer / ICE candidate, addressed back to
+    // whichever connecting client is waiting on session_id (docs §8.1) — the
+    // server only ever routes this by session_id, never inspects payload.
+    P2pSignal p2p_signal = 8;
+    // A p2p relay node's own self-reported byte count for one session — one
+    // half of the dual self-report cross-check (docs §8.2); the connecting
+    // client's half arrives over REST (UserController's p2p endpoints), not
+    // this stream, since ordinary clients don't hold an AgentStream.
+    P2pSessionTrafficReport p2p_traffic_report = 9;
   }
+}
+
+// Opaque WebRTC signaling blob (SDP offer/answer or an ICE candidate) — the
+// server is a pure passthrough broker between a connecting client and a p2p
+// relay node's existing control-plane stream (docs §8.1); it never parses,
+// understands, or persists `payload`.
+message P2pSignal {
+  string session_id = 1;
+  bytes payload = 2;
+}
+
+// One relay node's self-reported byte count for a p2p session, tied to the
+// connecting client's own independent report via session_id — credited only
+// when both agree within tolerance (docs §8.2, P2pRelayAccountingService).
+message P2pSessionTrafficReport {
+  string session_id = 1;
+  int64 bytes_relayed = 2;
 }
 
 message Heartbeat {
@@ -80,6 +114,13 @@ message Heartbeat {
   // directly per-user without also tracking connection open/close events).
   int32 active_connections = 6;
   int32 cpu_count = 7;
+  // Current P2P relay window, re-sent on every heartbeat so a running relay
+  // client can change/extend/cancel it without re-registering (docs §8.5).
+  // Ignored for a non-p2p node. "" / unset leaves relay_mode unchanged from
+  // whatever registration set (a node that never touches these fields keeps
+  // "OFF" forever, which is every existing VPS node).
+  string relay_mode = 8; // OFF, TIMED, ALWAYS
+  int64 relay_expires_at_epoch_ms = 9;
 }
 
 enum AckStatus {
@@ -129,6 +170,10 @@ message ServerMessage {
     ConfigSync config_sync = 3;
     ClientDeltaUpdate client_update = 4;
     ServerCommand command = 5;
+    // A connecting client's SDP offer / ICE candidate, forwarded to this p2p
+    // relay node (docs §8.1) — same opaque-blob contract as AgentMessage's
+    // p2p_signal, just the other direction.
+    P2pSignal p2p_signal = 6;
   }
 }
 

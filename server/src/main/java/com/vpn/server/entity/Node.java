@@ -26,7 +26,37 @@ public class Node {
     private String pool = "paid"; // trial, paid, quarantine, reserve (standby — see DynamicRoutingService#promoteReserveNode)
 
     @Column(nullable = false, length = 32)
-    private String type = "direct"; // direct, cdn
+    private String type = "direct"; // direct, cdn, p2p (see docs/research/P2P_RELAY_FEASIBILITY.md §8)
+
+    // Tariff access, independent of the `pool` lifecycle column above (which
+    // stays ONLINE/quarantine/reserve-style grouping, untouched by this).
+    // A regular VPS node keeps exactly one of these true, matching its old
+    // exclusive pool; a P2P node can have both true at once — see V11
+    // migration's backfill for how existing nodes were mapped onto this.
+    @Column(name = "available_to_trial", nullable = false)
+    private Boolean availableToTrial = false;
+
+    @Column(name = "available_to_paid", nullable = false)
+    private Boolean availableToPaid = false;
+
+    // P2P relay window (docs §8.5) — meaningless for a regular VPS node
+    // (stays "OFF" forever). A P2P node is only ever handed out to a
+    // connecting client while eligible per isEligibleForRelay() below;
+    // enforced here server-side rather than trusting the relaying client to
+    // stop offering itself on time.
+    @Column(name = "relay_mode", nullable = false, length = 16)
+    private String relayMode = "OFF"; // OFF, TIMED, ALWAYS
+
+    @Column(name = "relay_expires_at")
+    private Instant relayExpiresAt; // meaningful only when relayMode = TIMED
+
+    // Who a p2p node's relayed traffic is credited to — copied from the
+    // consumed bootstrap token's own ownerUser at registration time (see
+    // NodeManagementService#registerNode), never self-declared by the
+    // register request itself. Null for every ops-deployed VPS node.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_user_id")
+    private User ownerUser;
 
     @Column(nullable = false, length = 64)
     private String region;
@@ -110,6 +140,45 @@ public class Node {
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+
+    public Boolean getAvailableToTrial() { return availableToTrial; }
+    public void setAvailableToTrial(Boolean availableToTrial) { this.availableToTrial = availableToTrial; }
+
+    public Boolean getAvailableToPaid() { return availableToPaid; }
+    public void setAvailableToPaid(Boolean availableToPaid) { this.availableToPaid = availableToPaid; }
+
+    public String getRelayMode() { return relayMode; }
+    public void setRelayMode(String relayMode) { this.relayMode = relayMode; }
+
+    public Instant getRelayExpiresAt() { return relayExpiresAt; }
+    public void setRelayExpiresAt(Instant relayExpiresAt) { this.relayExpiresAt = relayExpiresAt; }
+
+    // @JsonIgnore: Node is serialized as-is by AdminController#listNodes — a
+    // LAZY relation like this one throws on serialization outside an open
+    // Hibernate session (see BalanceEntry.user/Device.user for the same
+    // pattern). ownerUserId below is the safe, scalar equivalent for admin
+    // visibility.
+    @JsonIgnore
+    public User getOwnerUser() { return ownerUser; }
+    public void setOwnerUser(User ownerUser) { this.ownerUser = ownerUser; }
+
+    public Long getOwnerUserId() { return ownerUser != null ? ownerUser.getId() : null; }
+
+    public boolean isP2p() { return "p2p".equalsIgnoreCase(type); }
+
+    /**
+     * Whether this node should currently be handed out to a connecting
+     * client at all. Always true for a non-p2p node (a VPS node's
+     * relayMode/relayExpiresAt are meaningless — its ONLINE status is the
+     * only gate). For a p2p node: ALWAYS mode, or TIMED with a still-future
+     * window — never trusts the client to have stopped offering itself on
+     * time (docs §8.5).
+     */
+    public boolean isEligibleForRelay() {
+        if (!isP2p()) return true;
+        if ("ALWAYS".equalsIgnoreCase(relayMode)) return true;
+        return "TIMED".equalsIgnoreCase(relayMode) && relayExpiresAt != null && relayExpiresAt.isAfter(Instant.now());
+    }
 
     public String getRegion() { return region; }
     public void setRegion(String region) { this.region = region; }

@@ -190,6 +190,170 @@ class NodeManagementServiceTest {
     }
 
     @Test
+    void testRegisterNodeP2pTypeGetsBothTariffAccessFlagsAndOwnerFromToken() {
+        // docs/research/P2P_RELAY_FEASIBILITY.md §8.3/§8.4: a p2p node is
+        // available to both trial and paid tariffs simultaneously, and its
+        // owner comes only from the bootstrap token that registered it —
+        // never from a self-declared field in the request.
+        User owner = new User();
+        owner.setId(500L);
+
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_p2p_1");
+        token.setAssignedPool("paid");
+        token.setAssignedType("p2p");
+        token.setOwnerUser(owner);
+        token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
+
+        when(tokenRepository.findByToken("bt_p2p_1")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname("laptop-p2p-1")).thenReturn(Optional.empty());
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
+            Node n = i.getArgument(0);
+            n.setId(50L);
+            return n;
+        });
+
+        RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_p2p_1")
+                .setHostname("laptop-p2p-1")
+                .setPublicIp("0.0.0.0")
+                .setRegion("nl-ams")
+                .setRelayMode("ALWAYS")
+                .build();
+
+        nodeManagementService.registerNode(request);
+
+        ArgumentCaptor<Node> captor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(captor.capture());
+        Node saved = captor.getValue();
+
+        assertTrue(saved.getAvailableToTrial());
+        assertTrue(saved.getAvailableToPaid());
+        assertEquals(owner, saved.getOwnerUser());
+        assertEquals("ALWAYS", saved.getRelayMode());
+        assertTrue(saved.isEligibleForRelay());
+    }
+
+    @Test
+    void testRegisterNodeDirectPaidTypeGetsOnlyPaidFlagAndNoOwner() {
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_direct_1");
+        token.setAssignedPool("paid");
+        token.setAssignedType("direct");
+        token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
+
+        when(tokenRepository.findByToken("bt_direct_1")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname("vps-01")).thenReturn(Optional.empty());
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
+            Node n = i.getArgument(0);
+            n.setId(51L);
+            return n;
+        });
+
+        RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_direct_1")
+                .setHostname("vps-01")
+                .setPublicIp("198.51.100.1")
+                .setRegion("nl-ams")
+                .build();
+
+        nodeManagementService.registerNode(request);
+
+        ArgumentCaptor<Node> captor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(captor.capture());
+        Node saved = captor.getValue();
+
+        assertFalse(saved.getAvailableToTrial());
+        assertTrue(saved.getAvailableToPaid());
+        assertNull(saved.getOwnerUser());
+        // Registration never touched relay_mode (only meaningful for p2p) —
+        // stays at the entity's own default.
+        assertEquals("OFF", saved.getRelayMode());
+    }
+
+    @Test
+    void testRegisterNodeTrialTypeGetsBothFlagsTrue() {
+        // Paid tariffs already reach trial-pool nodes as bonus/fallback
+        // capacity (this session's earlier paid-⊇-trial fix) — a
+        // freshly-registered trial-pool node must reproduce that, not just
+        // pre-existing backfilled rows.
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_trial_1");
+        token.setAssignedPool("trial");
+        token.setAssignedType("direct");
+        token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
+
+        when(tokenRepository.findByToken("bt_trial_1")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname("vps-trial-01")).thenReturn(Optional.empty());
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
+            Node n = i.getArgument(0);
+            n.setId(52L);
+            return n;
+        });
+
+        RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_trial_1")
+                .setHostname("vps-trial-01")
+                .setPublicIp("198.51.100.2")
+                .setRegion("in-mumbai")
+                .build();
+
+        nodeManagementService.registerNode(request);
+
+        ArgumentCaptor<Node> captor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(captor.capture());
+        Node saved = captor.getValue();
+
+        assertTrue(saved.getAvailableToTrial());
+        assertTrue(saved.getAvailableToPaid());
+    }
+
+    @Test
+    void testProcessHeartbeatUpdatesRelayWindow() {
+        Node node = new Node();
+        node.setId(60L);
+        node.setType("p2p");
+        node.setRelayMode("OFF");
+        when(nodeRepository.findById(60L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> i.getArgument(0));
+
+        long expiresAtMs = Instant.now().plus(8, ChronoUnit.HOURS).toEpochMilli();
+        Heartbeat heartbeat = Heartbeat.newBuilder()
+                .setCpuPercent(10.0)
+                .setActiveConnections(1)
+                .setRelayMode("TIMED")
+                .setRelayExpiresAtEpochMs(expiresAtMs)
+                .build();
+
+        nodeManagementService.processHeartbeat(60L, heartbeat);
+
+        assertEquals("TIMED", node.getRelayMode());
+        assertEquals(expiresAtMs, node.getRelayExpiresAt().toEpochMilli());
+    }
+
+    @Test
+    void testProcessHeartbeatWithBlankRelayModeLeavesExistingWindowUnchanged() {
+        // A plain heartbeat that doesn't touch relay state at all (relay_mode
+        // left at its proto default, "") must not silently reset an ALWAYS/
+        // TIMED node back to OFF.
+        Node node = new Node();
+        node.setId(61L);
+        node.setType("p2p");
+        node.setRelayMode("ALWAYS");
+        when(nodeRepository.findById(61L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> i.getArgument(0));
+
+        Heartbeat heartbeat = Heartbeat.newBuilder()
+                .setCpuPercent(5.0)
+                .setActiveConnections(0)
+                .build();
+
+        nodeManagementService.processHeartbeat(61L, heartbeat);
+
+        assertEquals("ALWAYS", node.getRelayMode());
+    }
+
+    @Test
     void testAuthenticateNode() {
         Node node = new Node();
         node.setId(5L);

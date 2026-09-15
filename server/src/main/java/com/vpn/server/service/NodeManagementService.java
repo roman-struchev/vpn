@@ -96,6 +96,11 @@ public class NodeManagementService {
                 .orElseGet(Node::new);
 
         node.setHostname(request.getHostname());
+        // Not validated as a real routable address — meaningless for a p2p
+        // node (docs/research/P2P_RELAY_FEASIBILITY.md §8.4), only ever a
+        // placeholder there. A direct/cdn node still needs a real one for
+        // SubscriptionExportService's VLESS link generation to work, but
+        // that's the bootstrap operator's responsibility, same as today.
         node.setPublicIp(request.getPublicIp());
         node.setPool(bootstrapToken.getAssignedPool());
         node.setType(bootstrapToken.getAssignedType());
@@ -103,6 +108,12 @@ public class NodeManagementService {
         node.setAsn(request.getAsn());
         node.setStatus("ONLINE");
         node.setLastHeartbeatAt(Instant.now());
+        // Only ever set from the consumed bootstrap token's own owner — see
+        // NodeBootstrapToken#ownerUser's doc for why this is never trusted
+        // from the register request itself.
+        node.setOwnerUser(bootstrapToken.getOwnerUser());
+        applyTariffAccessFlags(node);
+        applyRelayWindow(node, request.getRelayMode(), request.getRelayExpiresAtEpochMs());
 
         applyRealityKeyMaterial(node);
 
@@ -139,7 +150,11 @@ public class NodeManagementService {
             default -> NodePool.NODE_POOL_PAID;
         };
 
-        NodeType assignedType = "cdn".equalsIgnoreCase(node.getType()) ? NodeType.NODE_TYPE_CDN : NodeType.NODE_TYPE_DIRECT;
+        NodeType assignedType = switch (node.getType().toLowerCase()) {
+            case "cdn" -> NodeType.NODE_TYPE_CDN;
+            case "p2p" -> NodeType.NODE_TYPE_P2P;
+            default -> NodeType.NODE_TYPE_DIRECT;
+        };
 
         return RegisterNodeResponse.newBuilder()
                 .setNodeId(node.getId())
@@ -149,6 +164,43 @@ public class NodeManagementService {
                 .setHeartbeatIntervalSeconds(heartbeatIntervalSec)
                 .setStatsIntervalSeconds(statsIntervalSec)
                 .build();
+    }
+
+    /**
+     * Derives the two independent tariff-access flags (docs §8.3) from a
+     * node's pool/type at registration time — mirrors V11's backfill exactly
+     * so a newly-registered node behaves identically to a pre-existing one
+     * with the same pool: a p2p node always gets both (the doc's explicit
+     * "available in both pools simultaneously" default for this node type);
+     * otherwise a "trial"-pool node still gets availableToPaid=true too
+     * (paid tariffs already reach trial-pool nodes as bonus/fallback
+     * capacity — see SubscriptionExportService#accessibleViaFlags), while
+     * every other pool value (paid/quarantine/reserve) is paid-only.
+     */
+    private void applyTariffAccessFlags(Node node) {
+        if (node.isP2p()) {
+            node.setAvailableToTrial(true);
+            node.setAvailableToPaid(true);
+            return;
+        }
+        boolean isTrialPool = "trial".equalsIgnoreCase(node.getPool());
+        node.setAvailableToTrial(isTrialPool);
+        node.setAvailableToPaid(true);
+    }
+
+    /**
+     * Applies a p2p relay window reported at registration or heartbeat time
+     * (docs §8.5). Blank/unset relay_mode is a deliberate no-op (leaves
+     * whatever the node already had — e.g. a plain heartbeat that doesn't
+     * touch relay state shouldn't reset it to OFF), not an implicit "OFF" —
+     * a node explicitly turning relay off must send relay_mode="OFF" itself.
+     */
+    private void applyRelayWindow(Node node, String relayMode, long relayExpiresAtEpochMs) {
+        if (relayMode == null || relayMode.isBlank()) {
+            return;
+        }
+        node.setRelayMode(relayMode.toUpperCase(Locale.ROOT));
+        node.setRelayExpiresAt(relayExpiresAtEpochMs > 0 ? Instant.ofEpochMilli(relayExpiresAtEpochMs) : null);
     }
 
     @Transactional
@@ -183,6 +235,7 @@ public class NodeManagementService {
             }
             node.setStatus("ONLINE");
             node.setLastHeartbeatAt(Instant.now());
+            applyRelayWindow(node, heartbeat.getRelayMode(), heartbeat.getRelayExpiresAtEpochMs());
             nodeRepository.save(node);
         });
     }
@@ -309,6 +362,15 @@ public class NodeManagementService {
                 : List.of("0123456789abcdef", "fedcba9876543210");
 
         boolean isDirect = "direct".equalsIgnoreCase(node.getType());
+        // p2p relay agents have no client-side implementation yet (phase 2/3,
+        // docs/research/P2P_RELAY_FEASIBILITY.md §8.7) — what ConfigSync
+        // actually means for one (a local Xray-core reused as-is per §8.8's
+        // recommendation, vs. a from-scratch WebRTC↔VLESS bridge) is an open
+        // design question for whoever builds that agent, not decided here.
+        // This only avoids building the CDN branch's TLS cert-path block
+        // below (which references paths that make no sense without a real
+        // provisioned certificate) for a p2p node in the meantime.
+        boolean isP2p = node.isP2p();
 
         RealityConfig realityConfig = RealityConfig.newBuilder()
                 .setEnabled(isDirect)
@@ -330,7 +392,7 @@ public class NodeManagementService {
                 .setReality(realityConfig)
                 .setXhttpSettings(xhttpSettings);
 
-        if (!isDirect) {
+        if (!isDirect && !isP2p) {
             // CDN nodes: the CDN terminates TLS itself, so Reality (which needs an
             // unmodified handshake to the origin) doesn't apply here — use a real
             // certificate instead. Certs are provisioned out-of-band on the node
@@ -367,7 +429,11 @@ public class NodeManagementService {
         long version = node.getConfigVersion() + 1;
         String hash = computeConfigHash(version, clients.size(), node.getType());
 
-        NodeType assignedType = "cdn".equalsIgnoreCase(node.getType()) ? NodeType.NODE_TYPE_CDN : NodeType.NODE_TYPE_DIRECT;
+        NodeType assignedType = switch (node.getType().toLowerCase()) {
+            case "cdn" -> NodeType.NODE_TYPE_CDN;
+            case "p2p" -> NodeType.NODE_TYPE_P2P;
+            default -> NodeType.NODE_TYPE_DIRECT;
+        };
 
         return syncBuilder
                 .setConfigVersion(version)
@@ -384,6 +450,26 @@ public class NodeManagementService {
         token.setAssignedPool(pool != null ? pool : "paid");
         token.setAssignedType(type != null ? type : "direct");
         token.setExpiresAt(Instant.now().plus(validHours > 0 ? validHours : 24, ChronoUnit.HOURS));
+        return tokenRepository.save(token);
+    }
+
+    /**
+     * Mints a p2p bootstrap token bound to a specific user (docs §8.4/§8.6) —
+     * the caller (P2pRelayController) is responsible for checking the user
+     * has actually accepted the relay terms and isn't a guest account first;
+     * this method just does the minting + binding, no eligibility checks of
+     * its own. Short validity (1h) since it's meant to be consumed
+     * immediately by that same user's own relay-agent registering itself,
+     * not stockpiled or shared like an ops VPS token.
+     */
+    @Transactional
+    public NodeBootstrapToken createP2pBootstrapTokenForUser(User user) {
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_p2p_" + UUID.randomUUID().toString().replace("-", ""));
+        token.setAssignedPool("paid"); // irrelevant for p2p — applyTariffAccessFlags always sets both flags true
+        token.setAssignedType("p2p");
+        token.setOwnerUser(user);
+        token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
         return tokenRepository.save(token);
     }
 

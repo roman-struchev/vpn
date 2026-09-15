@@ -1,0 +1,120 @@
+package com.vpn.server;
+
+import com.google.protobuf.ByteString;
+import com.vpn.server.grpc.AgentStreamServiceImpl;
+import com.vpn.server.grpc.agent.v1.*;
+import com.vpn.server.service.NodeManagementService;
+import com.vpn.server.service.P2pRelayAccountingService;
+import io.grpc.stub.StreamObserver;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+/**
+ * Covers the P2P signaling passthrough (docs/research/
+ * P2P_RELAY_FEASIBILITY.md §8.1) — the server only ever routes an opaque
+ * blob by session_id between a connecting client (the REST caller of
+ * sendSignalToNodeAndAwaitReply) and a relay node's existing stream; it
+ * never parses payload. No real client or relay agent exists yet (phase
+ * 2/3), so this mocks both ends of the stream to exercise the routing logic
+ * in isolation.
+ */
+class AgentStreamServiceImplTest {
+
+    private NodeManagementService nodeManagementService;
+    private P2pRelayAccountingService p2pRelayAccountingService;
+    private AgentStreamServiceImpl service;
+
+    @BeforeEach
+    void setUp() {
+        nodeManagementService = mock(NodeManagementService.class);
+        p2pRelayAccountingService = mock(P2pRelayAccountingService.class);
+        service = new AgentStreamServiceImpl(nodeManagementService, p2pRelayAccountingService);
+    }
+
+    @SuppressWarnings("unchecked")
+    private StreamObserver<AgentMessage> connectNode(long nodeId, StreamObserver<ServerMessage> responseObserver) {
+        when(nodeManagementService.authenticateNode(nodeId, "tok")).thenReturn(true);
+        when(nodeManagementService.buildNodeConfigSync(nodeId)).thenReturn(ConfigSync.newBuilder().build());
+        StreamObserver<AgentMessage> clientStream = service.syncStream(responseObserver);
+        clientStream.onNext(AgentMessage.newBuilder().setNodeId(nodeId).setNodeToken("tok").build());
+        return clientStream;
+    }
+
+    @Test
+    void sendSignalToNodeAndAwaitReply_returnsNull_whenNodeNotConnected() {
+        byte[] reply = service.sendSignalToNodeAndAwaitReply(999L, "sess-none", "hi".getBytes());
+        assertNull(reply);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void sendSignalToNodeAndAwaitReply_forwardsToNodeStream_andReturnsItsReply() {
+        List<ServerMessage> sentToNode = new CopyOnWriteArrayList<>();
+        StreamObserver<ServerMessage> responseObserver = mock(StreamObserver.class);
+        doAnswer(inv -> {
+            sentToNode.add(inv.getArgument(0));
+            return null;
+        }).when(responseObserver).onNext(any());
+
+        StreamObserver<AgentMessage> nodeStream = connectNode(7L, responseObserver);
+
+        // sendSignalToNodeAndAwaitReply blocks the calling thread waiting for
+        // the node's reply — simulate the relay node replying shortly after,
+        // on a separate thread, the way a real one would over its own stream.
+        new Thread(() -> {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ignored) {
+            }
+            nodeStream.onNext(AgentMessage.newBuilder()
+                    .setNodeId(7L).setNodeToken("tok")
+                    .setP2PSignal(P2pSignal.newBuilder()
+                            .setSessionId("sess-x")
+                            .setPayload(ByteString.copyFromUtf8("answer-sdp"))
+                            .build())
+                    .build());
+        }).start();
+
+        byte[] reply = service.sendSignalToNodeAndAwaitReply(7L, "sess-x", "offer-sdp".getBytes());
+
+        assertNotNull(reply);
+        assertEquals("answer-sdp", new String(reply));
+        assertTrue(sentToNode.stream().anyMatch(m -> m.hasP2PSignal() && "sess-x".equals(m.getP2PSignal().getSessionId())),
+                "the offer must have actually been forwarded over the node's own stream");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void p2pSignalWithNoWaitingClient_isIgnoredWithoutError() {
+        StreamObserver<ServerMessage> responseObserver = mock(StreamObserver.class);
+        StreamObserver<AgentMessage> nodeStream = connectNode(8L, responseObserver);
+
+        // No matching sendSignalToNodeAndAwaitReply call for this session —
+        // e.g. the REST caller already timed out and moved on. Must not throw.
+        assertDoesNotThrow(() -> nodeStream.onNext(AgentMessage.newBuilder()
+                .setNodeId(8L).setNodeToken("tok")
+                .setP2PSignal(P2pSignal.newBuilder().setSessionId("orphan-session").setPayload(ByteString.EMPTY).build())
+                .build()));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void p2pTrafficReport_routedToAccountingService() {
+        StreamObserver<ServerMessage> responseObserver = mock(StreamObserver.class);
+        StreamObserver<AgentMessage> nodeStream = connectNode(9L, responseObserver);
+
+        nodeStream.onNext(AgentMessage.newBuilder()
+                .setNodeId(9L).setNodeToken("tok")
+                .setP2PTrafficReport(P2pSessionTrafficReport.newBuilder().setSessionId("sess-y").setBytesRelayed(123L).build())
+                .build());
+
+        verify(p2pRelayAccountingService).recordRelayNodeReport(9L, "sess-y", 123L);
+    }
+}

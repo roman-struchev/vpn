@@ -37,6 +37,16 @@ public class NodeBootstrapToken {
     @Column(name = "use_count", nullable = false)
     private Integer useCount = 0;
 
+    // Set only for a user-minted p2p bootstrap token (POST
+    // /api/v1/user/p2p/bootstrap-token) — the sole source of truth for which
+    // user a registered p2p node's relayed traffic gets credited to
+    // (Node#ownerUser, copied from this field at registration). Null for
+    // every admin-minted VPS token (direct/cdn) — deliberately never
+    // settable by the register RPC itself, only by who requested the token.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_user_id")
+    private User ownerUser;
+
     @Column(name = "expires_at", nullable = false)
     private Instant expiresAt;
 
@@ -68,6 +78,10 @@ public class NodeBootstrapToken {
 
     public Integer getUseCount() { return useCount; }
     public void setUseCount(Integer useCount) { this.useCount = useCount; }
+
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    public User getOwnerUser() { return ownerUser; }
+    public void setOwnerUser(User ownerUser) { this.ownerUser = ownerUser; }
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
