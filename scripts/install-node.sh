@@ -42,30 +42,63 @@ if ! command -v docker > /dev/null 2>&1; then
     exit 1
 fi
 
+# --p2p (docs/research/P2P_RELAY_FEASIBILITY.md §8): a p2p node never accepts
+# a direct inbound connection (a connecting client reaches it over a WebRTC
+# DataChannel signaled through the server instead — see agent/src/p2p/), so
+# unlike a direct/cdn node it needs neither a public IP nor an open inbound
+# port. This flag only changes what THIS SCRIPT requires/configures on the
+# host; the node's actual type (and therefore whether the server will ever
+# route it a p2p signal at all) comes from the bootstrap token itself
+# (assignedType, set when the token was minted — see NodeManagementService).
+P2P_MODE=false
+if [ "${1:-}" = "--p2p" ]; then
+    P2P_MODE=true
+    shift
+fi
+
 SERVER_GRPC="${1:-}"
 BOOTSTRAP_TOKEN="${2:-}"
-# Optional: only for CDN-fronted nodes (registered with type=cdn). A direct
-# Reality node needs none of this — Reality doesn't use a real certificate.
-CDN_HOSTNAME="${3:-}"
-# Optional: skips auto-detection below (step [3/5]) and uses this label as-is.
-# Useful when the geo-IP lookup gets a node's city wrong, or to force several
-# nodes onto one label the lookup wouldn't naturally agree on (region grouping
-# is an exact string match — see SubscriptionExportService#groupingBy).
-REGION_OVERRIDE="${4:-}"
+if $P2P_MODE; then
+    CDN_HOSTNAME="" # never applicable to a p2p node — Reality/TLS don't apply either way (see agent/src/p2p/relay-session.ts's header comment: no Xray-core at all for this node type).
+    REGION_OVERRIDE="${3:-}"
+    # Relay window (docs §8.5) this node should register/heartbeat with.
+    # "always" needs nothing else to survive a host reboot — Docker's
+    # --restart unless-stopped (below) already brings the container back up,
+    # and the server (not this script or the container) is what actually
+    # enforces the window on every real dispatch, so a stale RELAY_DURATION_HOURS
+    # baked into an old .env just means this instance stops advertising itself
+    # sooner than the operator maybe intended, never longer.
+    RELAY_MODE="${4:-always}"
+    RELAY_DURATION_HOURS="${5:-}"
+else
+    # Optional: only for CDN-fronted nodes (registered with type=cdn). A direct
+    # Reality node needs none of this — Reality doesn't use a real certificate.
+    CDN_HOSTNAME="${3:-}"
+    # Optional: skips auto-detection below (step [3/5]) and uses this label as-is.
+    # Useful when the geo-IP lookup gets a node's city wrong, or to force several
+    # nodes onto one label the lookup wouldn't naturally agree on (region grouping
+    # is an exact string match — see SubscriptionExportService#groupingBy).
+    REGION_OVERRIDE="${4:-}"
+fi
 # Optional: override the published node-agent image (e.g. a specific
 # version tag instead of latest, or a private mirror).
 NODE_IMAGE="${VPN_NODE_IMAGE:-romanew/vpn-node:latest}"
 
 if [ -z "$SERVER_GRPC" ] || [ -z "$BOOTSTRAP_TOKEN" ]; then
     echo "Usage: $0 <server_grpc_host:port> <bootstrap_token> [cdn_hostname] [region]"
+    echo "       $0 --p2p <server_grpc_host:port> <bootstrap_token> [region] [relay_mode] [relay_duration_hours]"
     echo "Example (direct Reality node):     $0 vpn.example.com:9090 bst_abc12345"
     echo "Example (CDN node, Phase 9):       $0 vpn.example.com:9090 bst_abc12345 edge.example.com"
     echo "Example (force a region label):    $0 vpn.example.com:9090 bst_abc12345 \"\" \"Netherlands, Amsterdam\""
+    echo "Example (p2p relay node, always on): $0 --p2p vpn.example.com:9090 bst_p2p_abc12345"
+    echo "Example (p2p relay node, 8h window): $0 --p2p vpn.example.com:9090 bst_p2p_abc12345 \"\" timed 8"
     echo "  cdn_hostname must already resolve (via the CDN) to this host's IP on port 80/443"
     echo "  before running this script, so certbot's HTTP-01 challenge can complete."
     echo "  region is auto-detected from this host's public IP via geo-IP lookup if omitted"
     echo "  (falls back to \"default\" if that lookup fails — never fatal, unlike public IP)."
     echo "  format is \"Country\" or \"Country, City\" — full country name, city optional."
+    echo "  --p2p needs no public IP or open inbound port (docs/research/P2P_RELAY_FEASIBILITY.md §8) —"
+    echo "  relay_mode is \"always\" (default) or \"timed\" (needs relay_duration_hours too)."
     exit 1
 fi
 
@@ -82,39 +115,49 @@ fs.file-max = 1048576
 EOF
 sysctl --system > /dev/null 2>&1 || true
 
-echo "==> [2/5] Detecting public IP..."
-# Without this, PUBLIC_IP is never set and the agent defaults to '127.0.0.1'
-# (see agent/src/config.ts) — which the server then embeds verbatim into every
-# VLESS link it generates for this node, making it unreachable for real
-# clients. Try the primary interface's own address first (many VPS providers
-# assign the public IP directly to eth0, no external call needed); only fall
-# back to an external echo service if that's missing or looks private/NAT'd.
-IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
-LOCAL_IP=""
-[ -n "$IFACE" ] && LOCAL_IP=$(ip -4 addr show dev "$IFACE" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
-is_private_ip() {
-    case "$1" in
-        10.*|192.168.*|127.*) return 0 ;;
-        172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-if [ -n "$LOCAL_IP" ] && ! is_private_ip "$LOCAL_IP"; then
-    PUBLIC_IP="$LOCAL_IP"
+if $P2P_MODE; then
+    # A p2p node's publicIp is never embedded in a client-facing link (see
+    # NodeManagementService's isP2p branches and SubscriptionExportService's
+    # p2p exclusion) — any placeholder is fine, so skip the whole detection
+    # dance (and its hard failure) that exists solely to protect direct/cdn
+    # nodes from shipping a broken VLESS link.
+    echo "==> [2/5] Skipping public IP detection (--p2p: not needed, never used)."
+    PUBLIC_IP="0.0.0.0"
 else
-    PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)
-    [ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://icanhazip.com 2>/dev/null | tr -d '[:space:]' || true)
-    [ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+    echo "==> [2/5] Detecting public IP..."
+    # Without this, PUBLIC_IP is never set and the agent defaults to '127.0.0.1'
+    # (see agent/src/config.ts) — which the server then embeds verbatim into every
+    # VLESS link it generates for this node, making it unreachable for real
+    # clients. Try the primary interface's own address first (many VPS providers
+    # assign the public IP directly to eth0, no external call needed); only fall
+    # back to an external echo service if that's missing or looks private/NAT'd.
+    IFACE=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}' | head -1)
+    LOCAL_IP=""
+    [ -n "$IFACE" ] && LOCAL_IP=$(ip -4 addr show dev "$IFACE" 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -1)
+    is_private_ip() {
+        case "$1" in
+            10.*|192.168.*|127.*) return 0 ;;
+            172.1[6-9].*|172.2[0-9].*|172.3[0-1].*) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+    if [ -n "$LOCAL_IP" ] && ! is_private_ip "$LOCAL_IP"; then
+        PUBLIC_IP="$LOCAL_IP"
+    else
+        PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)
+        [ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://icanhazip.com 2>/dev/null | tr -d '[:space:]' || true)
+        [ -z "$PUBLIC_IP" ] && PUBLIC_IP=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)
+    fi
+    if ! echo "$PUBLIC_IP" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
+        echo "ERROR: could not determine this host's public IPv4 address (got: '${PUBLIC_IP:-<empty>}')." >&2
+        echo "        Every VLESS link the server generates for this node embeds this IP verbatim —" >&2
+        echo "        refusing to fall back to a default and silently ship broken client configs." >&2
+        echo "        Fix network/DNS connectivity, or set PUBLIC_IP yourself in /opt/vpn-node-agent/.env" >&2
+        echo "        and 'docker restart vpn-node-agent' afterwards." >&2
+        exit 1
+    fi
+    echo "==> Public IP: ${PUBLIC_IP}"
 fi
-if ! echo "$PUBLIC_IP" | grep -qE '^[0-9]{1,3}(\.[0-9]{1,3}){3}$'; then
-    echo "ERROR: could not determine this host's public IPv4 address (got: '${PUBLIC_IP:-<empty>}')." >&2
-    echo "        Every VLESS link the server generates for this node embeds this IP verbatim —" >&2
-    echo "        refusing to fall back to a default and silently ship broken client configs." >&2
-    echo "        Fix network/DNS connectivity, or set PUBLIC_IP yourself in /opt/vpn-node-agent/.env" >&2
-    echo "        and 'docker restart vpn-node-agent' afterwards." >&2
-    exit 1
-fi
-echo "==> Public IP: ${PUBLIC_IP}"
 
 echo "==> [3/5] Detecting region..."
 # Shown in the admin panel and used to group nodes for the "auto (best
@@ -262,16 +305,37 @@ AGENT_STATE_PATH=/opt/vpn-node-agent/data/.agent-state.json
 STATS_INTERVAL_MS=15000
 HEARTBEAT_INTERVAL_MS=15000
 EOF
+if $P2P_MODE; then
+    {
+        echo "RELAY_MODE=${RELAY_MODE}"
+        [ -n "$RELAY_DURATION_HOURS" ] && echo "RELAY_DURATION_HOURS=${RELAY_DURATION_HOURS}"
+    } >> /opt/vpn-node-agent/.env
+fi
 chmod 600 /opt/vpn-node-agent/.env
 
 docker rm -f vpn-node-agent > /dev/null 2>&1 || true
-docker run -d --name vpn-node-agent \
-  --network host \
-  --restart unless-stopped \
-  --env-file /opt/vpn-node-agent/.env \
-  -v /opt/vpn-node-agent/data:/opt/vpn-node-agent/data \
-  -v /etc/xray/certs:/etc/xray/certs:ro \
-  "$NODE_IMAGE"
+if $P2P_MODE; then
+    # Default bridge networking, not --network host: a p2p node accepts no
+    # inbound connection at all (see the P2P_MODE comment near the top of
+    # this script) — running it with the host's full network namespace would
+    # be needless exposure for a container that never needs to bind a public
+    # port. It only needs outbound reachability (to the gRPC server, and to a
+    # public STUN server for its own WebRTC candidate gathering), which the
+    # default bridge's NAT'd egress already provides.
+    docker run -d --name vpn-node-agent \
+      --restart unless-stopped \
+      --env-file /opt/vpn-node-agent/.env \
+      -v /opt/vpn-node-agent/data:/opt/vpn-node-agent/data \
+      "$NODE_IMAGE"
+else
+    docker run -d --name vpn-node-agent \
+      --network host \
+      --restart unless-stopped \
+      --env-file /opt/vpn-node-agent/.env \
+      -v /opt/vpn-node-agent/data:/opt/vpn-node-agent/data \
+      -v /etc/xray/certs:/etc/xray/certs:ro \
+      "$NODE_IMAGE"
+fi
 
 if [ -n "$CDN_HOSTNAME" ]; then
     echo "==> Provisioning Let's Encrypt certificate for CDN node ($CDN_HOSTNAME)..."
@@ -303,4 +367,10 @@ echo "Restart/stop: docker restart vpn-node-agent / docker stop vpn-node-agent"
 if [ -n "$CDN_HOSTNAME" ]; then
     echo "This node was provisioned as a CDN edge for $CDN_HOSTNAME — register it via the admin API"
     echo "with type=cdn (see docs/ROADMAP_PROGRESS.md Phase 9 / AdminController's bootstrap-token endpoint)."
+fi
+if $P2P_MODE; then
+    echo "This node registered as a p2p relay (relay_mode=${RELAY_MODE}) — no public IP or inbound port needed."
+    echo "It earns relay credit for whichever user's own bootstrap token it was registered with (see"
+    echo "docs/research/P2P_RELAY_FEASIBILITY.md §8.4/§8.6); watch 'docker logs -f vpn-node-agent' for"
+    echo "'P2P session ...' lines once real traffic starts flowing through it."
 fi
