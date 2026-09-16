@@ -137,6 +137,11 @@ export const adminApi = {
     ),
   setNodePool: (nodeId: number, pool: string) =>
     req(`/nodes/${nodeId}/pool?pool=${pool}`, { method: 'POST' }),
+  /** Independent of pool (docs/research/P2P_RELAY_FEASIBILITY.md §8.3) — lets an existing node's trial/paid reachability be changed without touching its pool/lifecycle classification at all. */
+  setNodeTariffAccess: (nodeId: number, availableToTrial: boolean, availableToPaid: boolean) =>
+    req(`/nodes/${nodeId}/tariff-access?availableToTrial=${availableToTrial}&availableToPaid=${availableToPaid}`, {
+      method: 'POST',
+    }),
   setNodeStatus: (nodeId: number, status: string) =>
     req(`/nodes/${nodeId}/status?status=${status}`, { method: 'POST' }),
   forceSync: (nodeId: number) => req(`/nodes/${nodeId}/sync`, { method: 'POST' }),

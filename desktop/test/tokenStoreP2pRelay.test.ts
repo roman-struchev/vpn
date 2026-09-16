@@ -61,4 +61,20 @@ describe('TokenStore P2P relay mode persistence', () => {
     store.clear();
     expect(store.getP2pRelayMode()).toEqual({ mode: 'OFF', expiresAtEpochMs: null });
   });
+
+  it('defaults to null region before anything is saved', async () => {
+    const { TokenStore } = await import('../src/main/api/tokenStore');
+    const store = new TokenStore();
+    expect(store.getP2pRelayRegion()).toBeNull();
+  });
+
+  it('round-trips a manually-entered region, independent of selectedRegion', async () => {
+    const { TokenStore } = await import('../src/main/api/tokenStore');
+    const store = new TokenStore();
+    store.save('jwt-token', 42);
+    store.saveSelectedRegion('Netherlands, Amsterdam'); // the VPN egress preference — a different fact entirely
+    store.saveP2pRelayRegion('Russia, Moscow'); // this device's own physical location
+    expect(store.getP2pRelayRegion()).toBe('Russia, Moscow');
+    expect(store.getSelectedRegion()).toBe('Netherlands, Amsterdam');
+  });
 });

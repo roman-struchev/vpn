@@ -398,6 +398,39 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("nodeId", nodeId, "pool", node.getPool()));
     }
 
+    /**
+     * Direct admin override for a node's tariff-access flags (docs/research/
+     * P2P_RELAY_FEASIBILITY.md §8.3) — independent of `pool`. Needed because
+     * NodeManagementService#applyTariffAccessFlags only derives these
+     * automatically at registration/heartbeat time from pool+type (paid pool
+     * -> paid-only, trial pool -> both, p2p -> both); there was previously no
+     * way to make an existing "paid"-pool direct/cdn node ALSO reachable by
+     * trial users (or vice versa) without reclassifying its whole pool,
+     * which is exactly what the repo owner asked for regular nodes too, not
+     * just p2p ones ("для старых обычных нод тоже нужно добавить режим и
+     * для платного и бесплатного тарифа").
+     */
+    @PostMapping("/nodes/{nodeId}/tariff-access")
+    @Transactional
+    public ResponseEntity<?> updateNodeTariffAccess(
+            @PathVariable Long nodeId,
+            @RequestParam boolean availableToTrial,
+            @RequestParam boolean availableToPaid
+    ) {
+        Node node = nodeRepository.findById(nodeId).orElse(null);
+        if (node == null) return ResponseEntity.notFound().build();
+
+        node.setAvailableToTrial(availableToTrial);
+        node.setAvailableToPaid(availableToPaid);
+        nodeRepository.save(node);
+
+        return ResponseEntity.ok(Map.of(
+                "nodeId", nodeId,
+                "availableToTrial", node.getAvailableToTrial(),
+                "availableToPaid", node.getAvailableToPaid()
+        ));
+    }
+
     @PostMapping("/nodes/{nodeId}/status")
     @Transactional
     public ResponseEntity<?> updateNodeStatus(

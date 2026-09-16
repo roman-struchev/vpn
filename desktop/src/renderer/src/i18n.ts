@@ -97,6 +97,9 @@ const translations = {
     p2pStatusOf: 'из',
     p2pExpiresAt: 'Действует до',
     p2pError: 'Не удалось изменить режим ретрансляции',
+    p2pRegionLabel: 'Местоположение узла',
+    p2pRegionPlaceholder: 'например: Russia, Moscow',
+    p2pRegionRequired: 'Укажите местоположение узла перед включением ретрансляции',
   },
 
   en: {
@@ -195,6 +198,9 @@ const translations = {
     p2pStatusOf: 'of',
     p2pExpiresAt: 'Active until',
     p2pError: 'Failed to change relay mode',
+    p2pRegionLabel: 'Node location',
+    p2pRegionPlaceholder: 'e.g. Germany, Berlin',
+    p2pRegionRequired: 'Enter the node\'s location before enabling relay mode',
   },
 } satisfies Record<Lang, Record<string, string>>;
 

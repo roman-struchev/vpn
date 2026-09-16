@@ -141,13 +141,38 @@ export function NodesSection({ t }: { t: AdminT }) {
             header={t.tariffAccess}
             style={{ width: '9rem' }}
             body={(n: AdminNode) => (
-              <div className="flex flex-col gap-0.5 text-[10px]">
-                <span className={n.availableToPaid ? 'text-emerald-400' : 'text-slate-600'}>
-                  {n.availableToPaid ? '✓' : '—'} {t.pricingTariffPaidLabel}
-                </span>
-                <span className={n.availableToTrial ? 'text-emerald-400' : 'text-slate-600'}>
-                  {n.availableToTrial ? '✓' : '—'} {t.pricingTariffTrialLabel}
-                </span>
+              <div className="flex flex-col gap-1 text-[10px]">
+                {/* Editable independently of `pool` (docs §8.3) — the repo
+                    owner explicitly asked for existing direct/cdn nodes to
+                    also get a paid+trial dual-access mode, not just p2p ones,
+                    so this is a direct toggle rather than a read-only
+                    display of whatever pool happened to derive. */}
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={n.availableToPaid}
+                    disabled={busyId === n.id}
+                    onChange={(e) =>
+                      withBusy(n.id, () => adminApi.setNodeTariffAccess(n.id, n.availableToTrial, e.target.checked))
+                    }
+                  />
+                  <span className={n.availableToPaid ? 'text-emerald-400' : 'text-slate-500'}>
+                    {t.pricingTariffPaidLabel}
+                  </span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={n.availableToTrial}
+                    disabled={busyId === n.id}
+                    onChange={(e) =>
+                      withBusy(n.id, () => adminApi.setNodeTariffAccess(n.id, e.target.checked, n.availableToPaid))
+                    }
+                  />
+                  <span className={n.availableToTrial ? 'text-emerald-400' : 'text-slate-500'}>
+                    {t.pricingTariffTrialLabel}
+                  </span>
+                </label>
                 {n.type === 'p2p' && (
                   <span className="text-amber-400" title={n.relayExpiresAt ?? undefined}>
                     P2P · {n.relayMode}
@@ -235,11 +260,20 @@ export function NodesSection({ t }: { t: AdminT }) {
   );
 }
 
+function installCommandFor(token: string): string {
+  return `curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${token}`;
+}
+
+/** --p2p variant (docs/research/P2P_RELAY_FEASIBILITY.md §8) — see scripts/install-node.sh's own usage text for the optional [region] [relay_mode] [relay_duration_hours] positional args this leaves at their defaults. */
+function p2pInstallSnippetFor(token: string): string {
+  return `curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- --p2p 217.216.79.46:9090 ${token}\n# Optional positional args: [region] [relay_mode: always|timed] [relay_duration_hours]\n# e.g. ... ${token} "Germany, Frankfurt" timed 8`;
+}
+
 function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }) {
   const [pool, setPool] = useState('paid');
   const [type, setType] = useState('direct');
   const [validHours, setValidHours] = useState('24');
-  const [result, setResult] = useState<{ token: string; expiresAt: string } | null>(null);
+  const [result, setResult] = useState<{ token: string; assignedType: string; expiresAt: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -265,17 +299,25 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
 
         {!result ? (
           <div className="space-y-3 text-xs">
-            <div>
-              <label className="block text-slate-400 mb-1">{t.pool}</label>
-              <select
-                data-testid="bootstrap-pool-select"
-                value={pool}
-                onChange={(e) => setPool(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
-              >
-                {POOLS.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            </div>
+            {/* Pool is meaningless for a p2p node (NodeManagementService#
+                applyTariffAccessFlags always sets both trial+paid access for
+                type=p2p regardless of pool) — hidden rather than shown-but-
+                ignored, since a value that visibly does nothing invites the
+                exact "why didn't this do anything" confusion this is trying
+                to avoid. */}
+            {type !== 'p2p' && (
+              <div>
+                <label className="block text-slate-400 mb-1">{t.pool}</label>
+                <select
+                  data-testid="bootstrap-pool-select"
+                  value={pool}
+                  onChange={(e) => setPool(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
+                >
+                  {POOLS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-slate-400 mb-1">{t.type}</label>
               <select
@@ -286,7 +328,9 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
               >
                 <option value="direct">direct</option>
                 <option value="cdn">cdn</option>
+                <option value="p2p">p2p</option>
               </select>
+              {type === 'p2p' && <p className="mt-1 text-[10px] text-slate-500">{t.p2pBootstrapHint}</p>}
             </div>
             <div>
               <label className="block text-slate-400 mb-1">{t.validHours}</label>
@@ -315,14 +359,19 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
                 this ON the new node itself (already SSH'd in), not from your machine.
                 SERVER_GRPC_URL (217.216.79.46:9090) is this same server's gRPC port
                 from docker-compose.yml's GRPC_PORT — known and stable, unlike the new
-                node's own IP, which isn't needed here at all (no ssh wrapper). */}
+                node's own IP, which isn't needed here at all (no ssh wrapper).
+                --p2p (docs/research/P2P_RELAY_FEASIBILITY.md §8): install-node.sh
+                skips the public-IP requirement and uses default (not host) Docker
+                networking for this mode — see scripts/install-node.sh's own --p2p
+                usage text for the optional [region] [relay_mode] [relay_duration_hours]
+                positional args this snippet leaves at their defaults. */}
             <pre className="p-3 rounded-xl bg-dark-900 border border-dark-700 text-[10px] font-mono whitespace-pre-wrap break-all text-slate-300">
-{`curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}`}
+              {result.assignedType === 'p2p' ? p2pInstallSnippetFor(result.token) : installCommandFor(result.token)}
             </pre>
             <button
               onClick={() => {
                 copyToClipboard(
-                  `curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-node.sh | bash -s -- 217.216.79.46:9090 ${result.token}`,
+                  result.assignedType === 'p2p' ? p2pInstallSnippetFor(result.token) : installCommandFor(result.token),
                 );
                 setCopied(true);
               }}

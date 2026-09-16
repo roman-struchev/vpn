@@ -46,6 +46,18 @@ interface StoredAuth {
    */
   p2pRelayMode?: 'OFF' | 'TIMED' | 'ALWAYS';
   p2pRelayExpiresAtEpochMs?: number;
+  /**
+   * The relay NODE's own declared location (docs §8.4/§8.5) — deliberately
+   * NOT auto-detected from IP geolocation (the repo owner's explicit call:
+   * "местоположение определять корректно ... но не авто"), since a p2p
+   * node's publicIp is a meaningless placeholder (0.0.0.0), so IP-based geo
+   * lookup would have nothing real to work from anyway. Entered once by the
+   * user in P2pRelaySection and reused on every subsequent relay-agent
+   * start. Unrelated to `selectedRegion` above, which is which VPN egress
+   * region THIS device wants to connect THROUGH — a p2p relay node's own
+   * physical location is a different fact entirely.
+   */
+  p2pRelayRegion?: string;
 }
 
 /**
@@ -159,6 +171,15 @@ export class TokenStore {
       p2pRelayMode: mode,
       p2pRelayExpiresAtEpochMs: expiresAtEpochMs ?? undefined,
     });
+  }
+
+  getP2pRelayRegion(): string | null {
+    return this.load()?.p2pRelayRegion ?? null;
+  }
+
+  saveP2pRelayRegion(region: string): void {
+    const current = this.load();
+    this.writePayload({ ...current, p2pRelayRegion: region });
   }
 
   /**

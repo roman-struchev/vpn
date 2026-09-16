@@ -274,6 +274,36 @@ class AdminControllerTest {
     }
 
     @Test
+    void testUpdateNodeTariffAccess() {
+        Node node = new Node();
+        node.setId(3L);
+        node.setPool("paid");
+        node.setAvailableToTrial(false);
+        node.setAvailableToPaid(true);
+
+        when(nodeRepository.findById(3L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenReturn(node);
+
+        // The whole point of this endpoint: making a "paid"-pool node also
+        // reachable by trial users, without touching pool at all.
+        ResponseEntity<?> response = adminController.updateNodeTariffAccess(3L, true, true);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertTrue(node.getAvailableToTrial());
+        assertTrue(node.getAvailableToPaid());
+        assertEquals("paid", node.getPool());
+    }
+
+    @Test
+    void testUpdateNodeTariffAccess_notFound() {
+        when(nodeRepository.findById(999L)).thenReturn(Optional.empty());
+
+        ResponseEntity<?> response = adminController.updateNodeTariffAccess(999L, true, true);
+
+        assertEquals(404, response.getStatusCode().value());
+    }
+
+    @Test
     void testSaveTransportPolicy() {
         TransportPolicy policy = new TransportPolicy();
         policy.setScope("region");
