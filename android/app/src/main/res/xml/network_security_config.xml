@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Cleartext exception for the current temporary test server only (see
+  API_BASE_URL/WEB_BASE_URL in build.gradle) — everything else stays blocked
+  by the platform default (usesCleartextTraffic="false" on <application>,
+  ignored in favor of this file once networkSecurityConfig is set, but with
+  no <base-config> here the same "blocked by default" behavior still applies
+  for targetSdk 28+). Remove this domain-config once the app switches back
+  to the real HTTPS vpn.struchev.site domain.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">217.216.79.46</domain>
+    </domain-config>
+</network-security-config>
