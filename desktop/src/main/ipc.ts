@@ -127,4 +127,12 @@ export function registerIpcHandlers(
   vpn.on('regionFallback', (fellBack) => {
     if (!win.isDestroyed()) win.webContents.send('vpn:regionFallback', fellBack);
   });
+  // Pushed on every mode change, including RelayManager's own auto-off once
+  // a TIMED window expires — without this the renderer only ever learned
+  // about that transition by polling p2p:getMode again (e.g. a manual
+  // reload), so the UI kept showing "На 1 час" as active long after it
+  // actually turned off.
+  relayManager.on('modeChanged', (mode) => {
+    if (!win.isDestroyed()) win.webContents.send('p2p:mode', mode);
+  });
 }

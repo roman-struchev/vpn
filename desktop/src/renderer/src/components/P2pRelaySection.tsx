@@ -37,6 +37,15 @@ export default function P2pRelaySection() {
   useEffect(() => {
     reload();
     window.vpnApi.getP2pTermsUrl().then(setTermsUrl).catch(() => undefined);
+    // Keeps the mode buttons/expiry text in sync with RelayManager's own
+    // auto-off once a TIMED window elapses — without this listener, a TIMED
+    // window that expired while this screen stayed open/mounted would only
+    // ever be reflected after a manual reload() (repo owner's report: the
+    // "На 1 час" mode visibly stayed selected long after the hour was up).
+    const offModeChange = window.vpnApi.onP2pModeChange(setModeState);
+    return () => {
+      offModeChange();
+    };
   }, []);
 
   if (!status || status.isGuest) {

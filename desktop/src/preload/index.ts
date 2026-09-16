@@ -98,6 +98,22 @@ const vpnApi = {
   setP2pRelayMode: (mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null, durationMs?: number): Promise<void> =>
     ipcRenderer.invoke('p2p:setMode', mode, expiresAtEpochMs, durationMs),
   getP2pTermsUrl: (): Promise<string> => ipcRenderer.invoke('p2p:getTermsUrl'),
+  /** Fires whenever RelayManager's mode changes, including its own auto-off once a TIMED window expires (see relayManager.ts#scheduleExpiry). */
+  onP2pModeChange: (
+    callback: (mode: {
+      mode: 'OFF' | 'TIMED' | 'ALWAYS';
+      expiresAtEpochMs: number | null;
+      durationMs: number | null;
+      region: string | null;
+    }) => void
+  ) => {
+    const listener = (
+      _e: unknown,
+      mode: { mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null; durationMs: number | null; region: string | null }
+    ) => callback(mode);
+    ipcRenderer.on('p2p:mode', listener);
+    return () => ipcRenderer.removeListener('p2p:mode', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('vpnApi', vpnApi);
