@@ -379,7 +379,11 @@ public class AdminController {
 
     @GetMapping("/nodes")
     public ResponseEntity<List<Node>> listNodes() {
-        return ResponseEntity.ok(nodeRepository.findAll());
+        // Explicit order — findAll() with none makes no guarantee about row
+        // order, and this admin panel polls/reloads this list after every
+        // edit (status, pool, ...), so an unordered result visibly
+        // reshuffles the table on every save otherwise.
+        return ResponseEntity.ok(nodeRepository.findAll(org.springframework.data.domain.Sort.by("id")));
     }
 
     @PostMapping("/nodes/{nodeId}/pool")

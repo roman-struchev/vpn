@@ -34,7 +34,10 @@ function formatRelativeTime(t: AdminT, iso: string | null): string {
   if (!iso) return '—';
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60_000);
-  if (mins < 1) return t.justNowShort;
+  // A short number, not a special-cased word ("just now") — the repo owner
+  // asked for this column to just be a short time, consistent with the
+  // X мин / X ч / X дн pattern below rather than a one-off exception.
+  if (mins < 1) return `0 ${t.minutesShort}`;
   if (mins < 60) return `${mins} ${t.minutesShort}`;
   const hours = Math.floor(mins / 60);
   if (hours < 24) return `${hours} ${t.hoursShort}`;
@@ -192,8 +195,15 @@ export function NodesSection({ t }: { t: AdminT }) {
           />
           <Column
             header={t.resources}
+            // No font-size override here — this table's cells inherit a
+            // 0.75rem base from admin.css's [data-testid='admin-panel']
+            // .p-component rule; an earlier version set these two stacked
+            // lines to text-[11px] specifically, one px off from every
+            // plain-text cell in the same row, which read as "inconsistent
+            // font size" once actually side by side (docs: repo owner's own
+            // screenshot feedback).
             body={(n: AdminNode) => (
-              <div className="flex flex-col text-[11px]">
+              <div className="flex flex-col leading-normal">
                 <span>
                   {t.cpu}: {n.cpuPercent != null ? `${n.cpuPercent}%${n.cpuCount ? ` (×${n.cpuCount})` : ''}` : '—'}
                 </span>
@@ -209,9 +219,12 @@ export function NodesSection({ t }: { t: AdminT }) {
           <Column
             header={<span title={`${t.connectionsHint} ${t.speedHint}`} className="cursor-help border-b border-dotted border-slate-600">{t.load}</span>}
             body={(n: AdminNode) => (
-              <div className="flex flex-col text-[11px]">
+              <div className="flex flex-col leading-normal">
                 <span>{t.connections}: {n.activeConnections ?? 0}</span>
-                <span className="text-slate-500">{formatNodeSpeed(n)}</span>
+                {/* Labeled, not a bare "—" — an unlabeled dash on its own
+                    line reads as "nothing rendered", not "no current speed
+                    data". */}
+                <span className="text-slate-500">{t.speed}: {formatNodeSpeed(n)}</span>
               </div>
             )}
           />

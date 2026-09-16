@@ -364,7 +364,9 @@ class AdminControllerTest {
         node.setId(1L);
         node.setHostname("node-1.vpn.internal");
 
-        when(nodeRepository.findAll()).thenReturn(List.of(node));
+        // Explicit Sort — see AdminController#listNodes's own comment on why
+        // an unordered findAll() visibly reshuffled the table on every save.
+        when(nodeRepository.findAll(org.springframework.data.domain.Sort.by("id"))).thenReturn(List.of(node));
 
         ResponseEntity<List<Node>> response = adminController.listNodes();
         assertEquals(200, response.getStatusCode().value());
