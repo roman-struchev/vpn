@@ -235,6 +235,58 @@ class NodeManagementServiceTest {
     }
 
     @Test
+    void testReRegisteringAnExistingNode_neverResetsAnAdminOverriddenTariffAccess() {
+        // Regression: applyTariffAccessFlags used to run unconditionally on
+        // every registerNode call, including a RE-registration of an already
+        // -existing node (same hostname) — silently reverting an admin's
+        // manual AdminController#updateNodeTariffAccess override the next
+        // time that node's agent restarted. p2p relay clients re-register on
+        // every app restart and every relay-mode OFF->ON toggle, so this bug
+        // would have manifested within minutes for exactly the node type the
+        // admin-editable override was built for.
+        User owner = new User();
+        owner.setId(500L);
+
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_p2p_2");
+        token.setAssignedPool("paid");
+        token.setAssignedType("p2p");
+        token.setOwnerUser(owner);
+        token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
+
+        Node existing = new Node();
+        existing.setId(60L);
+        existing.setHostname("laptop-p2p-2");
+        existing.setType("p2p");
+        // An admin manually turned OFF trial access for this node after it
+        // first registered (applyTariffAccessFlags would normally always
+        // grant both to a p2p node) — this must survive a re-registration.
+        existing.setAvailableToTrial(false);
+        existing.setAvailableToPaid(true);
+
+        when(tokenRepository.findByToken("bt_p2p_2")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname("laptop-p2p-2")).thenReturn(Optional.of(existing));
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> i.getArgument(0));
+
+        RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_p2p_2")
+                .setHostname("laptop-p2p-2")
+                .setPublicIp("0.0.0.0")
+                .setRegion("nl-ams")
+                .setRelayMode("ALWAYS")
+                .build();
+
+        nodeManagementService.registerNode(request);
+
+        ArgumentCaptor<Node> captor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(captor.capture());
+        Node saved = captor.getValue();
+
+        assertFalse(saved.getAvailableToTrial(), "admin's override must survive re-registration");
+        assertTrue(saved.getAvailableToPaid());
+    }
+
+    @Test
     void testRegisterNodeDirectPaidTypeGetsOnlyPaidFlagAndNoOwner() {
         NodeBootstrapToken token = new NodeBootstrapToken();
         token.setToken("bt_direct_1");

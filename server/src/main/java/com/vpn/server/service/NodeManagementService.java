@@ -94,6 +94,11 @@ public class NodeManagementService {
 
         Node node = nodeRepository.findByHostname(request.getHostname())
                 .orElseGet(Node::new);
+        // Captured before any setter below runs: a fresh Node::new has no id
+        // yet (JPA assigns one only on save), while a row found by hostname
+        // already does. Determines whether applyTariffAccessFlags below is
+        // allowed to run — see that call site's comment for why.
+        boolean isNewNode = node.getId() == null;
 
         node.setHostname(request.getHostname());
         // Not validated as a real routable address — meaningless for a p2p
@@ -112,7 +117,15 @@ public class NodeManagementService {
         // NodeBootstrapToken#ownerUser's doc for why this is never trusted
         // from the register request itself.
         node.setOwnerUser(bootstrapToken.getOwnerUser());
-        applyTariffAccessFlags(node);
+        // Only ever derives the DEFAULT for a brand-new node. A p2p relay
+        // client re-registers on every app restart and every relay-mode OFF
+        // -> ON toggle (same hostname, so this finds the existing row, not a
+        // new one) — re-deriving here every time would silently revert an
+        // admin's manual override (AdminController#updateNodeTariffAccess)
+        // within minutes for exactly the node type that churns the most.
+        if (isNewNode) {
+            applyTariffAccessFlags(node);
+        }
         applyRelayWindow(node, request.getRelayMode(), request.getRelayExpiresAtEpochMs());
 
         applyRealityKeyMaterial(node);
