@@ -115,7 +115,24 @@ tasks.named('test') {
         '-XX:+EnableDynamicAgentLoading',
         '-Dnet.bytebuddy.experimental=true',
         '--add-opens=java.base/java.lang=ALL-UNNAMED',
-        '--add-opens=java.base/java.util=ALL-UNNAMED'
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        // H2 (the test datasource, application-test.yml) round-trips a
+        // java.time.Instant through the JVM's default timezone rather than
+        // UTC when Hibernate's ddl-auto generates its own TIMESTAMP columns
+        // (real Postgres's TIMESTAMPTZ has no such ambiguity, so production
+        // is unaffected) -- shifting a FUTURE instant by the local UTC
+        // offset on the way back out of the DB. Every pre-existing test
+        // here only ever checked PAST timestamps (already-expired
+        // subscriptions, etc.), where a stray offset never mattered -- a
+        // future bootstrap-token expiry (P2pNodeLifecycleIntegrationTest)
+        // was the first to actually notice, immediately reporting a
+        // brand-new 1h-valid token as already expired. Setting
+        // spring.jpa.properties.hibernate.jdbc.time_zone alone did not fix
+        // this (Spring's context-caching across test classes in one JVM
+        // fork can initialize Hibernate's timezone handling before that
+        // property is read); forcing the JVM's own default timezone here
+        // fixes it unconditionally, before any Spring context exists.
+        '-Duser.timezone=UTC'
     )
 }
 

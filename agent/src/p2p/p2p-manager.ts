@@ -8,6 +8,27 @@ export interface P2pManagerCallbacks {
   reportTraffic: (sessionId: string, bytesRelayedTotal: number) => void;
 }
 
+// Minimal surface P2pManager actually depends on — lets a test double stand
+// in for a real RelaySession (which opens a real WebRTC PeerConnection on
+// construction) so the manager's own routing/lifecycle logic (lazy creation,
+// rejecting a non-"offer" first message, cleanup) can be tested fast and
+// deterministically, independent of RelaySession's own WebRTC behavior
+// (already covered by relay-session.test.ts).
+interface SessionLike {
+  handleSignal(envelope: SignalEnvelope): Promise<void>;
+  close(): void;
+}
+
+export type SessionFactory = (
+  sessionId: string,
+  sendSignal: (envelope: SignalEnvelope) => void,
+  reportTraffic: (bytesRelayedTotal: number) => void,
+  onClose: () => void
+) => SessionLike;
+
+const defaultSessionFactory: SessionFactory = (sessionId, sendSignal, reportTraffic, onClose) =>
+  new RelaySession(sessionId, sendSignal, reportTraffic, onClose);
+
 /**
  * Owns every concurrent RelaySession this node instance is currently
  * bridging, keyed by session_id. A session is created lazily on its first
@@ -17,9 +38,12 @@ export interface P2pManagerCallbacks {
  * across many short-lived sessions.
  */
 export class P2pManager {
-  private readonly sessions = new Map<string, RelaySession>();
+  private readonly sessions = new Map<string, SessionLike>();
 
-  constructor(private readonly callbacks: P2pManagerCallbacks) {}
+  constructor(
+    private readonly callbacks: P2pManagerCallbacks,
+    private readonly sessionFactory: SessionFactory = defaultSessionFactory
+  ) {}
 
   /** Handles one incoming P2pSignal payload (JSON-encoded SignalEnvelope, see relay-session.ts) addressed to sessionId. */
   async handleIncomingSignal(sessionId: string, payloadBytes: Buffer): Promise<void> {
@@ -37,7 +61,7 @@ export class P2pManager {
         logger.warn(`P2P signal for session ${sessionId}: first message was "${envelope.kind}", expected "offer" — dropping`);
         return;
       }
-      session = new RelaySession(
+      session = this.sessionFactory(
         sessionId,
         (outEnvelope) => this.callbacks.sendSignalToServer(sessionId, outEnvelope),
         (bytesRelayedTotal) => this.callbacks.reportTraffic(sessionId, bytesRelayedTotal),
