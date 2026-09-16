@@ -192,15 +192,18 @@ class NodeManagementServiceTest {
     @Test
     void testRegisterNodeP2pTypeGetsBothTariffAccessFlagsAndOwnerFromToken() {
         // docs/research/P2P_RELAY_FEASIBILITY.md §8.3/§8.4: a p2p node is
-        // available to both trial and paid tariffs simultaneously, and its
-        // owner comes only from the bootstrap token that registered it —
-        // never from a self-declared field in the request.
+        // available to both trial and paid tariffs simultaneously by
+        // convention — createP2pBootstrapTokenForUser mints its token with
+        // assignedPool="both", and applyTariffAccessFlags is now purely
+        // pool-driven (no more type=p2p special-casing) — and its owner
+        // comes only from the bootstrap token that registered it, never
+        // from a self-declared field in the request.
         User owner = new User();
         owner.setId(500L);
 
         NodeBootstrapToken token = new NodeBootstrapToken();
         token.setToken("bt_p2p_1");
-        token.setAssignedPool("paid");
+        token.setAssignedPool("both");
         token.setAssignedType("p2p");
         token.setOwnerUser(owner);
         token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
@@ -235,21 +238,22 @@ class NodeManagementServiceTest {
     }
 
     @Test
-    void testReRegisteringAnExistingNode_neverResetsAnAdminOverriddenTariffAccess() {
-        // Regression: applyTariffAccessFlags used to run unconditionally on
-        // every registerNode call, including a RE-registration of an already
-        // -existing node (same hostname) — silently reverting an admin's
-        // manual AdminController#updateNodeTariffAccess override the next
-        // time that node's agent restarted. p2p relay clients re-register on
-        // every app restart and every relay-mode OFF->ON toggle, so this bug
-        // would have manifested within minutes for exactly the node type the
-        // admin-editable override was built for.
+    void testReRegisteringAnExistingNode_neverResetsAnAdminChangedPool() {
+        // Regression: pool (and the tariff-access flags it derives) used to
+        // get reset unconditionally on every registerNode call, including a
+        // RE-registration of an already-existing node (same hostname) —
+        // silently reverting an admin's later pool change (via
+        // AdminController#updateNodePool) back to the bootstrap token's
+        // original assignedPool the next time that node's agent restarted.
+        // p2p relay clients re-register on every app restart and every
+        // relay-mode OFF->ON toggle, so this would have manifested within
+        // minutes for exactly the node type that churns the most.
         User owner = new User();
         owner.setId(500L);
 
         NodeBootstrapToken token = new NodeBootstrapToken();
         token.setToken("bt_p2p_2");
-        token.setAssignedPool("paid");
+        token.setAssignedPool("both"); // the token's own default — must NOT override the admin's later choice below
         token.setAssignedType("p2p");
         token.setOwnerUser(owner);
         token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
@@ -258,9 +262,11 @@ class NodeManagementServiceTest {
         existing.setId(60L);
         existing.setHostname("laptop-p2p-2");
         existing.setType("p2p");
-        // An admin manually turned OFF trial access for this node after it
-        // first registered (applyTariffAccessFlags would normally always
-        // grant both to a p2p node) — this must survive a re-registration.
+        // An admin manually restricted this node to paid-only after it first
+        // registered (e.g. via the pool dropdown) — this must survive a
+        // re-registration, not get silently reset back to the token's own
+        // "both" default.
+        existing.setPool("paid");
         existing.setAvailableToTrial(false);
         existing.setAvailableToPaid(true);
 
@@ -282,7 +288,62 @@ class NodeManagementServiceTest {
         verify(nodeRepository, atLeastOnce()).save(captor.capture());
         Node saved = captor.getValue();
 
-        assertFalse(saved.getAvailableToTrial(), "admin's override must survive re-registration");
+        assertEquals("paid", saved.getPool(), "admin's pool change must survive re-registration");
+        assertFalse(saved.getAvailableToTrial());
+        assertTrue(saved.getAvailableToPaid());
+    }
+
+    @Test
+    void testCreateP2pBootstrapTokenForUser_defaultsToBothPool() {
+        User user = new User();
+        user.setId(42L);
+        when(tokenRepository.save(any(NodeBootstrapToken.class))).thenAnswer(i -> i.getArgument(0));
+
+        NodeBootstrapToken token = nodeManagementService.createP2pBootstrapTokenForUser(user);
+
+        assertEquals("both", token.getAssignedPool());
+        assertEquals("p2p", token.getAssignedType());
+        assertEquals(user, token.getOwnerUser());
+    }
+
+    @Test
+    void testRegisterNodeBothPoolGetsBothTariffAccessFlags() {
+        // "both" (docs §8.3) is how an admin makes a regular (non-p2p)
+        // direct/cdn node dual-accessible without touching its type —
+        // functionally identical to "trial" pool's derived flags, but a
+        // distinct pool identity so it isn't confused with real trial-tier
+        // capacity for other purposes (e.g. DynamicRoutingService's
+        // quarantine/reserve handling, which only special-cases those two
+        // pool values, not "trial" or "both").
+        NodeBootstrapToken token = new NodeBootstrapToken();
+        token.setToken("bt_both_1");
+        token.setAssignedPool("both");
+        token.setAssignedType("direct");
+        token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));
+
+        when(tokenRepository.findByToken("bt_both_1")).thenReturn(Optional.of(token));
+        when(nodeRepository.findByHostname("vps-both-1")).thenReturn(Optional.empty());
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> {
+            Node n = i.getArgument(0);
+            n.setId(70L);
+            return n;
+        });
+
+        RegisterNodeRequest request = RegisterNodeRequest.newBuilder()
+                .setBootstrapToken("bt_both_1")
+                .setHostname("vps-both-1")
+                .setPublicIp("198.51.100.2")
+                .setRegion("de-fra")
+                .build();
+
+        nodeManagementService.registerNode(request);
+
+        ArgumentCaptor<Node> captor = ArgumentCaptor.forClass(Node.class);
+        verify(nodeRepository, atLeastOnce()).save(captor.capture());
+        Node saved = captor.getValue();
+
+        assertEquals("both", saved.getPool());
+        assertTrue(saved.getAvailableToTrial());
         assertTrue(saved.getAvailableToPaid());
     }
 

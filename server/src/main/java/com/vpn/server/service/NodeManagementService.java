@@ -107,7 +107,13 @@ public class NodeManagementService {
         // SubscriptionExportService's VLESS link generation to work, but
         // that's the bootstrap operator's responsibility, same as today.
         node.setPublicIp(request.getPublicIp());
-        node.setPool(bootstrapToken.getAssignedPool());
+        // Only ever set from the token for a brand-new node — see
+        // applyTariffAccessFlags's call site below for why an existing
+        // node's pool (an admin may have deliberately changed it since) must
+        // survive a later re-registration with the same original token.
+        if (isNewNode) {
+            node.setPool(bootstrapToken.getAssignedPool());
+        }
         node.setType(bootstrapToken.getAssignedType());
         node.setRegion(request.getRegion().isBlank() ? "default" : request.getRegion());
         node.setAsn(request.getAsn());
@@ -117,11 +123,13 @@ public class NodeManagementService {
         // NodeBootstrapToken#ownerUser's doc for why this is never trusted
         // from the register request itself.
         node.setOwnerUser(bootstrapToken.getOwnerUser());
-        // Only ever derives the DEFAULT for a brand-new node. A p2p relay
-        // client re-registers on every app restart and every relay-mode OFF
-        // -> ON toggle (same hostname, so this finds the existing row, not a
-        // new one) — re-deriving here every time would silently revert an
-        // admin's manual override (AdminController#updateNodeTariffAccess)
+        // Only ever derives the DEFAULT for a brand-new node — pool itself
+        // is also guarded the same way above, so an admin's later pool
+        // change (the sole lever for tariff access now) survives a
+        // re-registration too. A p2p relay client re-registers on every app
+        // restart and every relay-mode OFF -> ON toggle (same hostname, so
+        // this finds the existing row, not a new one) — re-deriving here
+        // every time would otherwise silently revert an admin's pool change
         // within minutes for exactly the node type that churns the most.
         if (isNewNode) {
             applyTariffAccessFlags(node);
@@ -195,23 +203,30 @@ public class NodeManagementService {
     }
 
     /**
-     * Derives the two independent tariff-access flags (docs §8.3) from a
-     * node's pool/type at registration time — mirrors V11's backfill exactly
-     * so a newly-registered node behaves identically to a pre-existing one
-     * with the same pool: a p2p node always gets both (the doc's explicit
-     * "available in both pools simultaneously" default for this node type);
-     * otherwise a "trial"-pool node still gets availableToPaid=true too
-     * (paid tariffs already reach trial-pool nodes as bonus/fallback
-     * capacity — see SubscriptionExportService#accessibleViaFlags), while
-     * every other pool value (paid/quarantine/reserve) is paid-only.
+     * Derives the two tariff-access flags purely from `pool` (docs §8.3) —
+     * "trial" and "both" grant availableToTrial=true (paid tariffs already
+     * reach trial-pool nodes as bonus/fallback capacity — see
+     * SubscriptionExportService#accessibleViaFlags — and "both" exists
+     * specifically to grant that same dual reach to a node that ISN'T in the
+     * trial pool), every other pool value (paid/quarantine/reserve) is
+     * paid-only. No longer special-cases type=p2p: a p2p node simply gets
+     * pool="both" by convention (see createP2pBootstrapTokenForUser and the
+     * admin bootstrap dialog's default), so this one rule now covers every
+     * node type — deliberately collapsed from an earlier version that
+     * special-cased p2p and exposed a second, independently-editable UI
+     * control, which the repo owner found confusing ("зачем доступ по
+     * тарифу и пул разными столбцами") — pool is now the single lever.
+     *
+     * Public (not just called from registerNode above) because
+     * AdminController#updateNodePool must also re-derive these flags the
+     * moment an admin changes a node's pool — a VPS node may never
+     * re-register again in its whole lifetime, so if only registerNode
+     * called this, the pool dropdown would silently stop actually changing
+     * access for any node that's already running.
      */
-    private void applyTariffAccessFlags(Node node) {
-        if (node.isP2p()) {
-            node.setAvailableToTrial(true);
-            node.setAvailableToPaid(true);
-            return;
-        }
-        boolean isTrialPool = "trial".equalsIgnoreCase(node.getPool());
+    public void applyTariffAccessFlags(Node node) {
+        String pool = node.getPool();
+        boolean isTrialPool = "trial".equalsIgnoreCase(pool) || "both".equalsIgnoreCase(pool);
         node.setAvailableToTrial(isTrialPool);
         node.setAvailableToPaid(true);
     }
@@ -494,7 +509,7 @@ public class NodeManagementService {
     public NodeBootstrapToken createP2pBootstrapTokenForUser(User user) {
         NodeBootstrapToken token = new NodeBootstrapToken();
         token.setToken("bt_p2p_" + UUID.randomUUID().toString().replace("-", ""));
-        token.setAssignedPool("paid"); // irrelevant for p2p — applyTariffAccessFlags always sets both flags true
+        token.setAssignedPool("both"); // dual trial+paid access is the normal default for a self-serve p2p relay device — see applyTariffAccessFlags
         token.setAssignedType("p2p");
         token.setOwnerUser(user);
         token.setExpiresAt(Instant.now().plus(1, ChronoUnit.HOURS));

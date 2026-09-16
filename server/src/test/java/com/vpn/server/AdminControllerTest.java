@@ -263,6 +263,8 @@ class AdminControllerTest {
         Node node = new Node();
         node.setId(3L);
         node.setPool("paid");
+        node.setAvailableToTrial(false);
+        node.setAvailableToPaid(true);
 
         when(nodeRepository.findById(3L)).thenReturn(Optional.of(node));
         when(nodeRepository.save(any(Node.class))).thenReturn(node);
@@ -271,10 +273,43 @@ class AdminControllerTest {
         assertEquals(200, response.getStatusCode().value());
         assertEquals("quarantine", node.getPool());
         verify(agentStreamService).pushConfigSyncToAll();
+        // Doesn't independently assert the derived flags here (that's
+        // NodeManagementServiceTest's job) — just that the endpoint actually
+        // asks for re-derivation, not only setPool, on every pool change.
+        verify(nodeManagementService).applyTariffAccessFlags(node);
     }
 
     @Test
-    void testUpdateNodeTariffAccess() {
+    void testUpdateNodePool_toBoth_actuallyReDerivesFlagsOnAnAlreadyRunningNode() {
+        // Regression: pool is the single source of truth for tariff access
+        // now (docs §8.3) — a VPS node may never re-register again in its
+        // whole lifetime, so if this endpoint only set `pool` without
+        // re-deriving availableToTrial/availableToPaid, the dropdown would
+        // silently stop actually changing access for any node already
+        // running. Exercises the real NodeManagementService (not a mock) to
+        // prove the two are actually wired together end-to-end.
+        NodeManagementService realNodeManagementService = new NodeManagementService(
+                nodeRepository,
+                mock(NodeBootstrapTokenRepository.class),
+                mock(NodeCredentialRepository.class),
+                mock(DeviceNodeKeyRepository.class),
+                subscriptionRepository,
+                connTelemetryRepository,
+                mock(org.springframework.security.crypto.password.PasswordEncoder.class));
+        AdminController controllerWithRealService = new AdminController(
+                realNodeManagementService,
+                nodeRepository,
+                agentStreamService,
+                quotaEnforcementTask,
+                blockchainPaymentService,
+                userRepository,
+                subscriptionRepository,
+                balanceEntryRepository,
+                transportPolicyRepository,
+                connTelemetryRepository,
+                deviceRepository,
+                tariffRepository);
+
         Node node = new Node();
         node.setId(3L);
         node.setPool("paid");
@@ -284,23 +319,11 @@ class AdminControllerTest {
         when(nodeRepository.findById(3L)).thenReturn(Optional.of(node));
         when(nodeRepository.save(any(Node.class))).thenReturn(node);
 
-        // The whole point of this endpoint: making a "paid"-pool node also
-        // reachable by trial users, without touching pool at all.
-        ResponseEntity<?> response = adminController.updateNodeTariffAccess(3L, true, true);
+        controllerWithRealService.updateNodePool(3L, "both");
 
-        assertEquals(200, response.getStatusCode().value());
+        assertEquals("both", node.getPool());
         assertTrue(node.getAvailableToTrial());
         assertTrue(node.getAvailableToPaid());
-        assertEquals("paid", node.getPool());
-    }
-
-    @Test
-    void testUpdateNodeTariffAccess_notFound() {
-        when(nodeRepository.findById(999L)).thenReturn(Optional.empty());
-
-        ResponseEntity<?> response = adminController.updateNodeTariffAccess(999L, true, true);
-
-        assertEquals(404, response.getStatusCode().value());
     }
 
     @Test

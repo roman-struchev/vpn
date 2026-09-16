@@ -74,7 +74,7 @@ class DynamicRoutingServiceTest {
         node1.setPool("paid");
         node1.setType("direct");
 
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE"))
+        when(nodeRepository.findByPoolInAndStatus(List.of("paid", "both"), "ONLINE"))
                 .thenReturn(List.of(node1));
 
         DynamicRoutingService.RoutingConfigResponse config = dynamicRoutingService.getRoutingConfig("MTS", "RU-MOW");
@@ -102,13 +102,60 @@ class DynamicRoutingServiceTest {
         cdnNode.setPool("paid");
         cdnNode.setType("cdn");
 
-        when(nodeRepository.findByPoolAndStatus("paid", "ONLINE"))
+        when(nodeRepository.findByPoolInAndStatus(List.of("paid", "both"), "ONLINE"))
                 .thenReturn(List.of(cdnNode));
 
         DynamicRoutingService.RoutingConfigResponse config = dynamicRoutingService.getRoutingConfig(null, null);
 
         assertNull(config.nodes().get(0).grpcFallbackPort());
         assertNull(config.nodes().get(0).grpcFallbackServiceName());
+    }
+
+    @Test
+    void testGetRoutingConfigIncludesBothPoolNodes() {
+        // "both" (docs/research/P2P_RELAY_FEASIBILITY.md §8.3) is paid-
+        // accessible too, same as a plain "paid" pool node.
+        when(transportPolicyRepository.findFirstByScopeAndScopeValueAndIsActiveTrue(eq("global"), eq("*")))
+                .thenReturn(Optional.empty());
+
+        Node bothPoolNode = new Node();
+        bothPoolNode.setId(3L);
+        bothPoolNode.setPublicIp("3.3.3.3");
+        bothPoolNode.setRegion("DE-FRA");
+        bothPoolNode.setPool("both");
+        bothPoolNode.setType("direct");
+
+        when(nodeRepository.findByPoolInAndStatus(List.of("paid", "both"), "ONLINE"))
+                .thenReturn(List.of(bothPoolNode));
+
+        DynamicRoutingService.RoutingConfigResponse config = dynamicRoutingService.getRoutingConfig(null, null);
+
+        assertEquals(1, config.nodes().size());
+        assertEquals("3.3.3.3", config.nodes().get(0).publicIp());
+    }
+
+    @Test
+    void testGetRoutingConfigExcludesP2pNodes() {
+        // Regression: this endpoint embeds publicIp as a directly-dialable
+        // address — a p2p node's is a meaningless placeholder (0.0.0.0), so
+        // it must never show up here, same reasoning as
+        // SubscriptionExportService's own p2p exclusion from VLESS links.
+        when(transportPolicyRepository.findFirstByScopeAndScopeValueAndIsActiveTrue(eq("global"), eq("*")))
+                .thenReturn(Optional.empty());
+
+        Node p2pNode = new Node();
+        p2pNode.setId(4L);
+        p2pNode.setPublicIp("0.0.0.0");
+        p2pNode.setRegion("default");
+        p2pNode.setPool("both");
+        p2pNode.setType("p2p");
+
+        when(nodeRepository.findByPoolInAndStatus(List.of("paid", "both"), "ONLINE"))
+                .thenReturn(List.of(p2pNode));
+
+        DynamicRoutingService.RoutingConfigResponse config = dynamicRoutingService.getRoutingConfig(null, null);
+
+        assertTrue(config.nodes().isEmpty());
     }
 
     @Test

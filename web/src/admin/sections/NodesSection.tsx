@@ -6,7 +6,11 @@ import { adminApi, AdminNode } from '../adminApi';
 import { AdminT } from '../adminI18n';
 import { copyToClipboard } from '../../utils/clipboard';
 
-const POOLS = ['trial', 'paid', 'quarantine', 'reserve'];
+// "both" (docs/research/P2P_RELAY_FEASIBILITY.md §8.3) is the single lever
+// for dual trial+paid access now — see NodeManagementService#applyTariffAccessFlags.
+// A p2p node's bootstrap token defaults to it (createP2pBootstrapTokenForUser),
+// but any node can be switched to it from this same dropdown.
+const POOLS = ['trial', 'paid', 'both', 'quarantine', 'reserve'];
 const STATUSES = ['ONLINE', 'OFFLINE', 'DRAINING', 'MAINTENANCE'];
 
 // ~3x the server's default vpn.stats-interval-sec (30s, see NodeManagementService)
@@ -20,6 +24,21 @@ function formatNodeSpeed(n: AdminNode): string {
   if (Date.now() - new Date(n.lastTrafficStatsAt).getTime() > STATS_STALE_AFTER_MS) return '—';
   const mbps = (n.recentBytesPerSec * 8) / 1_000_000;
   return `${mbps.toFixed(mbps < 10 ? 2 : 1)} Mbps`;
+}
+
+// Deliberately abbreviated units, not full pluralized words — Russian plural
+// agreement (1 минута / 2 минуты / 5 минут) would need a proper i18n
+// pluralization helper this admin panel doesn't have anywhere else; the
+// exact timestamp is still one hover away via the `title` attribute.
+function formatRelativeTime(t: AdminT, iso: string | null): string {
+  if (!iso) return '—';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60_000);
+  if (mins < 1) return t.justNowShort;
+  if (mins < 60) return `${mins} ${t.minutesShort}`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} ${t.hoursShort}`;
+  return `${Math.floor(hours / 24)} ${t.daysShort}`;
 }
 
 export function NodesSection({ t }: { t: AdminT }) {
@@ -87,6 +106,7 @@ export function NodesSection({ t }: { t: AdminT }) {
             <ul className="space-y-1.5 text-slate-400 leading-relaxed">
               <li>{t.poolTrialDesc}</li>
               <li>{t.poolPaidDesc}</li>
+              <li>{t.poolBothDesc}</li>
               <li>{t.poolQuarantineDesc}</li>
               <li>{t.poolReserveDesc}</li>
             </ul>
@@ -107,27 +127,40 @@ export function NodesSection({ t }: { t: AdminT }) {
       <div className="admin-table rounded-2xl overflow-hidden border border-dark-800">
         <DataTable value={nodes} loading={loading} paginator rows={15} dataKey="id" size="small" emptyMessage={t.loading}>
           <Column field="id" header="ID" style={{ width: '3.5rem' }} />
-          <Column field="hostname" header={t.hostname} sortable />
-          <Column field="publicIp" header={t.publicIp} />
-          <Column field="region" header={t.region} />
-          <Column field="type" header={t.type} style={{ width: '5rem' }} />
           <Column
-            header="P2P"
-            style={{ width: '9rem' }}
-            body={(n: AdminNode) =>
-              n.type === 'p2p' ? (
-                <span className="text-amber-400 text-[10px]" title={n.relayExpiresAt ?? undefined}>
-                  {n.relayMode}
-                  {n.ownerUserId != null ? ` · user #${n.ownerUserId}` : ''}
-                </span>
-              ) : (
-                <span className="text-slate-600">—</span>
-              )
-            }
+            header={t.hostname}
+            sortable
+            sortField="hostname"
+            style={{ minWidth: '10rem' }}
+            body={(n: AdminNode) => (
+              <div className="flex flex-col">
+                <span className="font-medium">{n.hostname}</span>
+                {/* A p2p node's publicIp is always the placeholder 0.0.0.0
+                    (docs §8.4) — showing it as a real value invites "why is
+                    this IP wrong" questions, so it's suppressed there. */}
+                <span className="text-[10px] text-slate-500">{n.type === 'p2p' ? '—' : n.publicIp}</span>
+              </div>
+            )}
+          />
+          <Column field="region" header={t.region} />
+          <Column
+            header={t.type}
+            style={{ minWidth: '7rem' }}
+            body={(n: AdminNode) => (
+              <div className="flex flex-col">
+                <span>{n.type}</span>
+                {n.type === 'p2p' && (
+                  <span className="text-[10px] text-amber-400" title={n.relayExpiresAt ?? undefined}>
+                    {n.relayMode}
+                    {n.ownerUserId != null ? ` · #${n.ownerUserId}` : ''}
+                  </span>
+                )}
+              </div>
+            )}
           />
           <Column
             header={t.status}
-            style={{ width: '10rem' }}
+            style={{ width: '8.5rem' }}
             body={(n: AdminNode) => (
               <Dropdown
                 value={n.status}
@@ -139,8 +172,14 @@ export function NodesSection({ t }: { t: AdminT }) {
             )}
           />
           <Column
+            // Pool is the ONLY lever for tariff access now (docs §8.3) — a
+            // separate "Доступ по тарифу" column used to sit next to this
+            // one, independently editable, which the repo owner found
+            // confusing ("зачем доступ по тарифу и пул разными столбцами,
+            // какой смысл это разделять"). "both" grants trial+paid at once;
+            // see the legend below for the full breakdown.
             header={<span title={t.poolHint} className="cursor-help border-b border-dotted border-slate-600">{t.pool}</span>}
-            style={{ width: '9rem' }}
+            style={{ width: '8.5rem' }}
             body={(n: AdminNode) => (
               <Dropdown
                 value={n.pool}
@@ -152,69 +191,29 @@ export function NodesSection({ t }: { t: AdminT }) {
             )}
           />
           <Column
-            header={<span title={t.tariffAccessHint} className="cursor-help border-b border-dotted border-slate-600">{t.tariffAccess}</span>}
-            style={{ width: '9rem' }}
+            header={t.resources}
             body={(n: AdminNode) => (
-              // Editable independently of `pool` (docs §8.3) — the repo
-              // owner explicitly asked for existing direct/cdn nodes to also
-              // get a paid+trial dual-access mode, not just p2p ones, so
-              // this is a direct toggle rather than a read-only display of
-              // whatever pool happened to derive. See the pool/tariffAccess
-              // header tooltips for why these two columns aren't the same
-              // thing despite usually agreeing by default.
-              <div className="flex flex-col gap-1 text-[10px]">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={n.availableToPaid}
-                    disabled={busyId === n.id}
-                    onChange={(e) =>
-                      withBusy(n.id, () => adminApi.setNodeTariffAccess(n.id, n.availableToTrial, e.target.checked))
-                    }
-                  />
-                  <span className={n.availableToPaid ? 'text-emerald-400' : 'text-slate-500'}>
-                    {t.pricingTariffPaidLabel}
-                  </span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={n.availableToTrial}
-                    disabled={busyId === n.id}
-                    onChange={(e) =>
-                      withBusy(n.id, () => adminApi.setNodeTariffAccess(n.id, e.target.checked, n.availableToPaid))
-                    }
-                  />
-                  <span className={n.availableToTrial ? 'text-emerald-400' : 'text-slate-500'}>
-                    {t.pricingTariffTrialLabel}
-                  </span>
-                </label>
+              <div className="flex flex-col text-[11px]">
+                <span>
+                  {t.cpu}: {n.cpuPercent != null ? `${n.cpuPercent}%${n.cpuCount ? ` (×${n.cpuCount})` : ''}` : '—'}
+                </span>
+                <span className="text-slate-500">
+                  {t.memory}:{' '}
+                  {n.memoryUsedBytes && n.memoryTotalBytes
+                    ? `${(n.memoryUsedBytes / 1024 ** 2).toFixed(0)}/${(n.memoryTotalBytes / 1024 ** 2).toFixed(0)} MB`
+                    : '—'}
+                </span>
               </div>
             )}
           />
           <Column
-            header={t.cpu}
-            body={(n: AdminNode) =>
-              n.cpuPercent != null
-                ? `${n.cpuPercent}%${n.cpuCount ? ` (×${n.cpuCount})` : ''}`
-                : '—'
-            }
-          />
-          <Column
-            header={t.memory}
-            body={(n: AdminNode) =>
-              n.memoryUsedBytes && n.memoryTotalBytes
-                ? `${(n.memoryUsedBytes / 1024 ** 2).toFixed(0)} / ${(n.memoryTotalBytes / 1024 ** 2).toFixed(0)} MB`
-                : '—'
-            }
-          />
-          <Column
-            header={<span title={t.connectionsHint} className="cursor-help border-b border-dotted border-slate-600">{t.connections}</span>}
-            body={(n: AdminNode) => n.activeConnections ?? 0}
-          />
-          <Column
-            header={<span title={t.speedHint} className="cursor-help border-b border-dotted border-slate-600">{t.speed}</span>}
-            body={formatNodeSpeed}
+            header={<span title={`${t.connectionsHint} ${t.speedHint}`} className="cursor-help border-b border-dotted border-slate-600">{t.load}</span>}
+            body={(n: AdminNode) => (
+              <div className="flex flex-col text-[11px]">
+                <span>{t.connections}: {n.activeConnections ?? 0}</span>
+                <span className="text-slate-500">{formatNodeSpeed(n)}</span>
+              </div>
+            )}
           />
           <Column
             header={t.trafficServed}
@@ -222,7 +221,11 @@ export function NodesSection({ t }: { t: AdminT }) {
           />
           <Column
             header={t.lastHeartbeat}
-            body={(n: AdminNode) => (n.lastHeartbeatAt ? new Date(n.lastHeartbeatAt).toLocaleString() : '—')}
+            body={(n: AdminNode) => (
+              <span title={n.lastHeartbeatAt ? new Date(n.lastHeartbeatAt).toLocaleString() : undefined}>
+                {formatRelativeTime(t, n.lastHeartbeatAt)}
+              </span>
+            )}
           />
           <Column
             header={t.actions}
@@ -309,31 +312,20 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
 
         {!result ? (
           <div className="space-y-3 text-xs">
-            {/* Pool is meaningless for a p2p node (NodeManagementService#
-                applyTariffAccessFlags always sets both trial+paid access for
-                type=p2p regardless of pool) — hidden rather than shown-but-
-                ignored, since a value that visibly does nothing invites the
-                exact "why didn't this do anything" confusion this is trying
-                to avoid. */}
-            {type !== 'p2p' && (
-              <div>
-                <label className="block text-slate-400 mb-1">{t.pool}</label>
-                <select
-                  data-testid="bootstrap-pool-select"
-                  value={pool}
-                  onChange={(e) => setPool(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
-                >
-                  {POOLS.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            )}
             <div>
               <label className="block text-slate-400 mb-1">{t.type}</label>
               <select
                 data-testid="bootstrap-type-select"
                 value={type}
-                onChange={(e) => setType(e.target.value)}
+                onChange={(e) => {
+                  const nextType = e.target.value;
+                  setType(nextType);
+                  // "both" is the normal default for a p2p node (docs §8.3)
+                  // — the admin can still change it via the pool select
+                  // right below, which is no longer hidden now that pool is
+                  // the single lever for tariff access on every node type.
+                  if (nextType === 'p2p') setPool('both');
+                }}
                 className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
               >
                 <option value="direct">direct</option>
@@ -341,6 +333,17 @@ function BootstrapTokenDialog({ t, onClose }: { t: AdminT; onClose: () => void }
                 <option value="p2p">p2p</option>
               </select>
               {type === 'p2p' && <p className="mt-1 text-[10px] text-slate-500">{t.p2pBootstrapHint}</p>}
+            </div>
+            <div>
+              <label className="block text-slate-400 mb-1">{t.pool}</label>
+              <select
+                data-testid="bootstrap-pool-select"
+                value={pool}
+                onChange={(e) => setPool(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700"
+              >
+                {POOLS.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
             </div>
             <div>
               <label className="block text-slate-400 mb-1">{t.validHours}</label>

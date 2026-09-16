@@ -69,15 +69,22 @@ public class DynamicRoutingService {
     public RoutingConfigResponse getRoutingConfig(String operator, String region) {
         TransportPolicy policy = resolvePolicy(operator, region);
 
-        List<Node> activeNodes = nodeRepository.findByPoolAndStatus("paid", "ONLINE");
+        // "both" (docs/research/P2P_RELAY_FEASIBILITY.md §8.3) is paid-
+        // accessible too, same as a plain "paid" pool node — see
+        // NodeManagementService#applyTariffAccessFlags.
+        List<Node> activeNodes = nodeRepository.findByPoolInAndStatus(List.of("paid", "both"), "ONLINE");
         if (activeNodes.isEmpty()) {
             activeNodes = nodeRepository.findByStatus("ONLINE");
         }
 
         // Filter out quarantine and reserve pools (reserve nodes are standby-only
-        // until DynamicRoutingService promotes them — see checkAndQuarantineNode).
+        // until DynamicRoutingService promotes them — see checkAndQuarantineNode)
+        // and, same reasoning as SubscriptionExportService's own p2p exclusion,
+        // p2p nodes — this response embeds publicIp as a directly-dialable
+        // address, which is meaningless (a placeholder) for a p2p node.
         List<RoutingConfigResponse.NodeInfo> nodeInfos = activeNodes.stream()
                 .filter(n -> !"quarantine".equalsIgnoreCase(n.getPool()) && !"reserve".equalsIgnoreCase(n.getPool()))
+                .filter(n -> !n.isP2p())
                 .map(n -> {
                     boolean isDirect = "direct".equalsIgnoreCase(n.getType());
                     return new RoutingConfigResponse.NodeInfo(
