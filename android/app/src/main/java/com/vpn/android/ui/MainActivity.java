@@ -16,6 +16,7 @@ import com.vpn.android.databinding.ActivityMainBinding;
 import com.vpn.android.ui.connect.ConnectFragment;
 import com.vpn.android.ui.devices.DevicesFragment;
 import com.vpn.android.ui.profile.ProfileFragment;
+import com.vpn.android.update.AppUpdateManager;
 import com.vpn.android.util.Async;
 
 public class MainActivity extends AppCompatActivity {
@@ -34,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
 
         if (savedInstanceState == null) {
             showFragment(new ConnectFragment());
+            new AppUpdateManager(this).checkAndPrompt(this);
         }
 
         binding.bottomNav.setOnItemSelectedListener(item -> {

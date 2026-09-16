@@ -99,4 +99,13 @@
 
     <!-- Web handoff (opening the web dashboard already signed in) -->
     <string name="web_handoff_error">Could not open the web dashboard. Check your connection and try again.</string>
+
+    <!-- In-app updater (AppUpdateManager) -->
+    <string name="update_available_title">Update available</string>
+    <string name="update_available_message">Version %1$s is available. Download and install it?</string>
+    <string name="update_download_action">Download</string>
+    <string name="update_later_action">Later</string>
+    <string name="update_downloading_title">Downloading update…</string>
+    <string name="update_download_failed">Failed to download the update</string>
+    <string name="update_install_permission_needed">Allow installing apps from this source, then try again</string>
 </resources>

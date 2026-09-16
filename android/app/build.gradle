@@ -33,6 +33,12 @@ android {
         // building the shareable referral link (`<site>/?ref=CODE`); normally the
         // server hands the finished link back in GET /api/v1/user/profile.
         buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'https://vpn.struchev.site/'}\""
+        // In-app updater (AppUpdateChecker): owner/repo whose GitHub Releases
+        // are polled for a newer build. Matches .github/workflows/release.yml,
+        // which tags `v<version>` releases here with a `vpn-android-<version>.apk`
+        // asset attached — see that workflow's android-apk job.
+        buildConfigField "String", "GITHUB_REPO", "\"${project.findProperty('githubRepo') ?: 'roman-struchev/vpn'}\""
+
         // P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8): the gRPC
         // control-plane host:port a p2p-mode device registers/streams
         // against as a node — separate from API_BASE_URL/HTTPS above since

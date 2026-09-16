@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Matches AppUpdateManager's getExternalFilesDir(null)/update.apk destination. -->
+    <external-files-path name="update_apk" path="." />
+    <!-- Fallback destination if external storage isn't mounted (see AppUpdateManager). -->
+    <files-path name="update_apk_internal" path="." />
+</paths>

@@ -131,4 +131,13 @@
     <string name="p2p_relay_applied">Настройки P2P-режима применены</string>
     <string name="p2p_relay_notification_title">P2P-режим активен</string>
     <string name="p2p_relay_notification_text">Ваше устройство ретранслирует трафик и получает бонусный трафик</string>
+
+    <!-- In-app updater (AppUpdateManager) -->
+    <string name="update_available_title">Доступно обновление</string>
+    <string name="update_available_message">Вышла новая версия %1$s. Скачать и установить?</string>
+    <string name="update_download_action">Скачать</string>
+    <string name="update_later_action">Позже</string>
+    <string name="update_downloading_title">Загрузка обновления…</string>
+    <string name="update_download_failed">Не удалось скачать обновление</string>
+    <string name="update_install_permission_needed">Разрешите установку приложений из этого источника, затем повторите попытку</string>
 </resources>
