@@ -34,10 +34,15 @@ security:
 
 vpn:
   # Public origin of the web dashboard. Used to build the shareable referral link
-  # (`<web-base-url>/?ref=CODE`) handed to every client in GET /api/v1/user/profile —
-  # a plain https link works for any invitee, unlike a Telegram-only deep link.
+  # (`<web-base-url>/?ref=CODE`) handed to every client in GET /api/v1/user/profile,
+  # and as the redirect target for the client -> web SSO handoff (WebHandoffService)
+  # — a plain https link works for any invitee, unlike a Telegram-only deep link.
+  # Temporarily pointed at the test server (217.216.79.46:8080, same host/port as
+  # the API — the web dashboard is bundled into and served by this same server jar,
+  # see server/build.gradle's buildWebDist) instead of the vpn.struchev.site
+  # production domain — switch back once that's live again.
   public:
-    web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:https://vpn.struchev.site}
+    web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:http://217.216.79.46:8080}
   # Client -> web SSO handoff exchange-code lifetime (WebHandoffService).
   # Deliberately short: the code is single-use and only needs to survive the
   # few seconds between a client opening the browser and the web app's first

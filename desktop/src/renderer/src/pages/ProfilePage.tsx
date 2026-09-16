@@ -47,7 +47,9 @@ export default function ProfilePage({
 
   const referralLink =
     profile?.referralLink ||
-    (profile?.referralCode ? `https://vpn.struchev.site/?ref=${profile.referralCode}` : '');
+    // Temporarily pointed at the test server (217.216.79.46:8080) instead of the
+    // vpn.struchev.site production domain — switch back once that's live again.
+    (profile?.referralCode ? `http://217.216.79.46:8080/?ref=${profile.referralCode}` : '');
 
   const copyReferral = async () => {
     if (!referralLink) return;

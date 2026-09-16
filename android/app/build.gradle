@@ -29,10 +29,16 @@ android {
         // Phase 10: comma-separated backup domains tried in order if the
         // primary is unreachable (see ApiHostRotation). Empty by default.
         buildConfigField "String", "API_BASE_URLS_BACKUP", "\"${project.findProperty('apiBaseUrlsBackup') ?: ''}\""
-        // Public origin of the web dashboard — only used as a local fallback when
-        // building the shareable referral link (`<site>/?ref=CODE`); normally the
-        // server hands the finished link back in GET /api/v1/user/profile.
-        buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'https://vpn.struchev.site/'}\""
+        // Public origin of the web dashboard: opened directly for the P2P terms
+        // page, and used as a local fallback when building the shareable referral
+        // link (`<site>/?ref=CODE`) if the server hasn't already handed one back
+        // in GET /api/v1/user/profile. Temporarily pointed at the test server
+        // (217.216.79.46:8080 — the web dashboard is bundled into and served by
+        // the same server jar, see server/build.gradle's buildWebDist) instead of
+        // the vpn.struchev.site production domain — switch back once that's live
+        // again (matches server/src/main/resources/application.yml's
+        // vpn.public.web-base-url default).
+        buildConfigField "String", "WEB_BASE_URL", "\"${project.findProperty('webBaseUrl') ?: 'http://217.216.79.46:8080/'}\""
         // In-app updater (AppUpdateChecker): owner/repo whose GitHub Releases
         // are polled for a newer build. Matches .github/workflows/release.yml,
         // which tags `v<version>` releases here with a `vpn-android-<version>.apk`
