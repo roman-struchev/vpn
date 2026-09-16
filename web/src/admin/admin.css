@@ -54,7 +54,26 @@
 [data-testid='admin-panel'] .p-dropdown {
   background: var(--surface-ground);
   border-color: var(--surface-border);
-  min-width: 8rem;
+  min-width: 6rem;
+}
+
+/* PrimeReact's default lara theme pads a Dropdown for a full-size form
+   field (~0.75rem/1rem) — far too roomy for a status/pool cell repeated on
+   every row of a dense table. Trimmed to match this table's own compact
+   0.75rem base font (repo owner's screenshot feedback: "селекты крупными
+   так и остались"). */
+[data-testid='admin-panel'] .p-dropdown .p-dropdown-label {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+[data-testid='admin-panel'] .p-dropdown .p-dropdown-trigger {
+  width: 1.75rem;
+}
+
+[data-testid='admin-panel'] .p-dropdown-items .p-dropdown-item {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
 }
 
 [data-testid='admin-panel'] .p-dropdown-panel {
