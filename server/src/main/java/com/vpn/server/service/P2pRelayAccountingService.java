@@ -117,6 +117,21 @@ public class P2pRelayAccountingService {
         target.tryCredit(sessionId, nodeId, mergedNodeBytes, mergedClientBytes);
     }
 
+    // KNOWN LIMITATION, not yet exercised in production: a session_id is
+    // credited AT MOST ONCE, ever (this check) — but every relay-agent
+    // implementation (desktop/src/main/p2p/relayAgent.ts, android's
+    // P2pRelayAgent, agent/src/p2p/relay-session.ts) reports its side
+    // PERIODICALLY with a CUMULATIVE byte count, not once at session end. If
+    // a future "connecting client" (§8's consumer side — deliberately not
+    // built in any phase so far) also reports periodically rather than
+    // exactly once at session end, whichever early report-pair happens to
+    // arrive and agree FIRST silently claims the one-shot credit for that
+    // session_id, and every later (larger) report pair for the same session
+    // is a no-op — permanently undercounting a long-lived session. Currently
+    // inert (nothing calls recordClientReport in production yet), but
+    // whoever builds that consumer must either report exactly once at
+    // session end, or this dedup needs to become per-(session_id, report
+    // sequence) with delta-based credited amounts instead of totals.
     @Transactional
     void tryCredit(String sessionId, Long nodeId, long nodeBytes, long clientBytes) {
         if (creditRepository.findBySessionId(sessionId).isPresent()) {
