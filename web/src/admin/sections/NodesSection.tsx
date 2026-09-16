@@ -203,7 +203,7 @@ export function NodesSection({ t }: { t: AdminT }) {
             // font size" once actually side by side (docs: repo owner's own
             // screenshot feedback).
             body={(n: AdminNode) => (
-              <div className="flex flex-col leading-normal">
+              <div className="flex flex-col leading-normal whitespace-nowrap">
                 <span>
                   {t.cpu}: {n.cpuPercent != null ? `${n.cpuPercent}%${n.cpuCount ? ` (×${n.cpuCount})` : ''}` : '—'}
                 </span>
@@ -219,7 +219,7 @@ export function NodesSection({ t }: { t: AdminT }) {
           <Column
             header={<span title={`${t.connectionsHint} ${t.speedHint}`} className="cursor-help border-b border-dotted border-slate-600">{t.load}</span>}
             body={(n: AdminNode) => (
-              <div className="flex flex-col leading-normal">
+              <div className="flex flex-col leading-normal whitespace-nowrap">
                 <span>{t.connections}: {n.activeConnections ?? 0}</span>
                 {/* Labeled, not a bare "—" — an unlabeled dash on its own
                     line reads as "nothing rendered", not "no current speed
