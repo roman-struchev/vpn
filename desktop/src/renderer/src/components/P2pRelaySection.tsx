@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { t } from '../i18n';
-
-type RelayMode = 'OFF' | 'TIMED' | 'ALWAYS';
+import { isModeButtonActive, type RelayMode } from './p2pModeButtons';
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -18,9 +17,12 @@ export default function P2pRelaySection() {
     bytesCreditedToday: number;
     dailyCapBytes: number;
   } | null>(null);
-  const [mode, setModeState] = useState<{ mode: RelayMode; expiresAtEpochMs: number | null; region: string | null } | null>(
-    null
-  );
+  const [mode, setModeState] = useState<{
+    mode: RelayMode;
+    expiresAtEpochMs: number | null;
+    durationMs: number | null;
+    region: string | null;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // Computed from the server's own origin (web/src/App.tsx's #p2p-terms
@@ -64,7 +66,7 @@ export default function P2pRelaySection() {
     setError(null);
     try {
       const expiresAtEpochMs = durationMs ? Date.now() + durationMs : null;
-      await window.vpnApi.setP2pRelayMode(next, expiresAtEpochMs);
+      await window.vpnApi.setP2pRelayMode(next, expiresAtEpochMs, durationMs);
       reload();
     } catch (e) {
       setError(t.p2pError + (e instanceof Error ? `: ${e.message}` : ''));
@@ -80,10 +82,7 @@ export default function P2pRelaySection() {
     { label: t.p2pModeAlways, mode: 'ALWAYS' },
   ];
 
-  // TIMED's two buttons (1h/8h) both just show as "active" once TIMED mode
-  // is on — which specific duration was last picked isn't tracked separately,
-  // only the resulting expiresAtEpochMs (shown below instead).
-  const isActive = (btn: (typeof modeButtons)[number]) => mode?.mode === btn.mode;
+  const isActive = (btn: (typeof modeButtons)[number]) => isModeButtonActive(mode, btn);
 
   return (
     <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4">

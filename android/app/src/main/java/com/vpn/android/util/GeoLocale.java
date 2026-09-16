@@ -83,4 +83,59 @@ public final class GeoLocale {
             return null;
         }
     }
+
+    /**
+     * Best-effort "Country" / "Country, City" label for wherever this
+     * device's current public IP geolocates to — auto-fills a p2p relay
+     * node's own declared location (docs/research/P2P_RELAY_FEASIBILITY.md
+     * §8.4), the same way scripts/install-node.sh auto-detects a regular
+     * VPS node's region from its public IP at install time. Mirrors
+     * desktop/src/main/geoLocale.ts#detectNodeRegion exactly, including the
+     * provider order: ip-api.com is tried FIRST (unlike
+     * {@link #lookupBlocking()} above) because its response includes a full
+     * country name directly, unlike ipinfo.io's bare 2-letter code — this
+     * avoids porting install-node.sh's ~250-entry bash country-code table
+     * into Java. ipinfo.io is still a fallback, using its raw code as a
+     * last-resort label when that's all that's available.
+     *
+     * Blocking (matches the rest of this class's style) — callers on
+     * Android's main thread must run this off it themselves; P2pRelayAgent
+     * already does all its network I/O on a background executor.
+     */
+    public static String detectNodeRegion() {
+        String[] viaIpApi = fetchRegion("http://ip-api.com/json", "country", "city");
+        if (viaIpApi != null) return formatRegion(viaIpApi[0], viaIpApi[1]);
+
+        String[] viaIpinfo = fetchRegion("https://ipinfo.io/json", "country", "city");
+        if (viaIpinfo != null) return formatRegion(viaIpinfo[0], viaIpinfo[1]);
+
+        return "default";
+    }
+
+    // Package-visible (not private) specifically so GeoLocaleTest can cover
+    // this pure formatting logic directly — the network-calling methods
+    // above it aren't unit-tested, matching this class's own pre-existing
+    // untested lookupBlocking()/fetchCountryCode() (no MockWebServer or
+    // similar HTTP-mocking dependency exists in this project yet).
+    static String formatRegion(String country, String city) {
+        if (country == null || country.isBlank()) return "default";
+        return (city != null && !city.isBlank()) ? country + ", " + city : country;
+    }
+
+    /** @return {country, city} (either may be null), or null if the lookup itself failed or had no usable country. */
+    private static String[] fetchRegion(String url, String countryField, String cityField) {
+        Request request = new Request.Builder().url(url).build();
+        try (Response response = HTTP.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) return null;
+            JsonObject obj = JsonParser.parseString(response.body().string()).getAsJsonObject();
+            String country = obj.has(countryField) && !obj.get(countryField).isJsonNull()
+                    ? obj.get(countryField).getAsString() : null;
+            String city = obj.has(cityField) && !obj.get(cityField).isJsonNull()
+                    ? obj.get(cityField).getAsString() : null;
+            if (country == null || country.isBlank()) return null;
+            return new String[]{country, city};
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

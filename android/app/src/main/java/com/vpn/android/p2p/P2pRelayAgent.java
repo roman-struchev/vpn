@@ -79,6 +79,13 @@ public class P2pRelayAgent {
     private volatile String nodeToken;
     private volatile String relayMode = "OFF";
     private volatile long relayExpiresAtEpochMs;
+    // The relay node's own declared location (docs §8.4/§8.5) — geo-IP
+    // auto-detected once, the first time this device ever registers (see
+    // start()), the same way a regular VPS node determines its region at
+    // install time; cached in TokenStore and reused on every later start,
+    // never re-detected and never re-sent after registration (there is no
+    // "update my own region" heartbeat field, unlike relayMode/expiresAt).
+    private volatile String region = "default";
 
     private final Map<String, ActiveSession> sessions = new ConcurrentHashMap<>();
 
@@ -107,10 +114,28 @@ public class P2pRelayAgent {
      * repeatedly — a change of {@code relayMode}/{@code relayExpiresAtEpochMs}
      * while already connected is picked up on the next heartbeat rather than
      * requiring a fresh registration.
+     *
+     * Blocking (geo-IP detection on first-ever call, plus the registerNode
+     * RPC below) — callers must already be off the main thread
+     * (P2pRelayService submits this to its own single-threaded executor).
      */
     public synchronized void start(String relayMode, long relayExpiresAtEpochMs) throws Exception {
         this.relayMode = relayMode;
         this.relayExpiresAtEpochMs = relayExpiresAtEpochMs;
+
+        // Detected once, the first time this device ever registers as a p2p
+        // node, then persisted and reused on every later start — exactly
+        // like a regular VPS node's install-time geo-IP lookup is a one-shot
+        // thing, never re-run on every restart (see GeoLocale#detectNodeRegion's
+        // own doc comment). A device that later moves to a different country
+        // keeps its originally-detected label rather than silently relabeling.
+        String persistedRegion = tokenStore.getP2pRelayRegion();
+        if (persistedRegion != null && !persistedRegion.isBlank()) {
+            this.region = persistedRegion;
+        } else {
+            this.region = com.vpn.android.util.GeoLocale.detectNodeRegion();
+            tokenStore.saveP2pRelayRegion(this.region);
+        }
 
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions
                 .builder(appContext).createInitializationOptions());
@@ -142,10 +167,10 @@ public class P2pRelayAgent {
                     AgentRegistrationServiceGrpc.newBlockingStub(regChannel);
             RegisterNodeResponse resp = stub.registerNode(RegisterNodeRequest.newBuilder()
                     .setBootstrapToken(bootstrapToken)
-                    .setHostname("android-" + Build.MODEL + "-" + UUID.randomUUID().toString().substring(0, 8))
+                    .setHostname(buildNodeHostname())
                     .setPublicIp("0.0.0.0") // placeholder — a p2p node is never dialed directly, see docs §8.4
                     .setAgentVersion(BuildConfig.VERSION_NAME)
-                    .setRegion("p2p")
+                    .setRegion(region)
                     .setAsn("")
                     .addAllSupportedTransports(List.of("webrtc"))
                     .setRelayMode(relayMode)
@@ -156,6 +181,23 @@ public class P2pRelayAgent {
             tokenStore.saveP2pNode(nodeId, nodeToken);
         } finally {
             regChannel.shutdownNow();
+        }
+    }
+
+    /**
+     * "<account email> · android-<model>" — Build.MODEL plus a random suffix
+     * (the previous behavior) told nothing about who owned the device,
+     * useless for telling p2p nodes apart in the admin panel. Falls back to
+     * a device-only label if the profile fetch fails — still better to
+     * register with SOME hostname than to block relay mode entirely over a
+     * display-label lookup.
+     */
+    private String buildNodeHostname() {
+        String deviceLabel = "android-" + Build.MODEL;
+        try {
+            return apiClient.getProfile().email + " · " + deviceLabel;
+        } catch (Exception e) {
+            return deviceLabel + "-" + UUID.randomUUID().toString().substring(0, 8);
         }
     }
 

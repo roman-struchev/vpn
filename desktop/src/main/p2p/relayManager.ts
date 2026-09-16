@@ -23,7 +23,7 @@ export class RelayManager {
 
   /** Call once at app startup (after login is confirmed) to silently resume a previously-active relay mode. */
   async resumeIfNeeded(): Promise<void> {
-    const { mode, expiresAtEpochMs } = this.tokenStore.getP2pRelayMode();
+    const { mode, expiresAtEpochMs, durationMs } = this.tokenStore.getP2pRelayMode();
     if (mode === 'OFF') return;
     if (mode === 'TIMED' && (!expiresAtEpochMs || expiresAtEpochMs <= Date.now())) {
       // The locally-remembered window already lapsed while the app was
@@ -34,11 +34,18 @@ export class RelayManager {
       this.tokenStore.saveP2pRelayMode('OFF', null);
       return;
     }
-    await this.setMode(mode, expiresAtEpochMs);
+    await this.setMode(mode, expiresAtEpochMs, durationMs ?? undefined);
   }
 
-  async setMode(mode: RelayMode, expiresAtEpochMs: number | null): Promise<void> {
-    this.tokenStore.saveP2pRelayMode(mode, expiresAtEpochMs);
+  /**
+   * @param durationMs Which specific TIMED option (e.g. 1h vs 8h) produced
+   *   this expiresAtEpochMs — purely a UI-display fact (see TokenStore's
+   *   p2pRelayDurationMs doc for why expiresAtEpochMs alone can't answer
+   *   "which button is active"), never sent to the server or used for any
+   *   actual enforcement decision here. Irrelevant/omit for OFF and ALWAYS.
+   */
+  async setMode(mode: RelayMode, expiresAtEpochMs: number | null, durationMs?: number): Promise<void> {
+    this.tokenStore.saveP2pRelayMode(mode, expiresAtEpochMs, durationMs);
     this.syncLoginItem(mode);
 
     if (mode === 'OFF') {
@@ -90,7 +97,7 @@ export class RelayManager {
     }
   }
 
-  getMode(): { mode: RelayMode; expiresAtEpochMs: number | null; region: string | null } {
+  getMode(): { mode: RelayMode; expiresAtEpochMs: number | null; durationMs: number | null; region: string | null } {
     return { ...this.tokenStore.getP2pRelayMode(), region: this.tokenStore.getP2pRelayRegion() };
   }
 

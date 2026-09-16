@@ -39,6 +39,21 @@
             android:text="@string/p2p_relay_accept_checkbox"
             android:layout_marginBottom="16dp" />
 
+        <!-- The relay NODE's own physical location — geo-IP auto-detected once
+             by P2pRelayAgent#start on first-ever registration (the repo owner's
+             explicit call: "как при старте ноды", the same one-shot detection a
+             regular VPS node does at install time), never editable here.
+             Invisible until a value is actually known (see
+             P2pRelaySettingsActivity#onCreate) — unrelated to any VPN-connection
+             region preference elsewhere in the app. -->
+        <TextView
+            android:id="@+id/p2pRegionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

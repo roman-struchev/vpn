@@ -130,5 +130,19 @@ public class TokenStoreTest {
         tokenStore.setDisallowedApps(apps);
         assertEquals(apps, tokenStore.getDisallowedApps());
     }
+
+    /**
+     * The relay node's own declared location (docs/research/
+     * P2P_RELAY_FEASIBILITY.md §8.4/§8.5) — geo-IP auto-detected once by
+     * P2pRelayAgent#start (see GeoLocale#detectNodeRegion), cached here.
+     * Round-trip coverage matches the desktop client's equivalent test for
+     * the same field (tokenStoreP2pRelay.test.ts).
+     */
+    @Test
+    public void p2pRelayRegionDefaultsToNullAndRoundTrips() {
+        assertNull(tokenStore.getP2pRelayRegion());
+        tokenStore.saveP2pRelayRegion("Germany, Berlin");
+        assertEquals("Germany, Berlin", tokenStore.getP2pRelayRegion());
+    }
 }
 

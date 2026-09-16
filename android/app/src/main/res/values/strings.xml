@@ -115,6 +115,7 @@
     <string name="p2p_relay_explanation" formatted="false">Разрешите приложению ретранслировать зашифрованный трафик других пользователей через ваше устройство и получайте за это дополнительный трафик на баланс — работает даже на бесплатном тарифе. Ваше устройство не видит и не может прочитать чужой трафик, а само никогда не выступает конечной точкой выхода в интернет.</string>
     <string name="p2p_relay_terms_link">Условия и риски P2P-режима</string>
     <string name="p2p_relay_accept_checkbox">Я прочитал(а) условия и согласен(на) с рисками</string>
+    <string name="p2p_relay_region_format">Местоположение узла: %1$s</string>
     <string name="p2p_relay_mode_label">Режим</string>
     <string name="p2p_relay_mode_off">Выключено</string>
     <string name="p2p_relay_mode_1h">Включить на 1 час</string>

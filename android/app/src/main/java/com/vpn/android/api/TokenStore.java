@@ -42,6 +42,11 @@ public class TokenStore {
     private static final String KEY_P2P_NODE_TOKEN = "p2p_node_token";
     private static final String KEY_P2P_RELAY_MODE = "p2p_relay_mode";
     private static final String KEY_P2P_RELAY_EXPIRES_AT = "p2p_relay_expires_at_epoch_ms";
+    // The relay NODE's own declared location — geo-IP auto-detected once by
+    // P2pRelayAgent#start on first-ever registration (see GeoLocale#detectNodeRegion),
+    // then cached here and reused on every later start. Unrelated to any VPN
+    // egress region preference the app keeps elsewhere.
+    private static final String KEY_P2P_RELAY_REGION = "p2p_relay_region";
     public static final String P2P_RELAY_OFF = "OFF";
     public static final String P2P_RELAY_TIMED = "TIMED";
     public static final String P2P_RELAY_ALWAYS = "ALWAYS";
@@ -231,6 +236,14 @@ public class TokenStore {
 
     public long getP2pRelayExpiresAt() {
         return prefs.getLong(KEY_P2P_RELAY_EXPIRES_AT, 0L);
+    }
+
+    public String getP2pRelayRegion() {
+        return prefs.getString(KEY_P2P_RELAY_REGION, null);
+    }
+
+    public void saveP2pRelayRegion(String region) {
+        prefs.edit().putString(KEY_P2P_RELAY_REGION, region).apply();
     }
 
     public Set<String> getDisallowedApps() {

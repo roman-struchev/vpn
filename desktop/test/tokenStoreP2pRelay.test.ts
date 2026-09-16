@@ -26,14 +26,14 @@ describe('TokenStore P2P relay mode persistence', () => {
   it('defaults to OFF with no expiry before anything is saved', async () => {
     const { TokenStore } = await import('../src/main/api/tokenStore');
     const store = new TokenStore();
-    expect(store.getP2pRelayMode()).toEqual({ mode: 'OFF', expiresAtEpochMs: null });
+    expect(store.getP2pRelayMode()).toEqual({ mode: 'OFF', expiresAtEpochMs: null, durationMs: null });
   });
 
   it('round-trips ALWAYS mode', async () => {
     const { TokenStore } = await import('../src/main/api/tokenStore');
     const store = new TokenStore();
     store.saveP2pRelayMode('ALWAYS', null);
-    expect(store.getP2pRelayMode()).toEqual({ mode: 'ALWAYS', expiresAtEpochMs: null });
+    expect(store.getP2pRelayMode()).toEqual({ mode: 'ALWAYS', expiresAtEpochMs: null, durationMs: null });
   });
 
   it('round-trips TIMED mode with its expiry', async () => {
@@ -41,7 +41,34 @@ describe('TokenStore P2P relay mode persistence', () => {
     const store = new TokenStore();
     const expiresAt = Date.now() + 3_600_000;
     store.saveP2pRelayMode('TIMED', expiresAt);
-    expect(store.getP2pRelayMode()).toEqual({ mode: 'TIMED', expiresAtEpochMs: expiresAt });
+    expect(store.getP2pRelayMode()).toEqual({ mode: 'TIMED', expiresAtEpochMs: expiresAt, durationMs: null });
+  });
+
+  /**
+   * Regression coverage for the bug the repo owner reported (both the 1h and
+   * 8h buttons showing active at once): expiresAtEpochMs alone can't tell
+   * which TIMED duration produced it, so the UI needs durationMs stored
+   * alongside it — this is the persistence half of that fix (see
+   * p2pModeButtons.ts#isModeButtonActive for the UI half).
+   */
+  it('round-trips TIMED mode with which specific duration produced it', async () => {
+    const { TokenStore } = await import('../src/main/api/tokenStore');
+    const store = new TokenStore();
+    const oneHourMs = 3_600_000;
+    const expiresAt = Date.now() + oneHourMs;
+    store.saveP2pRelayMode('TIMED', expiresAt, oneHourMs);
+    expect(store.getP2pRelayMode()).toEqual({ mode: 'TIMED', expiresAtEpochMs: expiresAt, durationMs: oneHourMs });
+  });
+
+  it('switching from an 8h window to a 1h window overwrites the stored duration, not just the expiry', async () => {
+    const { TokenStore } = await import('../src/main/api/tokenStore');
+    const store = new TokenStore();
+    const eightHoursMs = 8 * 3_600_000;
+    const oneHourMs = 3_600_000;
+    store.saveP2pRelayMode('TIMED', Date.now() + eightHoursMs, eightHoursMs);
+    const newExpiresAt = Date.now() + oneHourMs;
+    store.saveP2pRelayMode('TIMED', newExpiresAt, oneHourMs);
+    expect(store.getP2pRelayMode()).toEqual({ mode: 'TIMED', expiresAtEpochMs: newExpiresAt, durationMs: oneHourMs });
   });
 
   it('does not disturb an existing auth session when saving relay mode', async () => {
@@ -59,7 +86,7 @@ describe('TokenStore P2P relay mode persistence', () => {
     store.save('jwt-token', 42);
     store.saveP2pRelayMode('ALWAYS', null);
     store.clear();
-    expect(store.getP2pRelayMode()).toEqual({ mode: 'OFF', expiresAtEpochMs: null });
+    expect(store.getP2pRelayMode()).toEqual({ mode: 'OFF', expiresAtEpochMs: null, durationMs: null });
   });
 
   it('defaults to null region before anything is saved', async () => {

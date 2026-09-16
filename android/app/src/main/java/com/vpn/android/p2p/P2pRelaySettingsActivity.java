@@ -49,6 +49,17 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.WEB_BASE_URL + TERMS_URL_PATH))));
         binding.p2pApplyButton.setOnClickListener(v -> applySelection());
 
+        // Only known once the node has actually registered at least once
+        // (P2pRelayAgent#start detects+persists it on first start, "как при
+        // старте ноды" per the repo owner — same one-shot geo-IP detection a
+        // regular VPS node does at install time) — shown read-only, never
+        // editable.
+        String savedRegion = tokenStore.getP2pRelayRegion();
+        if (savedRegion != null && !savedRegion.isBlank()) {
+            binding.p2pRegionText.setText(getString(R.string.p2p_relay_region_format, savedRegion));
+            binding.p2pRegionText.setVisibility(android.view.View.VISIBLE);
+        }
+
         restoreCurrentSelection();
         loadStatus();
     }

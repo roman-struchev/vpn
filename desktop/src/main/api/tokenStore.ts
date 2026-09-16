@@ -47,15 +47,24 @@ interface StoredAuth {
   p2pRelayMode?: 'OFF' | 'TIMED' | 'ALWAYS';
   p2pRelayExpiresAtEpochMs?: number;
   /**
-   * The relay NODE's own declared location (docs §8.4/§8.5) — deliberately
-   * NOT auto-detected from IP geolocation (the repo owner's explicit call:
-   * "местоположение определять корректно ... но не авто"), since a p2p
-   * node's publicIp is a meaningless placeholder (0.0.0.0), so IP-based geo
-   * lookup would have nothing real to work from anyway. Entered once by the
-   * user in P2pRelaySection and reused on every subsequent relay-agent
-   * start. Unrelated to `selectedRegion` above, which is which VPN egress
-   * region THIS device wants to connect THROUGH — a p2p relay node's own
-   * physical location is a different fact entirely.
+   * Which TIMED duration button was actually pressed (e.g. 1h vs 8h, in ms)
+   * — expiresAtEpochMs alone can't tell two different durations apart once
+   * time has passed. Without this, the UI had no way to know which of
+   * several TIMED buttons was the one that produced the current window, so
+   * ALL of them rendered as "active" simultaneously. Meaningless outside
+   * mode === 'TIMED'.
+   */
+  p2pRelayDurationMs?: number;
+  /**
+   * The relay NODE's own declared location (docs §8.4/§8.5) — geo-IP
+   * auto-detected once, the first time this device ever activates relay
+   * mode (see geoLocale.ts#detectNodeRegion), the same way a regular VPS
+   * node determines its region at install time — never re-detected on
+   * every subsequent start, so a laptop that later moves to a different
+   * country keeps its originally-detected label. Unrelated to
+   * `selectedRegion` above, which is which VPN egress region THIS device
+   * wants to connect THROUGH — a p2p relay node's own physical location is
+   * a different fact entirely.
    */
   p2pRelayRegion?: string;
 }
@@ -159,17 +168,22 @@ export class TokenStore {
     this.writePayload({ ...current, originalIpIsRussia: isRussia });
   }
 
-  getP2pRelayMode(): { mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null } {
+  getP2pRelayMode(): { mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null; durationMs: number | null } {
     const current = this.load();
-    return { mode: current?.p2pRelayMode ?? 'OFF', expiresAtEpochMs: current?.p2pRelayExpiresAtEpochMs ?? null };
+    return {
+      mode: current?.p2pRelayMode ?? 'OFF',
+      expiresAtEpochMs: current?.p2pRelayExpiresAtEpochMs ?? null,
+      durationMs: current?.p2pRelayDurationMs ?? null,
+    };
   }
 
-  saveP2pRelayMode(mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null): void {
+  saveP2pRelayMode(mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null, durationMs?: number | null): void {
     const current = this.load();
     this.writePayload({
       ...current,
       p2pRelayMode: mode,
       p2pRelayExpiresAtEpochMs: expiresAtEpochMs ?? undefined,
+      p2pRelayDurationMs: durationMs ?? undefined,
     });
   }
 
