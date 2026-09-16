@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { t } from '../i18n';
-import type { RegionInfo } from '../types';
 
 type RelayMode = 'OFF' | 'TIMED' | 'ALWAYS';
 
@@ -27,33 +26,15 @@ export default function P2pRelaySection() {
   // Computed from the server's own origin (web/src/App.tsx's #p2p-terms
   // hash route, phase 5) rather than hardcoded — see ApiClient#getWebOrigin.
   const [termsUrl, setTermsUrl] = useState<string | null>(null);
-  // This relay NODE's own physical location — deliberately a manual field,
-  // never auto-detected from IP geolocation (the repo owner's explicit
-  // call: a p2p node's placeholder publicIp has nothing real to geo-locate
-  // from anyway). Pre-filled from whatever was already saved; existing VPN
-  // server region labels are offered as <datalist> suggestions purely for a
-  // consistent "Country" / "Country, City" format, not because this is
-  // meant to be one of THOSE regions.
-  const [region, setRegion] = useState('');
-  const [regionOptions, setRegionOptions] = useState<string[]>([]);
-  const [regionTouched, setRegionTouched] = useState(false);
 
   const reload = () => {
     window.vpnApi.getP2pStatus().then(setStatus).catch(() => undefined);
-    window.vpnApi.getP2pRelayMode().then((m) => {
-      setModeState(m);
-      if (!regionTouched) setRegion(m.region ?? '');
-    }).catch(() => undefined);
+    window.vpnApi.getP2pRelayMode().then(setModeState).catch(() => undefined);
   };
 
   useEffect(() => {
     reload();
     window.vpnApi.getP2pTermsUrl().then(setTermsUrl).catch(() => undefined);
-    window.vpnApi
-      .getRegions()
-      .then((regions: RegionInfo[]) => setRegionOptions(regions.map((r) => r.region)))
-      .catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!status || status.isGuest) {
@@ -79,19 +60,11 @@ export default function P2pRelaySection() {
   };
 
   const changeMode = async (next: RelayMode, durationMs?: number) => {
-    // Required before ever starting the agent for the first time (region is
-    // part of RegisterNode) — not required to turn OFF, since that never
-    // touches registration. See RelayManager#setMode's own guard for the
-    // same rule server-side of this IPC boundary.
-    if (next !== 'OFF' && !region.trim()) {
-      setError(t.p2pRegionRequired);
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
       const expiresAtEpochMs = durationMs ? Date.now() + durationMs : null;
-      await window.vpnApi.setP2pRelayMode(next, expiresAtEpochMs, region.trim() || undefined);
+      await window.vpnApi.setP2pRelayMode(next, expiresAtEpochMs);
       reload();
     } catch (e) {
       setError(t.p2pError + (e instanceof Error ? `: ${e.message}` : ''));
@@ -138,27 +111,6 @@ export default function P2pRelaySection() {
         </button>
       ) : (
         <>
-          <div className="mt-3">
-            <label className="block text-[10px] text-white/40 mb-1">{t.p2pRegionLabel}</label>
-            <input
-              type="text"
-              list="p2p-region-suggestions"
-              value={region}
-              disabled={busy}
-              onChange={(e) => {
-                setRegionTouched(true);
-                setRegion(e.target.value);
-              }}
-              placeholder={t.p2pRegionPlaceholder}
-              className="w-full rounded-lg bg-dark-800 border border-dark-750 px-2.5 py-1.5 text-[11px] text-white/80 placeholder:text-white/25 focus:outline-none focus:border-brand-500"
-            />
-            <datalist id="p2p-region-suggestions">
-              {regionOptions.map((r) => (
-                <option key={r} value={r} />
-              ))}
-            </datalist>
-          </div>
-
           <div className="mt-3 grid grid-cols-4 gap-1.5">
             {modeButtons.map((btn) => (
               <button
@@ -180,6 +132,17 @@ export default function P2pRelaySection() {
           {mode?.mode === 'TIMED' && mode.expiresAtEpochMs && (
             <p className="mt-2 text-[10px] text-white/40">
               {t.p2pExpiresAt}: {new Date(mode.expiresAtEpochMs).toLocaleString()}
+            </p>
+          )}
+
+          {/* Only known once the node has actually registered at least once
+              (RelayManager#setMode detects+persists it on first start,
+              "как при старте ноды" per the repo owner — same one-shot
+              geo-IP detection a regular VPS node does at install time, never
+              re-run on every restart) — shown read-only, never editable. */}
+          {mode?.region && (
+            <p className="mt-2 text-[10px] text-white/40">
+              {t.p2pRegionLabel}: {mode.region}
             </p>
           )}
 

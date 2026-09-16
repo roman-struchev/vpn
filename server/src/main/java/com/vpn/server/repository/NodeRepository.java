@@ -4,6 +4,7 @@ import com.vpn.server.entity.Node;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -21,4 +22,15 @@ public interface NodeRepository extends JpaRepository<Node, Long> {
     // independent of the pool/lifecycle queries above.
     List<Node> findByAvailableToTrialTrueAndStatus(String status);
     List<Node> findByAvailableToPaidTrueAndStatus(String status);
+
+    // NodeHealthTask's two jobs (docs §8: p2p nodes churn far more than
+    // stable VPS infra, so this repo previously had no mechanism at all for
+    // either — a node's status just sat at whatever its last heartbeat set
+    // it to, forever). registerNode always sets lastHeartbeatAt at creation
+    // time, so there's no real "never heartbeated" (null) case to separately
+    // handle — a node that dies right after registering just has an
+    // immediately-stale (not null) lastHeartbeatAt, which the first query
+    // below already catches.
+    List<Node> findByStatusAndLastHeartbeatAtBefore(String status, Instant cutoff);
+    List<Node> findByTypeAndStatusAndLastHeartbeatAtBefore(String type, String status, Instant cutoff);
 }

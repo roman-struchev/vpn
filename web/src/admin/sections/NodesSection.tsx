@@ -112,6 +112,20 @@ export function NodesSection({ t }: { t: AdminT }) {
           <Column field="region" header={t.region} />
           <Column field="type" header={t.type} style={{ width: '5rem' }} />
           <Column
+            header="P2P"
+            style={{ width: '9rem' }}
+            body={(n: AdminNode) =>
+              n.type === 'p2p' ? (
+                <span className="text-amber-400 text-[10px]" title={n.relayExpiresAt ?? undefined}>
+                  {n.relayMode}
+                  {n.ownerUserId != null ? ` · user #${n.ownerUserId}` : ''}
+                </span>
+              ) : (
+                <span className="text-slate-600">—</span>
+              )
+            }
+          />
+          <Column
             header={t.status}
             style={{ width: '10rem' }}
             body={(n: AdminNode) => (
@@ -125,7 +139,7 @@ export function NodesSection({ t }: { t: AdminT }) {
             )}
           />
           <Column
-            header={t.pool}
+            header={<span title={t.poolHint} className="cursor-help border-b border-dotted border-slate-600">{t.pool}</span>}
             style={{ width: '9rem' }}
             body={(n: AdminNode) => (
               <Dropdown
@@ -138,15 +152,17 @@ export function NodesSection({ t }: { t: AdminT }) {
             )}
           />
           <Column
-            header={t.tariffAccess}
+            header={<span title={t.tariffAccessHint} className="cursor-help border-b border-dotted border-slate-600">{t.tariffAccess}</span>}
             style={{ width: '9rem' }}
             body={(n: AdminNode) => (
+              // Editable independently of `pool` (docs §8.3) — the repo
+              // owner explicitly asked for existing direct/cdn nodes to also
+              // get a paid+trial dual-access mode, not just p2p ones, so
+              // this is a direct toggle rather than a read-only display of
+              // whatever pool happened to derive. See the pool/tariffAccess
+              // header tooltips for why these two columns aren't the same
+              // thing despite usually agreeing by default.
               <div className="flex flex-col gap-1 text-[10px]">
-                {/* Editable independently of `pool` (docs §8.3) — the repo
-                    owner explicitly asked for existing direct/cdn nodes to
-                    also get a paid+trial dual-access mode, not just p2p ones,
-                    so this is a direct toggle rather than a read-only
-                    display of whatever pool happened to derive. */}
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -173,12 +189,6 @@ export function NodesSection({ t }: { t: AdminT }) {
                     {t.pricingTariffTrialLabel}
                   </span>
                 </label>
-                {n.type === 'p2p' && (
-                  <span className="text-amber-400" title={n.relayExpiresAt ?? undefined}>
-                    P2P · {n.relayMode}
-                    {n.ownerUserId != null ? ` · user #${n.ownerUserId}` : ''}
-                  </span>
-                )}
               </div>
             )}
           />

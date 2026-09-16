@@ -2,6 +2,7 @@ import { app } from 'electron';
 import os from 'node:os';
 import type { ApiClient } from '../api/apiClient';
 import type { TokenStore } from '../api/tokenStore';
+import { detectNodeRegion } from '../geoLocale';
 import { RelayAgent, type RelayMode } from './relayAgent';
 
 /**
@@ -33,27 +34,11 @@ export class RelayManager {
       this.tokenStore.saveP2pRelayMode('OFF', null);
       return;
     }
-    // The region was already collected and persisted the first time the
-    // user turned relay mode on (setMode below requires it); reuse that
-    // rather than asking again on every silent resume.
-    const region = this.tokenStore.getP2pRelayRegion();
-    if (!region) return; // shouldn't happen (mode can't have been set without one), but never resume with a blank region.
-    await this.setMode(mode, expiresAtEpochMs, region);
+    await this.setMode(mode, expiresAtEpochMs);
   }
 
-  /**
-   * @param region The relay NODE's own physical location, "Country" or
-   *   "Country, City" (same free-text convention regular nodes use — see
-   *   scripts/install-node.sh's own region docs), entered by the user in
-   *   P2pRelaySection — never auto-detected from IP geolocation, since a p2p
-   *   node's placeholder publicIp has no real geo-IP signal to read anyway
-   *   (the repo owner's explicit call). Required to actually start the
-   *   agent; omit only when changing an already-running agent's mode
-   *   in-place (region can't change without a fresh registration anyway).
-   */
-  async setMode(mode: RelayMode, expiresAtEpochMs: number | null, region?: string): Promise<void> {
+  async setMode(mode: RelayMode, expiresAtEpochMs: number | null): Promise<void> {
     this.tokenStore.saveP2pRelayMode(mode, expiresAtEpochMs);
-    if (region) this.tokenStore.saveP2pRelayRegion(region);
     this.syncLoginItem(mode);
 
     if (mode === 'OFF') {
@@ -67,13 +52,20 @@ export class RelayManager {
       return;
     }
 
-    const effectiveRegion = region || this.tokenStore.getP2pRelayRegion();
-    if (!effectiveRegion) {
-      throw new Error('P2P relay region is required before enabling relay mode for the first time');
+    // Detected once, the first time this device ever registers as a p2p
+    // node, then persisted and reused on every later start/resume — exactly
+    // like a regular VPS node's install-time geo-IP lookup is a one-shot
+    // thing, never re-run on every restart (see detectNodeRegion's own doc
+    // comment). A laptop that later moves to a different country keeps its
+    // originally-detected label rather than silently relabeling itself.
+    let region = this.tokenStore.getP2pRelayRegion();
+    if (!region) {
+      region = await detectNodeRegion();
+      this.tokenStore.saveP2pRelayRegion(region);
     }
 
     const { token } = await this.apiClient.createP2pBootstrapToken();
-    this.agent = new RelayAgent(this.apiClient.getGrpcTarget(), await this.buildNodeHostname(), effectiveRegion);
+    this.agent = new RelayAgent(this.apiClient.getGrpcTarget(), await this.buildNodeHostname(), region);
     this.agent.on('error', (err) => console.warn('[p2p relay]', err));
     this.agent.on('aclRejected', (sessionId: string, host: string) =>
       console.warn(`[p2p relay] session ${sessionId} rejected: destination ${host} is a blocked private/loopback address`)

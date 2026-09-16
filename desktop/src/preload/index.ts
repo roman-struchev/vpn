@@ -91,8 +91,8 @@ const vpnApi = {
   }> => ipcRenderer.invoke('p2p:getStatus'),
   getP2pRelayMode: (): Promise<{ mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null; region: string | null }> =>
     ipcRenderer.invoke('p2p:getMode'),
-  setP2pRelayMode: (mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null, region?: string): Promise<void> =>
-    ipcRenderer.invoke('p2p:setMode', mode, expiresAtEpochMs, region),
+  setP2pRelayMode: (mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null): Promise<void> =>
+    ipcRenderer.invoke('p2p:setMode', mode, expiresAtEpochMs),
   getP2pTermsUrl: (): Promise<string> => ipcRenderer.invoke('p2p:getTermsUrl'),
 };
 

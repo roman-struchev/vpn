@@ -114,8 +114,8 @@ export function registerIpcHandlers(
   // whichever host apiClient is actually talking to (production IP today,
   // a real domain later), not a fixed guess.
   ipcMain.handle('p2p:getTermsUrl', () => `${apiClient.getWebOrigin()}/#p2p-terms`);
-  ipcMain.handle('p2p:setMode', (_e, mode: RelayMode, expiresAtEpochMs: number | null, region?: string) =>
-    relayManager.setMode(mode, expiresAtEpochMs, region)
+  ipcMain.handle('p2p:setMode', (_e, mode: RelayMode, expiresAtEpochMs: number | null) =>
+    relayManager.setMode(mode, expiresAtEpochMs)
   );
 
   vpn.on('state', (state) => {
