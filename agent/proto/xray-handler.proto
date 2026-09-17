@@ -1,0 +1,55 @@
+// Minimal, self-contained stand-in for Xray-core's own
+// app/proxyman/command/command.proto (HandlerService) — just the one RPC and
+// the messages needed to add/remove a VLESS user in a running xray, so a new
+// device no longer forces a full xray restart that drops every other user's
+// connections (see XraySupervisor#applyConfig).
+//
+// Deliberately NOT the upstream file tree: upstream splits these across
+// app/proxyman/command/command.proto, common/protocol/user.proto,
+// common/serial/typed_message.proto and proxy/vless/account.proto, all with
+// their own imports. Field numbers and the wire format here match upstream
+// exactly (that's what the RPC actually depends on); TypedMessage#type
+// carries the upstream fully-qualified name as a string, so the server side
+// resolves the real account type.
+syntax = "proto3";
+
+package xray.app.proxyman.command;
+
+// xray.common.serial.TypedMessage
+message TypedMessage {
+  string type = 1;
+  bytes value = 2;
+}
+
+// xray.common.protocol.User
+message User {
+  uint32 level = 1;
+  string email = 2;
+  TypedMessage account = 3;
+}
+
+// xray.proxy.vless.Account (only the fields an inbound client may set — see
+// infra/conf/vless.go: "encryption" must stay empty for inbound users).
+message VlessAccount {
+  string id = 1;
+  string flow = 2;
+}
+
+message AddUserOperation {
+  User user = 1;
+}
+
+message RemoveUserOperation {
+  string email = 1;
+}
+
+message AlterInboundRequest {
+  string tag = 1;
+  TypedMessage operation = 2;
+}
+
+message AlterInboundResponse {}
+
+service HandlerService {
+  rpc AlterInbound(AlterInboundRequest) returns (AlterInboundResponse);
+}

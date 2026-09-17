@@ -3,6 +3,7 @@ import path from 'path';
 import { spawn, ChildProcess } from 'child_process';
 import { logger } from '../utils/logger.js';
 import { buildXrayConfig, hasStructuralChanges, ServerConfigSyncPayload } from './config-builder.js';
+import { XrayHandlerApi, computeClientDiff, type XrayClient } from './handler-api.js';
 
 export interface WatchdogStats {
   watchdogAttempts: number;
@@ -19,6 +20,7 @@ export class XraySupervisor {
   private isMockMode: boolean = false;
   private isStopping: boolean = false;
   private lastConfigSync: ServerConfigSyncPayload | null = null;
+  private readonly handlerApi = new XrayHandlerApi();
 
   // Watchdog state
   private watchdogAttempts: number = 0;
@@ -58,6 +60,11 @@ export class XraySupervisor {
 
       if (!this.isRunning) {
         await this.start();
+      } else if (
+        !hasStructuralChanges(this.lastConfigSync, syncPayload) &&
+        (await this.applyClientChangesLive(this.lastConfigSync!, syncPayload))
+      ) {
+        logger.info(`Applied configuration ${syncPayload.configVersion} live (users only, no Xray restart)`);
       } else {
         logger.info(`Applying updated configuration (version ${syncPayload.configVersion}), restarting Xray...`);
         await this.restart();
@@ -71,6 +78,48 @@ export class XraySupervisor {
     }
   }
 
+  /**
+   * Adds/removes just the users that changed, in the running xray, via its
+   * HandlerService API. Returns false if anything at all goes wrong, so the
+   * caller falls back to the (correct but disruptive) full restart — a failed
+   * live update must never leave the node serving a stale client list.
+   */
+  private async applyClientChangesLive(
+    previous: ServerConfigSyncPayload,
+    next: ServerConfigSyncPayload
+  ): Promise<boolean> {
+    const activeClients = (payload: ServerConfigSyncPayload): XrayClient[] =>
+      (payload.clients || [])
+        .filter(c => c.isActive)
+        .map(c => ({ uuid: c.uuid, emailTag: c.emailTag || `user_${c.userId}_dev_${c.deviceId}` }));
+
+    const diff = computeClientDiff(activeClients(previous), activeClients(next));
+    if (!diff.added.length && !diff.removedEmails.length) return true;
+
+    // Both inbounds share one client list (see buildXrayConfig), so every
+    // change has to be applied to each of them.
+    const inboundTags = ['vless-inbound'];
+    if (next.fallbackInbound) inboundTags.push('vless-inbound-fallback');
+
+    try {
+      for (const tag of inboundTags) {
+        for (const email of diff.removedEmails) {
+          await this.handlerApi.removeUser(tag, email);
+        }
+        for (const client of diff.added) {
+          await this.handlerApi.addUser(tag, client.uuid, client.emailTag);
+        }
+      }
+      logger.info(
+        `Live user update on ${inboundTags.join(', ')}: +${diff.added.length} / -${diff.removedEmails.length}`
+      );
+      return true;
+    } catch (err) {
+      logger.warn(`Live user update failed (${err}); falling back to an Xray restart`);
+      return false;
+    }
+  }
+
   public async start(): Promise<void> {
     if (this.isRunning) return;
 
@@ -80,25 +129,35 @@ export class XraySupervisor {
     }
 
     try {
-      this.process = spawn(this.binaryPath, ['run', '-c', this.configPath], {
+      const child = spawn(this.binaryPath, ['run', '-c', this.configPath], {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      this.process = child;
 
-      this.process.stdout?.on('data', data => {
+      child.stdout?.on('data', data => {
         logger.info(`[xray-core] ${data.toString().trim()}`);
       });
 
-      this.process.stderr?.on('data', data => {
+      child.stderr?.on('data', data => {
         logger.warn(`[xray-core stderr] ${data.toString().trim()}`);
       });
 
-      this.process.on('error', err => {
+      child.on('error', err => {
+        if (this.process !== child) return;
         logger.warn(`Failed to spawn xray binary (${this.binaryPath}): ${err.message}. Running in simulated mode.`);
         this.isMockMode = true;
         this.isRunning = true;
       });
 
-      this.process.on('exit', (code, signal) => {
+      child.on('exit', (code, signal) => {
+        // Only the CURRENT child's exit means anything. A restart SIGTERMs the
+        // previous xray and immediately spawns the next one; the previous one's
+        // exit arrives after that, and used to be taken for a crash of the new
+        // one — the watchdog then started a second xray. Both kept serving
+        // :443 via SO_REUSEPORT, so only one process's traffic stats were ever
+        // collected (usage under-counted), and the orphan kept running its stale
+        // config forever (revoked devices/blocked users could still connect).
+        if (this.process !== child) return;
         this.isRunning = false;
         this.process = null;
         this.lastExitCode = code;
@@ -152,6 +211,7 @@ export class XraySupervisor {
 
   public async stop(): Promise<void> {
     this.isStopping = true;
+    this.handlerApi.close();
     if (this.watchdogTimer) {
       clearTimeout(this.watchdogTimer);
       this.watchdogTimer = null;
@@ -161,12 +221,13 @@ export class XraySupervisor {
       this.stabilityTimer = null;
     }
 
-    if (this.process) {
-      logger.info('Stopping Xray process...');
-      this.process.kill('SIGTERM');
-      this.process = null;
-    }
+    const child = this.process;
+    this.process = null;
     this.isRunning = false;
+    if (child) {
+      logger.info('Stopping Xray process...');
+      await terminate(child);
+    }
     this.isStopping = false;
   }
 
@@ -192,3 +253,26 @@ export class XraySupervisor {
   }
 }
 
+const STOP_TIMEOUT_MS = 5000;
+
+/**
+ * SIGTERM, then SIGKILL if it hasn't exited within STOP_TIMEOUT_MS. Resolves only once
+ * the process is really gone, so a restart never has two xray processes bound to the
+ * same ports at once.
+ */
+function terminate(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) {
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    const killTimer = setTimeout(() => {
+      logger.warn(`Xray process ${child.pid} did not exit on SIGTERM within ${STOP_TIMEOUT_MS}ms, sending SIGKILL`);
+      child.kill('SIGKILL');
+    }, STOP_TIMEOUT_MS);
+    child.once('exit', () => {
+      clearTimeout(killTimer);
+      resolve();
+    });
+    child.kill('SIGTERM');
+  });
+}

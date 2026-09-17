@@ -139,7 +139,10 @@ export function buildXrayConfig(configSync: ServerConfigSyncPayload): Record<str
     },
     api: {
       tag: 'api',
-      services: ['StatsService'],
+      // HandlerService lets the agent add/remove users in a running xray
+      // instead of restarting it for every client-list change (see
+      // XraySupervisor#applyConfig and handler-api.ts).
+      services: ['StatsService', 'HandlerService'],
     },
     stats: {},
     policy: {
