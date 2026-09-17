@@ -445,6 +445,61 @@ class NodeManagementServiceTest {
     }
 
     @Test
+    void testProcessHeartbeatWithLapsedTimedWindowMarksP2pNodeOffline() {
+        // Repo owner's report: a desktop relay set to "1 hour" kept heartbeating
+        // with its original TIMED window and stayed ONLINE 9 hours later.
+        Node node = new Node();
+        node.setId(62L);
+        node.setType("p2p");
+        node.setStatus("ONLINE");
+        when(nodeRepository.findById(62L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> i.getArgument(0));
+
+        Heartbeat heartbeat = Heartbeat.newBuilder()
+                .setRelayMode("TIMED")
+                .setRelayExpiresAtEpochMs(Instant.now().minus(8, ChronoUnit.HOURS).toEpochMilli())
+                .build();
+
+        nodeManagementService.processHeartbeat(62L, heartbeat);
+
+        assertEquals("OFFLINE", node.getStatus());
+        assertNotNull(node.getLastHeartbeatAt());
+    }
+
+    @Test
+    void testProcessHeartbeatWithActiveTimedWindowKeepsP2pNodeOnline() {
+        Node node = new Node();
+        node.setId(63L);
+        node.setType("p2p");
+        node.setStatus("OFFLINE");
+        when(nodeRepository.findById(63L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> i.getArgument(0));
+
+        Heartbeat heartbeat = Heartbeat.newBuilder()
+                .setRelayMode("TIMED")
+                .setRelayExpiresAtEpochMs(Instant.now().plus(1, ChronoUnit.HOURS).toEpochMilli())
+                .build();
+
+        nodeManagementService.processHeartbeat(63L, heartbeat);
+
+        assertEquals("ONLINE", node.getStatus());
+    }
+
+    @Test
+    void testProcessHeartbeatKeepsDirectNodeOnlineRegardlessOfRelayFields() {
+        Node node = new Node();
+        node.setId(64L);
+        node.setType("direct");
+        node.setRelayMode("OFF");
+        when(nodeRepository.findById(64L)).thenReturn(Optional.of(node));
+        when(nodeRepository.save(any(Node.class))).thenAnswer(i -> i.getArgument(0));
+
+        nodeManagementService.processHeartbeat(64L, Heartbeat.newBuilder().setCpuPercent(1.0).build());
+
+        assertEquals("ONLINE", node.getStatus());
+    }
+
+    @Test
     void testProcessHeartbeatWithBlankRelayModeLeavesExistingWindowUnchanged() {
         // A plain heartbeat that doesn't touch relay state at all (relay_mode
         // left at its proto default, "") must not silently reset an ALWAYS/

@@ -14,8 +14,10 @@ import com.vpn.android.VpnApp;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
 
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Foreground service hosting {@link P2pRelayAgent} for as long as relay mode
@@ -43,8 +45,18 @@ public class P2pRelayService extends Service {
     // the plain `agent` field (check-then-act on "is it null yet") and end
     // up registering two agents, or one callback clobbering the other's
     // freshly-created instance.
-    private final ExecutorService relayExecutor = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService relayExecutor = Executors.newSingleThreadScheduledExecutor();
     private volatile P2pRelayAgent agent;
+
+    // TIMED windows must end on their own: before this, nothing ever stopped
+    // the relay once its hour/8 hours were up — the agent kept heartbeating
+    // its lapsed window and the node stayed listed as online indefinitely
+    // (same bug the repo owner hit on desktop). Polls the wall clock on
+    // relayExecutor (so it's serialized with start/stop) rather than posting
+    // one delayed task for the whole window: delayed tasks run on uptime,
+    // which stops while the device is in deep sleep.
+    private static final long EXPIRY_CHECK_INTERVAL_SECONDS = 30;
+    private ScheduledFuture<?> expiryCheck;
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
@@ -62,11 +74,25 @@ public class P2pRelayService extends Service {
 
         startForeground(NOTIFICATION_ID, buildNotification());
 
-        String relayMode = intent != null ? intent.getStringExtra(EXTRA_RELAY_MODE) : TokenStore.P2P_RELAY_OFF;
-        long relayExpiresAt = intent != null ? intent.getLongExtra(EXTRA_RELAY_EXPIRES_AT, 0L) : 0L;
-        if (relayMode == null) relayMode = TokenStore.P2P_RELAY_OFF;
-
         TokenStore tokenStore = new TokenStore(this);
+        String relayMode;
+        long relayExpiresAt;
+        if (intent != null) {
+            relayMode = intent.getStringExtra(EXTRA_RELAY_MODE);
+            relayExpiresAt = intent.getLongExtra(EXTRA_RELAY_EXPIRES_AT, 0L);
+        } else {
+            // START_STICKY restart after the process was killed: Android redelivers a null
+            // intent, so the mode must come from what was persisted — defaulting to OFF here
+            // silently turned an ALWAYS relay off on the very restart START_STICKY exists for.
+            relayMode = tokenStore.getP2pRelayMode();
+            relayExpiresAt = tokenStore.getP2pRelayExpiresAt();
+        }
+        if (relayMode == null) relayMode = TokenStore.P2P_RELAY_OFF;
+        if (RelayWindow.isTimedWindowOver(relayMode, relayExpiresAt, System.currentTimeMillis())) {
+            relayMode = TokenStore.P2P_RELAY_OFF;
+            relayExpiresAt = 0L;
+        }
+
         tokenStore.saveP2pRelayState(relayMode, relayExpiresAt);
 
         if (TokenStore.P2P_RELAY_OFF.equals(relayMode)) {
@@ -89,6 +115,7 @@ public class P2pRelayService extends Service {
         final String finalRelayMode = relayMode;
         final long finalRelayExpiresAt = relayExpiresAt;
         relayExecutor.execute(() -> {
+            scheduleExpiryCheck(finalRelayMode, finalRelayExpiresAt);
             try {
                 if (agent == null) {
                     // start() auto-detects+persists the node's own region on
@@ -118,10 +145,32 @@ public class P2pRelayService extends Service {
         // memory pressure; BootReceiver handles the reboot case separately,
         // since a killed *process* still has this service's sticky restart,
         // but a full reboot starts with no services running at all.
-        return TokenStore.P2P_RELAY_ALWAYS.equals(relayMode) ? START_STICKY : START_NOT_STICKY;
+        // TIMED is sticky too: a kill mid-window used to leave the saved mode at TIMED (so
+        // the settings screen still claimed relay was on) with nothing running. The sticky
+        // restart's null intent re-reads that saved window, and turns off if it's over.
+        return START_STICKY;
+    }
+
+    /** Runs on relayExecutor. Re-armed on every mode change, so a stale window's check never outlives it. */
+    private void scheduleExpiryCheck(String relayMode, long relayExpiresAt) {
+        if (expiryCheck != null) {
+            expiryCheck.cancel(false);
+            expiryCheck = null;
+        }
+        if (!TokenStore.P2P_RELAY_TIMED.equals(relayMode)) return;
+        expiryCheck = relayExecutor.scheduleWithFixedDelay(() -> {
+            if (RelayWindow.isTimedWindowOver(relayMode, relayExpiresAt, System.currentTimeMillis())) {
+                Log.i(TAG, "TIMED relay window is over, turning relay off");
+                stopRelay();
+            }
+        }, EXPIRY_CHECK_INTERVAL_SECONDS, EXPIRY_CHECK_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
 
     private void stopRelay() {
+        if (expiryCheck != null) {
+            expiryCheck.cancel(false);
+            expiryCheck = null;
+        }
         if (agent != null) {
             agent.stop();
             agent = null;

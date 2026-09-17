@@ -119,7 +119,40 @@ public final class GeoLocale {
     // similar HTTP-mocking dependency exists in this project yet).
     static String formatRegion(String country, String city) {
         if (country == null || country.isBlank()) return "default";
+        country = countryNameForCode(country);
         return (city != null && !city.isBlank()) ? country + ", " + city : country;
+    }
+
+    /**
+     * ipinfo.io only returns a 2-letter ISO code ("ME"), and on Android it is
+     * effectively the only provider that ever answers: ip-api.com's free tier
+     * is plain HTTP, which this app's network security config blocks. Region
+     * grouping is an exact string match, so a raw code split the same
+     * location into two regions ("ME, Podgorica" from Android vs
+     * "Montenegro, Podgorica" from desktop/install-node.sh) — expanded to the
+     * English country name here, the same label the other two produce.
+     */
+    // Where Android's ICU (CLDR) name differs from what ip-api.com and
+    // install-node.sh's country table produce for places a node plausibly sits.
+    private static final java.util.Map<String, String> COUNTRY_NAME_OVERRIDES = java.util.Map.of(
+            "TR", "Turkey", "HK", "Hong Kong", "MO", "Macao", "MM", "Myanmar",
+            "PS", "Palestine", "CI", "Ivory Coast", "CD", "DR Congo", "CG", "Congo");
+
+    /** Fixes a region label persisted by an older build as "ME, Podgorica" (see countryNameForCode). */
+    public static String normalizeRegion(String region) {
+        if (region == null || region.isBlank() || "default".equals(region)) return region;
+        int comma = region.indexOf(", ");
+        return comma < 0
+                ? countryNameForCode(region)
+                : countryNameForCode(region.substring(0, comma)) + region.substring(comma);
+    }
+
+    static String countryNameForCode(String country) {
+        if (country.length() != 2) return country;
+        String override = COUNTRY_NAME_OVERRIDES.get(country.toUpperCase(Locale.ROOT));
+        if (override != null) return override;
+        String name = new Locale("", country.toUpperCase(Locale.ROOT)).getDisplayCountry(Locale.ENGLISH);
+        return (name == null || name.isBlank() || name.equalsIgnoreCase(country)) ? country : name;
     }
 
     /** @return {country, city} (either may be null), or null if the lookup itself failed or had no usable country. */

@@ -180,6 +180,20 @@ public class Node {
         return "TIMED".equalsIgnoreCase(relayMode) && relayExpiresAt != null && relayExpiresAt.isAfter(Instant.now());
     }
 
+    /**
+     * The status a live heartbeat/registration from this node should record.
+     * A p2p node whose relay window is over (TIMED past its expiry, or OFF)
+     * is still connected but no longer offering itself, so it must not show
+     * up as ONLINE — otherwise a client that never turns its own relay off
+     * (desktop builds up to v0.1.9 and Android both kept heartbeating a
+     * lapsed TIMED window indefinitely) stays listed as an online node for
+     * hours past its window, exactly the repo owner's report ("поставил на
+     * 1 час, через 9 часов нода всё ещё онлайн").
+     */
+    public String liveStatus() {
+        return isEligibleForRelay() ? "ONLINE" : "OFFLINE";
+    }
+
     public String getRegion() { return region; }
     public void setRegion(String region) { this.region = region; }
 

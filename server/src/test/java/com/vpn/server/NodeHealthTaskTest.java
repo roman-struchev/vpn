@@ -65,6 +65,30 @@ class NodeHealthTaskTest {
     }
 
     @Test
+    void marksOnlineP2pNodeWithLapsedTimedWindowOffline_butKeepsActiveOnes() {
+        Node lapsed = node(5L, "p2p", "ONLINE");
+        lapsed.setRelayMode("TIMED");
+        lapsed.setRelayExpiresAt(Instant.now().minus(1, ChronoUnit.MINUTES));
+        Node active = node(6L, "p2p", "ONLINE");
+        active.setRelayMode("TIMED");
+        active.setRelayExpiresAt(Instant.now().plus(30, ChronoUnit.MINUTES));
+        Node always = node(7L, "p2p", "ONLINE");
+        always.setRelayMode("ALWAYS");
+        when(nodeRepository.findByStatusAndLastHeartbeatAtBefore(eq("ONLINE"), any(Instant.class)))
+                .thenReturn(List.of());
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE")).thenReturn(List.of(lapsed, active, always));
+        when(nodeRepository.findByTypeAndStatusAndLastHeartbeatAtBefore(eq("p2p"), eq("OFFLINE"), any(Instant.class)))
+                .thenReturn(List.of());
+
+        task.run();
+
+        assertEquals("OFFLINE", lapsed.getStatus());
+        assertEquals("ONLINE", active.getStatus());
+        assertEquals("ONLINE", always.getStatus());
+        verify(nodeRepository).saveAll(List.of(lapsed));
+    }
+
+    @Test
     void doesNotTouchRepository_whenNothingIsStale() {
         when(nodeRepository.findByStatusAndLastHeartbeatAtBefore(eq("ONLINE"), any(Instant.class)))
                 .thenReturn(List.of());

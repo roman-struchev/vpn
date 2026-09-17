@@ -103,6 +103,22 @@ describe('RelayManager TIMED auto-off', () => {
     expect(onModeChanged).toHaveBeenCalledWith(expect.objectContaining({ mode: 'OFF' }));
   });
 
+  it('still turns off after the Mac slept through the window (wall clock jumped, timers barely ran)', async () => {
+    const { RelayManager } = await import('../src/main/p2p/relayManager');
+    const { tokenStore, apiClient } = buildManager();
+    const manager = new RelayManager(apiClient as any, tokenStore as any);
+
+    await manager.setMode('TIMED', Date.now() + 60 * 60 * 1000, 60 * 60 * 1000);
+
+    // Lid closed for 9 hours: the wall clock moves on, but Node's monotonic
+    // timer clock doesn't, so a single setTimeout(1h) would still be pending.
+    vi.setSystemTime(Date.now() + 9 * 60 * 60 * 1000);
+    await vi.advanceTimersByTimeAsync(31 * 1000);
+
+    expect(manager.getMode().mode).toBe('OFF');
+    expect(relayAgentInstances[0].stop).toHaveBeenCalledTimes(1);
+  });
+
   it('re-arms the timer instead of double-firing when the mode is changed again before expiry', async () => {
     const { RelayManager } = await import('../src/main/p2p/relayManager');
     const { tokenStore, apiClient } = buildManager();

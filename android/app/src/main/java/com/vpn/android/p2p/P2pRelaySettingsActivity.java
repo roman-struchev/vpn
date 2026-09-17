@@ -56,7 +56,7 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
         // editable.
         String savedRegion = tokenStore.getP2pRelayRegion();
         if (savedRegion != null && !savedRegion.isBlank()) {
-            binding.p2pRegionText.setText(getString(R.string.p2p_relay_region_format, savedRegion));
+            binding.p2pRegionText.setText(getString(R.string.p2p_relay_region_format, com.vpn.android.util.GeoLocale.normalizeRegion(savedRegion)));
             binding.p2pRegionText.setVisibility(android.view.View.VISIBLE);
         }
 
@@ -69,11 +69,13 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
         if (TokenStore.P2P_RELAY_ALWAYS.equals(mode)) {
             binding.p2pModeGroup.check(binding.p2pModeAlways.getId());
         } else if (TokenStore.P2P_RELAY_TIMED.equals(mode) && tokenStore.getP2pRelayExpiresAt() > System.currentTimeMillis()) {
-            // We don't know if the user originally picked 1h or 8h — TIMED
-            // with time remaining is enough to reflect "something is
-            // running"; re-selecting a duration below always starts a fresh
-            // window rather than trying to guess which radio matched.
-            binding.p2pModeOff.setChecked(false);
+            // Only the expiry is persisted, not which option produced it — more than an
+            // hour left can only be the 8h option. Previously nothing was checked at all,
+            // which read as "relay is off" while it was actually running.
+            long remainingMs = tokenStore.getP2pRelayExpiresAt() - System.currentTimeMillis();
+            binding.p2pModeGroup.check(remainingMs > TimeUnit.HOURS.toMillis(1)
+                    ? binding.p2pMode8h.getId()
+                    : binding.p2pMode1h.getId());
         } else {
             binding.p2pModeOff.setChecked(true);
         }

@@ -117,7 +117,6 @@ public class NodeManagementService {
         node.setType(bootstrapToken.getAssignedType());
         node.setRegion(request.getRegion().isBlank() ? "default" : request.getRegion());
         node.setAsn(request.getAsn());
-        node.setStatus("ONLINE");
         node.setLastHeartbeatAt(Instant.now());
         // Only ever set from the consumed bootstrap token's own owner — see
         // NodeBootstrapToken#ownerUser's doc for why this is never trusted
@@ -135,6 +134,8 @@ public class NodeManagementService {
             applyTariffAccessFlags(node);
         }
         applyRelayWindow(node, request.getRelayMode(), request.getRelayExpiresAtEpochMs());
+        // After applyRelayWindow: a p2p node registering with an already-lapsed window isn't ONLINE (see Node#liveStatus).
+        node.setStatus(node.liveStatus());
 
         applyRealityKeyMaterial(node);
 
@@ -276,9 +277,10 @@ public class NodeManagementService {
                 // that will never come.
                 node.setRecentBytesPerSec(0.0);
             }
-            node.setStatus("ONLINE");
             node.setLastHeartbeatAt(Instant.now());
             applyRelayWindow(node, heartbeat.getRelayMode(), heartbeat.getRelayExpiresAtEpochMs());
+            // After applyRelayWindow, so a heartbeat still reporting a lapsed TIMED window flips the node OFFLINE (see Node#liveStatus).
+            node.setStatus(node.liveStatus());
             nodeRepository.save(node);
         });
     }

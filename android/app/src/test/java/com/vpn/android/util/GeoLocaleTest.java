@@ -48,6 +48,24 @@ public class GeoLocaleTest {
     }
 
     @Test
+    public void formatRegion_expandsIsoCountryCodeToEnglishName() {
+        // ipinfo.io fallback: must match desktop's/install-node.sh's "Montenegro, Podgorica" exactly.
+        Locale.setDefault(new Locale("ru", "RU"));
+        org.junit.Assert.assertEquals("Montenegro, Podgorica", GeoLocale.formatRegion("ME", "Podgorica"));
+        org.junit.Assert.assertEquals("Germany", GeoLocale.formatRegion("de", null));
+        org.junit.Assert.assertEquals("Turkey, Istanbul", GeoLocale.formatRegion("TR", "Istanbul"));
+        org.junit.Assert.assertEquals("Netherlands, Amsterdam", GeoLocale.formatRegion("Netherlands", "Amsterdam"));
+    }
+
+    @Test
+    public void normalizeRegion_fixesLabelsPersistedWithRawCountryCode() {
+        org.junit.Assert.assertEquals("Montenegro, Podgorica", GeoLocale.normalizeRegion("ME, Podgorica"));
+        org.junit.Assert.assertEquals("Montenegro", GeoLocale.normalizeRegion("ME"));
+        org.junit.Assert.assertEquals("Finland, Helsinki", GeoLocale.normalizeRegion("Finland, Helsinki"));
+        org.junit.Assert.assertEquals("default", GeoLocale.normalizeRegion("default"));
+    }
+
+    @Test
     public void formatRegion_fallsBackToDefault_whenCountryAbsentOrBlank() {
         org.junit.Assert.assertEquals("default", GeoLocale.formatRegion(null, "Berlin"));
         org.junit.Assert.assertEquals("default", GeoLocale.formatRegion("", "Berlin"));

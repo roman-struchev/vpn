@@ -73,9 +73,33 @@ export async function detectNodeRegion(): Promise<string> {
   return 'default';
 }
 
-function formatRegion(country: string | null, city: string | null): string {
+export function formatRegion(country: string | null, city: string | null): string {
   if (!country) return 'default';
-  return city ? `${country}, ${city}` : country;
+  const name = countryNameForCode(country);
+  return city ? `${name}, ${city}` : name;
+}
+
+/**
+ * ipinfo.io (the fallback provider) only returns a 2-letter ISO code; region
+ * grouping is an exact string match, so "ME, Podgorica" would be a different
+ * region from ip-api.com's/install-node.sh's "Montenegro, Podgorica".
+ */
+// Where Intl's (CLDR) name differs from what ip-api.com and install-node.sh's
+// country table produce for places a node plausibly sits.
+const COUNTRY_NAME_OVERRIDES: Record<string, string> = {
+  TR: 'Turkey', HK: 'Hong Kong', MO: 'Macao', MM: 'Myanmar',
+  PS: 'Palestine', CI: 'Ivory Coast', CD: 'DR Congo', CG: 'Congo',
+};
+
+function countryNameForCode(country: string): string {
+  if (country.length !== 2) return country;
+  const override = COUNTRY_NAME_OVERRIDES[country.toUpperCase()];
+  if (override) return override;
+  try {
+    return new Intl.DisplayNames(['en'], { type: 'region' }).of(country.toUpperCase()) ?? country;
+  } catch {
+    return country;
+  }
 }
 
 async function lookupRegion(

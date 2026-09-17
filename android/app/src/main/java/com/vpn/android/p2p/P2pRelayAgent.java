@@ -131,7 +131,8 @@ public class P2pRelayAgent {
         // keeps its originally-detected label rather than silently relabeling.
         String persistedRegion = tokenStore.getP2pRelayRegion();
         if (persistedRegion != null && !persistedRegion.isBlank()) {
-            this.region = persistedRegion;
+            this.region = com.vpn.android.util.GeoLocale.normalizeRegion(persistedRegion);
+            if (!this.region.equals(persistedRegion)) tokenStore.saveP2pRelayRegion(this.region);
         } else {
             this.region = com.vpn.android.util.GeoLocale.detectNodeRegion();
             tokenStore.saveP2pRelayRegion(this.region);
@@ -141,12 +142,14 @@ public class P2pRelayAgent {
                 .builder(appContext).createInitializationOptions());
         peerConnectionFactory = PeerConnectionFactory.builder().createPeerConnectionFactory();
 
-        if (tokenStore.getP2pNodeId() == -1) {
-            registerNode();
-        } else {
-            this.nodeId = tokenStore.getP2pNodeId();
-            this.nodeToken = tokenStore.getP2pNodeToken();
-        }
+        // Always registers with a fresh bootstrap token, same as desktop's RelayAgent. Reusing
+        // the persisted node id/token broke relay mode for good once the server pruned this
+        // node (NodeHealthTask deletes p2p nodes offline for 24h — the saved credentials then
+        // point at nothing and the stream is rejected forever), kept a node owned by the
+        // previous account after switching accounts, and never refreshed its region label.
+        // Re-registering is cheap: the server matches the existing row by hostname and
+        // revokes the old credential.
+        registerNode();
 
         channel = ManagedChannelBuilder.forTarget(BuildConfig.P2P_GRPC_ADDRESS).usePlaintext().build();
         openStream();

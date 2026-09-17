@@ -33,4 +33,5 @@ public interface NodeRepository extends JpaRepository<Node, Long> {
     // below already catches.
     List<Node> findByStatusAndLastHeartbeatAtBefore(String status, Instant cutoff);
     List<Node> findByTypeAndStatusAndLastHeartbeatAtBefore(String type, String status, Instant cutoff);
+    List<Node> findByTypeAndStatus(String type, String status);
 }

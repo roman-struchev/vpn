@@ -44,15 +44,14 @@ describe('detectNodeRegion', () => {
     expect(await detectNodeRegion()).toBe('Germany');
   });
 
-  it('falls back to ipinfo.io (raw 2-letter code, no name table) when ip-api.com fails', async () => {
+  it('falls back to ipinfo.io when ip-api.com fails, expanding its 2-letter code to the country name', async () => {
     mockFetchSequence([
       { ok: false } as Response, // ip-api.com
       jsonResponse({ country: 'RU', city: 'Moscow' }), // ipinfo.io
     ]);
     const { detectNodeRegion } = await import('../src/main/geoLocale');
-    // No country-code-to-name table ported to TS — the raw code is used as-is,
-    // same degraded fallback install-node.sh's own bash script falls back to.
-    expect(await detectNodeRegion()).toBe('RU, Moscow');
+    // Must match ip-api.com's/install-node.sh's full-name label — region grouping is an exact string match.
+    expect(await detectNodeRegion()).toBe('Russia, Moscow');
   });
 
   it('returns "default" when both providers fail', async () => {

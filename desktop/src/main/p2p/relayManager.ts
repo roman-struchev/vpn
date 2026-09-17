@@ -6,6 +6,8 @@ import type { TokenStore } from '../api/tokenStore';
 import { detectNodeRegion } from '../geoLocale';
 import { RelayAgent, type RelayMode } from './relayAgent';
 
+const EXPIRY_CHECK_INTERVAL_MS = 30_000;
+
 /**
  * Owns the RelayAgent's lifecycle from the UI/IPC side: minting a fresh p2p
  * bootstrap token, starting/stopping the agent, persisting the chosen mode
@@ -104,18 +106,26 @@ export class RelayManager extends EventEmitter {
     this.emit('modeChanged', this.getMode());
   }
 
-  /** Fires setMode('OFF', null) once expiresAtEpochMs passes; always cleared+rearmed from setMode so it never fires against a stale window. */
+  /**
+   * Calls setMode('OFF', null) once expiresAtEpochMs passes; always cleared+rearmed from setMode so it never fires against a stale window.
+   *
+   * Polls the wall clock instead of one long setTimeout(expiresAt - now): Node timers run on a monotonic
+   * clock that does not advance while a Mac is asleep, so a 1-hour timeout armed before closing the lid
+   * would still have most of its hour left after waking up the next morning — the relay (and its "На 1 час"
+   * button) would stay on for hours past the window, the exact symptom this fixes.
+   */
   private scheduleExpiry(expiresAtEpochMs: number): void {
-    const delayMs = Math.max(0, expiresAtEpochMs - Date.now());
-    this.expiryTimer = setTimeout(() => {
-      this.expiryTimer = null;
+    const check = () => {
+      if (Date.now() < expiresAtEpochMs) return;
+      this.clearExpiryTimer();
       this.setMode('OFF', null).catch((err) => console.warn('[p2p relay] auto-off on expiry failed', err));
-    }, delayMs);
+    };
+    this.expiryTimer = setInterval(check, EXPIRY_CHECK_INTERVAL_MS);
   }
 
   private clearExpiryTimer(): void {
     if (this.expiryTimer) {
-      clearTimeout(this.expiryTimer);
+      clearInterval(this.expiryTimer);
       this.expiryTimer = null;
     }
   }

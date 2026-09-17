@@ -62,7 +62,27 @@ public class NodeHealthTask {
     @Transactional
     public void run() {
         markStaleOnlineNodesOffline();
+        markLapsedP2pRelayWindowsOffline();
         pruneLongDeadP2pNodes();
+    }
+
+    /**
+     * A p2p node's TIMED window can lapse between two heartbeats (each of
+     * which also re-derives status — see Node#liveStatus); this catches it
+     * within one task tick instead of waiting for the next heartbeat.
+     */
+    private void markLapsedP2pRelayWindowsOffline() {
+        List<Node> lapsed = nodeRepository.findByTypeAndStatus("p2p", "ONLINE").stream()
+                .filter(n -> !n.isEligibleForRelay())
+                .toList();
+        if (lapsed.isEmpty()) {
+            return;
+        }
+        for (Node node : lapsed) {
+            node.setStatus("OFFLINE");
+        }
+        nodeRepository.saveAll(lapsed);
+        log.info("Marked {} p2p node(s) OFFLINE (relay window over)", lapsed.size());
     }
 
     private void markStaleOnlineNodesOffline() {
