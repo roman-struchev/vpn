@@ -21,7 +21,14 @@ FROM node:22-bookworm-slim AS runner
 WORKDIR /opt/vpn-node-agent
 
 # Install Xray-core
-ARG XRAY_VERSION=v24.11.30
+# Must be >= the Xray-core inside the Android client's libXray (android/
+# scripts/fetch-libxray.sh, currently built on Xray-core 26.x): a 24.11.30
+# node rejects every REALITY handshake from a 26.x client ("REALITY: received
+# real certificate"), which is why Android couldn't connect to any node. A
+# 26.x node still accepts the desktop client's older 24.11.30 xray — verified
+# both ways (XHTTP and the gRPC fallback) against this agent's own generated
+# config before bumping.
+ARG XRAY_VERSION=v26.3.27
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \

@@ -41,6 +41,19 @@ public class XrayConfigFactoryTest {
     }
 
     @Test
+    public void tunInboundHasExplicitNameSoXrayNeverEnumeratesInterfacesOnAndroid() {
+        // Without a name, Xray-core calls net.Interfaces() (netlink), which Android 11+
+        // denies to apps — runXray then fails with "netlinkrib: permission denied".
+        VlessUri vless = VlessUri.parse(LINK);
+        String json = XrayConfigFactory.build(vless, "firefox", 42, 1400);
+
+        JsonObject settings = JsonParser.parseString(json).getAsJsonObject()
+                .getAsJsonArray("inbounds").get(0).getAsJsonObject().getAsJsonObject("settings");
+        assertTrue(settings.has("name"));
+        assertFalse(settings.get("name").getAsString().isEmpty());
+    }
+
+    @Test
     public void proxyOutboundCarriesRealityFingerprintAndKeys() {
         VlessUri vless = VlessUri.parse(LINK);
         String json = XrayConfigFactory.build(vless, "edge", 5, 1500);

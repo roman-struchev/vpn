@@ -138,6 +138,14 @@ public final class XrayConfigFactory {
         inbound.addProperty("tag", TUN_INBOUND_TAG);
         inbound.addProperty("protocol", "tun");
         JsonObject settings = new JsonObject();
+        // An explicit name is required on Android, even though the name itself
+        // is never used there (the VpnService fd from env.xray.tun.fd is).
+        // Left empty, Xray-core's TunConfig.Build picks a free "utunN" name via
+        // net.Interfaces(), which needs a netlink RTM_GETADDR dump that Android
+        // 11+ denies to apps — every connect then failed with "fail to get
+        // system interface information: route ip+net: netlinkrib: permission
+        // denied" (reproduced on an API 34 emulator).
+        settings.addProperty("name", "tun0");
         settings.addProperty("mtu", mtu);
         inbound.add("settings", settings);
         return inbound;

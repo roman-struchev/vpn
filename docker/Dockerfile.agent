@@ -19,13 +19,14 @@ WORKDIR /app
 RUN apk add --no-cache curl unzip ca-certificates
 
 # Download and install Xray-core
-ARG XRAY_VERSION=v25.1.30
+# Keep in sync with agent/Dockerfile (see the Xray compatibility note there).
+ARG XRAY_VERSION=v26.3.27
 ARG TARGETARCH
 RUN set -ex; \
     ARCH="64"; \
     if [ "$TARGETARCH" = "arm64" ]; then ARCH="arm64-v8a"; fi; \
     curl -sSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-${ARCH}.zip" || \
-    curl -sSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v24.11.30/Xray-linux-64.zip" || true; \
+    curl -sSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip" || true; \
     if [ -f /tmp/xray.zip ]; then \
       unzip /tmp/xray.zip xray -d /usr/local/bin/ || true; \
       chmod +x /usr/local/bin/xray || true; \

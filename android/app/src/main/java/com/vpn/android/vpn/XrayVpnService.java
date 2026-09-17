@@ -124,9 +124,12 @@ public class XrayVpnService extends VpnService implements DialerController {
 
     private void loadProfileAndConnect() {
         try {
-            // Must happen before fetching subscription links: a brand new account has zero devices,
-            // and the server only includes nodes/keys for existing devices.
-            registerOrTouchDevice();
+            // Must complete before fetching subscription links: a brand new account (or one whose
+            // device was revoked) has zero devices, and the server returns an empty link list for
+            // a user with no devices. Runs inline on this worker thread — queuing it via
+            // registerOrTouchDevice() here ran it only AFTER this whole method returned, so the
+            // links request always saw zero devices and failed with "No subscription links".
+            registerOrTouchDeviceBlocking();
             RoutingConfigResponse policy = apiClient.getRoutingConfig(null, null);
             String preferredRegion = resolveConnectRegion();
             SubscriptionLinksResponse linksResp = apiClient.getSubscriptionLinks(preferredRegion);
@@ -316,19 +319,21 @@ public class XrayVpnService extends VpnService implements DialerController {
      * registered yet, or revoked elsewhere) — see TokenStore#getDeviceId.
      */
     private void registerOrTouchDevice() {
-        worker.execute(() -> {
-            try {
-                long deviceId = tokenStore.getDeviceId();
-                if (deviceId > 0 && apiClient.touchDevice(deviceId)) {
-                    return;
-                }
-                String name = Build.MANUFACTURER + " " + Build.MODEL;
-                DeviceDto device = apiClient.addDevice(name, "ANDROID");
-                tokenStore.saveDeviceId(device.id);
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to register/touch this device (best-effort)", e);
+        worker.execute(this::registerOrTouchDeviceBlocking);
+    }
+
+    private void registerOrTouchDeviceBlocking() {
+        try {
+            long deviceId = tokenStore.getDeviceId();
+            if (deviceId > 0 && apiClient.touchDevice(deviceId)) {
+                return;
             }
-        });
+            String name = Build.MANUFACTURER + " " + Build.MODEL;
+            DeviceDto device = apiClient.addDevice(name, "ANDROID");
+            tokenStore.saveDeviceId(device.id);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to register/touch this device (best-effort)", e);
+        }
     }
 
     private void checkHealth() {
