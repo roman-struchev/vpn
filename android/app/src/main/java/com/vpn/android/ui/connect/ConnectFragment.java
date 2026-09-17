@@ -144,7 +144,7 @@ public class ConnectFragment extends Fragment {
             binding.regionFallbackNotice.setVisibility(View.VISIBLE);
         });
 
-        binding.refreshUsageButton.setOnClickListener(v -> loadProfile());
+        binding.refreshUsageButton.setOnClickListener(v -> refreshProfileManually());
 
         renderSelectedRegion();
         loadProfile();
@@ -323,9 +323,39 @@ public class ConnectFragment extends Fragment {
     }
 
     private void loadProfile() {
+        loadProfile(null);
+    }
+
+    // Minimum time the spinner stays visible: the profile call is often fast enough that the
+    // button would otherwise just flicker, which reads as "the tap did nothing".
+    private static final long MANUAL_REFRESH_MIN_SPINNER_MS = 600;
+
+    /** Refresh button: spinner in place of the button while loading, plus explicit success/failure feedback. */
+    private void refreshProfileManually() {
+        if (binding == null || binding.refreshUsageProgress.getVisibility() == View.VISIBLE) return;
+        binding.refreshUsageButton.setVisibility(View.INVISIBLE);
+        binding.refreshUsageButton.setEnabled(false);
+        binding.refreshUsageProgress.setVisibility(View.VISIBLE);
+        long startedAt = android.os.SystemClock.elapsedRealtime();
+        loadProfile(success -> {
+            long remaining = MANUAL_REFRESH_MIN_SPINNER_MS - (android.os.SystemClock.elapsedRealtime() - startedAt);
+            trafficRefreshHandler.postDelayed(() -> {
+                if (binding == null) return;
+                binding.refreshUsageProgress.setVisibility(View.GONE);
+                binding.refreshUsageButton.setVisibility(View.VISIBLE);
+                binding.refreshUsageButton.setEnabled(true);
+                Toast.makeText(requireContext(),
+                        success ? R.string.refresh_usage_done : R.string.refresh_usage_failed,
+                        Toast.LENGTH_SHORT).show();
+            }, Math.max(0, remaining));
+        });
+    }
+
+    private void loadProfile(@androidx.annotation.Nullable java.util.function.Consumer<Boolean> onDone) {
         Async.run(
                 () -> apiClient.getProfile(),
                 profile -> {
+                    if (binding == null) return;
                     latestProfile = profile;
                     if (profile != null) {
                         isGuest = profile.isGuest;
@@ -335,8 +365,12 @@ public class ConnectFragment extends Fragment {
                         }
                     }
                     bindProfile(profile);
+                    if (onDone != null) onDone.accept(true);
                 },
-                error -> { /* keep last-known UI; the connect flow will surface auth errors */ });
+                error -> {
+                    // keep last-known UI; the connect flow will surface auth errors
+                    if (onDone != null) onDone.accept(false);
+                });
     }
 
     private void bindProfile(UserProfile profile) {
@@ -352,7 +386,9 @@ public class ConnectFragment extends Fragment {
         binding.trafficText.setText(getString(R.string.traffic_used, usedGb, limitGb));
         int percent = limitGb > 0 ? (int) Math.min(100, (usedGb / limitGb) * 100) : 0;
         binding.trafficProgress.setProgress(percent);
-        binding.expiresText.setText(getString(R.string.expires_at, formatExpiresAt(sub.expiresAt)));
+        binding.expiresText.setText(sub.noExpiry
+                ? getString(R.string.expires_never)
+                : getString(R.string.expires_at, formatExpiresAt(sub.expiresAt)));
     }
 
     // The server sends a raw ISO-8601 instant ("2027-12-04T09:14:00Z") — shown
@@ -360,7 +396,9 @@ public class ConnectFragment extends Fragment {
     // bare date reads as "good until midnight" when it may really lapse mid-day.
     private static String formatExpiresAt(String iso) {
         try {
-            return DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
+            // MEDIUM date (4-digit year): SHORT rendered e.g. 2126-08-24 as "8/24/26", i.e. a date
+            // that looks already expired.
+            return DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
                     .withZone(ZoneId.systemDefault())
                     .format(Instant.parse(iso));
         } catch (Exception e) {

@@ -48,6 +48,9 @@
     <string name="region_load_high">high load</string>
     <string name="region_unavailable_notice">The selected region is unavailable right now — using automatic selection</string>
     <string name="refresh_usage_action">Refresh</string>
+    <string name="refresh_usage_done">Updated</string>
+    <string name="refresh_usage_failed">Couldn’t refresh — check your connection</string>
+    <string name="expires_never">No expiry</string>
     <string name="region_requires_upgrade_notice">The selected region requires a higher plan — using automatic selection</string>
     <string name="region_row_locked_format">🔒 %1$s — requires a paid plan</string>
     <string name="region_locked_toast">This region isn\'t available on your current plan</string>
@@ -108,4 +111,27 @@
     <string name="update_downloading_title">Downloading update…</string>
     <string name="update_download_failed">Failed to download the update</string>
     <string name="update_install_permission_needed">Allow installing apps from this source, then try again</string>
+
+    <!-- P2P relay (was missing here, so English UI fell back to Russian) -->
+    <string name="profile_p2p_relay">P2P mode (earn traffic by relaying)</string>
+    <string name="p2p_relay_title">P2P mode</string>
+    <string name="p2p_relay_explanation" formatted="false">Allow the app to relay other users\' encrypted traffic through your device and earn extra traffic for your balance — works even on the free plan. Your device can\'t see or read anyone else\'s traffic, and it never acts as the exit point to the internet.</string>
+    <string name="p2p_relay_terms_link">P2P mode terms and risks</string>
+    <string name="p2p_relay_accept_checkbox">I have read the terms and accept the risks</string>
+    <string name="p2p_relay_region_format">Node location: %1$s</string>
+    <string name="p2p_relay_mode_label">Mode</string>
+    <string name="p2p_relay_mode_off">Off</string>
+    <string name="p2p_relay_mode_1h">On for 1 hour</string>
+    <string name="p2p_relay_mode_8h">On for 8 hours</string>
+    <string name="p2p_relay_mode_always">Always on</string>
+    <string name="p2p_relay_apply">Apply</string>
+    <string name="p2p_relay_status_label">Status</string>
+    <string name="p2p_relay_status_format">Credited today: %1$s GB of %2$s GB (daily limit)</string>
+    <string name="p2p_relay_status_error">Couldn\'t load status</string>
+    <string name="p2p_relay_guest_blocked">Not available for a guest profile — sign in with email, Telegram or Google.</string>
+    <string name="p2p_relay_must_accept">Accept the terms first</string>
+    <string name="p2p_relay_accept_failed">Couldn\'t accept the terms. Check your connection.</string>
+    <string name="p2p_relay_applied">P2P mode settings applied</string>
+    <string name="p2p_relay_notification_title">P2P mode is active</string>
+    <string name="p2p_relay_notification_text">Your device is relaying traffic and earning bonus traffic</string>
 </resources>

@@ -22,6 +22,8 @@ public class UserProfile {
         public long trafficUsedBytes;
         public long trafficLimitBytes;
         public String expiresAt;
+        /** Server-side "never expires" flag (e.g. the free trial); expiresAt is then a far-future placeholder. */
+        public boolean noExpiry;
     }
 
     public double balanceUsdt() {

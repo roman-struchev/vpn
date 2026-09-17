@@ -53,6 +53,9 @@
     <string name="region_load_high">высокая загрузка</string>
     <string name="region_unavailable_notice">Выбранный регион сейчас недоступен — используется автоматический выбор</string>
     <string name="refresh_usage_action">Обновить</string>
+    <string name="refresh_usage_done">Данные обновлены</string>
+    <string name="refresh_usage_failed">Не удалось обновить — проверьте соединение</string>
+    <string name="expires_never">Бессрочно</string>
     <string name="region_requires_upgrade_notice">Выбранный регион требует более высокого тарифа — используется автоматический выбор</string>
     <string name="region_row_locked_format">🔒 %1$s — нужен платный тариф</string>
     <string name="region_locked_toast">Этот регион недоступен на вашем текущем тарифе</string>

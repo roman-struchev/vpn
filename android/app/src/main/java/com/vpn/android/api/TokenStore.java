@@ -61,7 +61,23 @@ public class TokenStore {
         this.prefs = prefs;
     }
 
+    // One instance per process. Building EncryptedSharedPreferences (Keystore MasterKey + Tink
+    // keyset decryption) is slow, and every activity/fragment/service constructs its own
+    // TokenStore on the main thread — on a loaded device that stacked up into multi-second
+    // stalls opening a screen (reproduced as "isn't responding" dialogs opening the P2P and
+    // sign-in screens on an emulator).
+    private static volatile SharedPreferences sharedPrefs;
+
     private static SharedPreferences create(Context context) {
+        SharedPreferences cached = sharedPrefs;
+        if (cached != null) return cached;
+        synchronized (TokenStore.class) {
+            if (sharedPrefs == null) sharedPrefs = createUncached(context);
+            return sharedPrefs;
+        }
+    }
+
+    private static SharedPreferences createUncached(Context context) {
         try {
             MasterKey masterKey = new MasterKey.Builder(context)
                     .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
