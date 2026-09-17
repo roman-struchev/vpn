@@ -200,6 +200,15 @@ jobs:
     needs: publish
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
+    # Deploys queue instead of racing. Two pushes seconds apart (a commit plus
+    # the release tag right after it) each ran this job against the same host:
+    # one had just run `docker compose down` while the other was in `up`, and
+    # the loser failed with 'container name "/vpn-postgres" is already in use'.
+    # cancel-in-progress stays false so the later push still deploys after the
+    # earlier one finishes, rather than being dropped.
+    concurrency:
+      group: deploy-vpn-server
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
@@ -227,6 +236,11 @@ jobs:
             export POSTGRES_USER="${{ secrets.POSTGRES_USER }}"
             export POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}"
             export JWT_SECRET="${{ secrets.JWT_SECRET }}"
-            docker compose down
+            # --remove-orphans on both ends: containers left behind by an
+            # earlier compose file (renamed/removed service) otherwise keep the
+            # names/ports this project needs. `down` is tolerant because a
+            # half-removed state must not abort the deploy before `up` gets a
+            # chance to reconcile it.
+            docker compose down --remove-orphans || true
             docker compose pull
-            docker compose up -d
+            docker compose up -d --remove-orphans

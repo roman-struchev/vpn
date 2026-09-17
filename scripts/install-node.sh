@@ -274,7 +274,31 @@ fi
 echo "==> Region: ${REGION}"
 
 echo "==> [4/5] Pulling node-agent image (${NODE_IMAGE})..."
-docker pull "$NODE_IMAGE"
+# Always re-pull, and make it obvious whether the image actually changed: this
+# script doubles as the update/restart path for an existing node, and a
+# silently-skipped pull (registry unreachable, stale local :latest) would
+# recreate the container from the OLD image while looking like a successful
+# update. A failed pull aborts instead of doing that, leaving the currently
+# running container alone — set SKIP_IMAGE_PULL=1 to reuse the local image on
+# purpose (air-gapped host, deliberate pin).
+# `docker image inspect` can exit 0 while its template fails (an image with no
+# RepoDigests, e.g. built locally), so an empty result is normalized here too.
+IMAGE_DIGEST_BEFORE=$(docker image inspect --format '{{index .RepoDigests 0}}' "$NODE_IMAGE" 2>/dev/null || true)
+IMAGE_DIGEST_BEFORE=${IMAGE_DIGEST_BEFORE:-none}
+if [ "${SKIP_IMAGE_PULL:-0}" = "1" ]; then
+    echo "    SKIP_IMAGE_PULL=1 — keeping the local image (${IMAGE_DIGEST_BEFORE})"
+elif ! docker pull "$NODE_IMAGE"; then
+    echo "ERROR: could not pull ${NODE_IMAGE}. The running container was left untouched." >&2
+    echo "       Fix registry connectivity and re-run, or set SKIP_IMAGE_PULL=1 to use the local image." >&2
+    exit 1
+fi
+IMAGE_DIGEST_AFTER=$(docker image inspect --format '{{index .RepoDigests 0}}' "$NODE_IMAGE" 2>/dev/null || true)
+IMAGE_DIGEST_AFTER=${IMAGE_DIGEST_AFTER:-unknown}
+if [ "$IMAGE_DIGEST_BEFORE" = "$IMAGE_DIGEST_AFTER" ]; then
+    echo "    Image unchanged: ${IMAGE_DIGEST_AFTER}"
+else
+    echo "    Image updated: ${IMAGE_DIGEST_BEFORE} -> ${IMAGE_DIGEST_AFTER}"
+fi
 
 echo "==> [5/5] Starting vpn-node-agent container..."
 mkdir -p /opt/vpn-node-agent/data /etc/xray/certs
@@ -360,6 +384,14 @@ if [ -n "$CDN_HOSTNAME" ]; then
         echo "         before it's registered with type=cdn, or Xray will fail to start."
     fi
 fi
+
+# What's actually running now — the two things an operator re-running this
+# script wants confirmed: the image the container was created from, and the
+# Xray-core version inside it (it has to be >= the newest client's, see
+# agent/Dockerfile's XRAY_VERSION note).
+RUNNING_IMAGE=$(docker inspect --format '{{.Image}}' vpn-node-agent 2>/dev/null || echo "unknown")
+echo "==> Running image: ${IMAGE_DIGEST_AFTER:-unknown} (${RUNNING_IMAGE})"
+docker exec vpn-node-agent /usr/local/bin/xray version 2>/dev/null | head -n 1 || true
 
 echo "==> Installation complete!"
 echo "Monitor:      docker ps / docker logs -f vpn-node-agent / docker stats vpn-node-agent"
