@@ -200,6 +200,7 @@ public class ConnectFragment extends Fragment {
                     : TokenStore.RUSSIAN_ROUTING_OFF;
             tokenStore.setRussianRoutingMode(newMode);
             setRussianRoutingModeUi(newMode);
+            reconnectIfActive();
         });
     }
 
@@ -310,6 +311,7 @@ public class ConnectFragment extends Fragment {
                     }
                     tokenStore.saveSelectedRegion(values.get(which));
                     renderSelectedRegion();
+                    reconnectIfActive();
                     dialog.dismiss();
                 })
                 .setNegativeButton(android.R.string.cancel, null)
@@ -432,6 +434,23 @@ public class ConnectFragment extends Fragment {
         } else {
             startVpn();
         }
+    }
+
+    /**
+     * Applies a just-changed region / RU-routing mode to a live tunnel. Both are
+     * baked into the running session (node list, Xray rules, TUN app filter), so
+     * before this the change silently did nothing until the next manual connect.
+     */
+    private void reconnectIfActive() {
+        ConnectionState state = VpnStatusBus.state.getValue();
+        if (state != ConnectionState.CONNECTED
+                && state != ConnectionState.CONNECTING
+                && state != ConnectionState.RECONNECTING) {
+            return;
+        }
+        Intent intent = new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_RECONNECT);
+        ContextCompat.startForegroundService(requireContext(), intent);
+        Toast.makeText(requireContext(), R.string.reconnecting_with_new_settings, Toast.LENGTH_SHORT).show();
     }
 
     private void startVpn() {

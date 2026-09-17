@@ -103,4 +103,15 @@ public final class VlessUri {
     public String getRemark() {
         return remark;
     }
+
+    /**
+     * The user-facing half of the remark. The server builds it as
+     * "&lt;region&gt; · &lt;node hostname&gt;" (SubscriptionExportService#REMARK_SEPARATOR);
+     * only the region belongs on screen — with the old "-" separator the UI
+     * showed "India, Mumbai-vmi3163824" as the region name.
+     */
+    public String getRegionLabel() {
+        int sep = remark.indexOf(" \u00b7 ");
+        return (sep > 0 ? remark.substring(0, sep) : remark).trim();
+    }
 }

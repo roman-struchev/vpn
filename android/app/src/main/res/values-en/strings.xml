@@ -134,4 +134,5 @@
     <string name="p2p_relay_applied">P2P mode settings applied</string>
     <string name="p2p_relay_notification_title">P2P mode is active</string>
     <string name="p2p_relay_notification_text">Your device is relaying traffic and earning bonus traffic</string>
+    <string name="reconnecting_with_new_settings">Reconnecting with the new settings…</string>
 </resources>

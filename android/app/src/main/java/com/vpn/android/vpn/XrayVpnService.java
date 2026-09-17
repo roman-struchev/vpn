@@ -57,9 +57,24 @@ public class XrayVpnService extends VpnService implements DialerController {
     private static final int NOTIFICATION_ID = 1;
     private static final int TUN_MTU = 1500;
     private static final String DNS_PROTECT_ENDPOINT = "1.1.1.1:53";
+    // Liveness probe (see isTunnelAlive): a literal IP, so a broken DNS path can't
+    // fail it on its own, and two strikes before acting so one slow probe on a
+    // flaky mobile link doesn't cause a pointless reconnect.
+    private static final String LIVENESS_PROBE_HOST = "1.1.1.1";
+    private static final int LIVENESS_PROBE_PORT = 443;
+    private static final int LIVENESS_PROBE_TIMEOUT_MS = 6000;
+    private static final int LIVENESS_FAILURES_BEFORE_RECONNECT = 2;
 
     public static final String ACTION_CONNECT = "com.vpn.android.vpn.action.CONNECT";
     public static final String ACTION_DISCONNECT = "com.vpn.android.vpn.action.DISCONNECT";
+    /**
+     * Re-runs the whole connect flow against the current settings, used when a
+     * setting that's baked into the live tunnel changes mid-session (the pinned
+     * region, which decides the node list, and the RU routing mode, which
+     * decides both the Xray rules and the TUN's per-app filter). Without it
+     * those settings silently applied only at the next manual connect.
+     */
+    public static final String ACTION_RECONNECT = "com.vpn.android.vpn.action.RECONNECT";
 
     public static final List<String> RUSSIAN_APP_PACKAGES = List.of(
             "ru.sberbankmobile",
@@ -91,6 +106,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private final Map<String, String> grpcServiceNamesByHost = new HashMap<>();
     private final Map<String, Long> nodeIdsByHost = new HashMap<>();
     private int currentNodeIndex = 0;
+    private int consecutiveLivenessFailures = 0;
     private volatile boolean stopping = false;
 
     @Override
@@ -107,6 +123,10 @@ public class XrayVpnService extends VpnService implements DialerController {
             disconnect();
             return START_NOT_STICKY;
         }
+        if (ACTION_RECONNECT.equals(action)) {
+            reconnect();
+            return START_STICKY;
+        }
         connect();
         return START_STICKY;
     }
@@ -120,6 +140,33 @@ public class XrayVpnService extends VpnService implements DialerController {
         transition(ConnectionEvent.CONNECT_REQUESTED);
         startForeground(NOTIFICATION_ID, buildNotification());
         worker.execute(this::loadProfileAndConnect);
+    }
+
+    /** See ACTION_RECONNECT. No-op unless a tunnel is currently up//coming up. */
+    private void reconnect() {
+        ConnectionState state = stateMachine.getState();
+        if (state != ConnectionState.CONNECTED
+                && state != ConnectionState.CONNECTING
+                && state != ConnectionState.RECONNECTING) {
+            return;
+        }
+        stopping = true;
+        mainHandler.removeCallbacks(healthCheck);
+        transition(ConnectionEvent.DISCONNECT_REQUESTED);
+        worker.execute(() -> {
+            try {
+                XrayInvoker.stopXray();
+            } catch (Exception e) {
+                Log.w(TAG, "stopXray during reconnect failed (already stopped?)", e);
+            }
+            // The TUN is rebuilt rather than reused: the RU routing mode decides its
+            // per-app allow/disallow list, which can only be set when establishing it.
+            closeTun();
+            stopping = false;
+            transition(ConnectionEvent.CONNECT_REQUESTED);
+            updateNotification();
+            loadProfileAndConnect();
+        });
     }
 
     private void loadProfileAndConnect() {
@@ -241,7 +288,7 @@ public class XrayVpnService extends VpnService implements DialerController {
 
             backoffPolicy.onSuccess();
             transition(ConnectionEvent.TUNNEL_UP);
-            VpnStatusBus.activeRegion.postValue(vless.getRemark());
+            VpnStatusBus.activeRegion.postValue(vless.getRegionLabel());
             updateNotification();
             mainHandler.postDelayed(healthCheck, 30_000);
 
@@ -350,10 +397,41 @@ public class XrayVpnService extends VpnService implements DialerController {
             if (!running) {
                 Log.w(TAG, "Health check: xray core is not running, reconnecting");
                 handleFailure();
-            } else {
-                mainHandler.postDelayed(healthCheck, 30_000);
+                return;
             }
+            // "xray is running" is not the same as "traffic actually flows": when the
+            // server revokes this device's key (or the node stops accepting it), xray
+            // keeps running happily while every connection fails, and the app kept
+            // showing "Protected" with no working internet. Probing the tunnel itself
+            // catches that — same intent as the desktop client's checkLiveness().
+            if (!isTunnelAlive()) {
+                consecutiveLivenessFailures++;
+                Log.w(TAG, "Health check: tunnel probe failed (" + consecutiveLivenessFailures + " in a row)");
+                if (consecutiveLivenessFailures >= LIVENESS_FAILURES_BEFORE_RECONNECT) {
+                    consecutiveLivenessFailures = 0;
+                    handleFailure();
+                    return;
+                }
+            } else {
+                consecutiveLivenessFailures = 0;
+            }
+            mainHandler.postDelayed(healthCheck, 30_000);
         });
+    }
+
+    /**
+     * TCP-connects to a well-known always-up endpoint through the tunnel (this
+     * service's own sockets are not protected, so they go through the TUN like
+     * any app's). One slow/blocked probe is not treated as a dead tunnel — see
+     * LIVENESS_FAILURES_BEFORE_RECONNECT.
+     */
+    private boolean isTunnelAlive() {
+        try (java.net.Socket socket = new java.net.Socket()) {
+            socket.connect(new java.net.InetSocketAddress(LIVENESS_PROBE_HOST, LIVENESS_PROBE_PORT), LIVENESS_PROBE_TIMEOUT_MS);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**

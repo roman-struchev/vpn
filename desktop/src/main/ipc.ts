@@ -61,7 +61,13 @@ export function registerIpcHandlers(
   ipcMain.handle('regions:list', () => apiClient.getRegions());
   ipcMain.handle('regions:ping', () => apiClient.pingRegions());
   ipcMain.handle('region:get', () => apiClient.getSelectedRegion());
-  ipcMain.handle('region:set', (_e, region: string | null) => apiClient.setSelectedRegion(region));
+  // Reconnects when a tunnel is already up: the pinned region only affects
+  // which nodes connect() asks the server for, so without this the user saw
+  // the new region selected while their traffic kept going through the old one.
+  ipcMain.handle('region:set', async (_e, region: string | null) => {
+    apiClient.setSelectedRegion(region);
+    await vpn.reconnectIfActive();
+  });
 
   ipcMain.handle('devices:list', () => apiClient.getDevices());
   ipcMain.handle('devices:delete', (_e, deviceId: number) => apiClient.deleteDevice(deviceId));
@@ -88,7 +94,13 @@ export function registerIpcHandlers(
   ipcMain.handle('vpn:disconnect', () => vpn.disconnect());
   ipcMain.handle('vpn:getState', () => vpn.getState());
   ipcMain.handle('vpn:getRussianRoutingMode', () => vpn.getRussianRoutingMode());
-  ipcMain.handle('vpn:setRussianRoutingMode', (_e, mode: RussianRoutingMode) => vpn.setRussianRoutingMode(mode));
+  // Same reconnect as region:set — the RU routing rules live in the running
+  // xray's config, so switching modes mid-session otherwise changed nothing
+  // until the user reconnected by hand.
+  ipcMain.handle('vpn:setRussianRoutingMode', async (_e, mode: RussianRoutingMode) => {
+    vpn.setRussianRoutingMode(mode);
+    await vpn.reconnectIfActive();
+  });
 
   // One-shot, cached-forever check of whether this install's public IP was
   // originally (pre-VPN) Russian — see geoLocale.ts. Only the bypass-RU

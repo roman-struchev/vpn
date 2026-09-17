@@ -9,7 +9,7 @@ import type { ConnectionEvent, ConnectionState } from '../../shared/connectionSt
 import { ConnectionStateMachine } from '../../shared/connectionState';
 import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnectBackoffPolicy';
 import { TransportFallbackPolicy, type Transport } from '../../shared/transportFallbackPolicy';
-import { parseVlessUri, type ParsedVlessUri } from '../../shared/vlessUri';
+import { parseVlessUri, regionLabel, type ParsedVlessUri } from '../../shared/vlessUri';
 import { buildXrayConfig, HTTP_PORT, type GrpcFallback, type RussianRoutingMode } from '../../shared/xrayConfigFactory';
 
 export interface VpnControllerEvents {
@@ -59,6 +59,20 @@ export class VpnController extends EventEmitter {
 
   setRussianRoutingMode(mode: RussianRoutingMode): void {
     this.russianRoutingMode = mode;
+  }
+
+  /**
+   * Re-runs connect() against the current settings if a tunnel is up, so a
+   * changed region or RU-routing mode takes effect immediately instead of
+   * silently applying only at the next manual connect (both are baked into
+   * the running xray's config/node choice, so there's nothing to hot-reload).
+   * A no-op while disconnected.
+   */
+  async reconnectIfActive(): Promise<void> {
+    const state = this.getState();
+    if (state !== 'CONNECTED' && state !== 'CONNECTING' && state !== 'RECONNECTING') return;
+    await this.disconnect();
+    await this.connect();
   }
 
   async checkLiveness(): Promise<void> {
@@ -212,7 +226,7 @@ export class VpnController extends EventEmitter {
       await this.systemProxy.enable();
       this.backoff.onSuccess();
       this.transition('TUNNEL_UP');
-      this.emit('region', vless.remark || vless.host);
+      this.emit('region', vless.remark ? regionLabel(vless.remark) : vless.host);
 
       const connectTimeMs = Date.now() - attemptStartedAt;
       const connectedNodeId = this.nodeIdByHost.get(vless.host) ?? null;

@@ -257,7 +257,10 @@ public class ApiClient {
                 for (String link : resp.links) {
                     try {
                         VlessUri uri = VlessUri.parse(link);
-                        String key = (uri.getRemark() != null && !uri.getRemark().isBlank()) ? uri.getRemark() : uri.getHost();
+                        // Keyed by the region label the UI looks these up by (ConnectFragment's
+                        // regionPings.get(region)) — the raw remark also carries the node
+                        // hostname, so nothing ever matched and no ping was ever shown.
+                        String key = !uri.getRegionLabel().isBlank() ? uri.getRegionLabel() : uri.getHost();
                         if (!results.containsKey(key)) {
                             int latency = measureTcpLatency(uri.getHost(), uri.getPort(), 2000);
                             if (latency >= 0) {

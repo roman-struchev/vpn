@@ -43,3 +43,14 @@ export function parseVlessUri(link: string): ParsedVlessUri {
 export function vlessParam(uri: ParsedVlessUri, key: string, fallback: string): string {
   return uri.params[key] ?? fallback;
 }
+
+/**
+ * The user-facing half of a link's remark: the server builds it as
+ * "<region> · <node hostname>" (SubscriptionExportService#REMARK_SEPARATOR).
+ * Only the region belongs on screen — the hostname is operator detail, and
+ * with the old "-" separator it leaked into the UI as part of the region name.
+ */
+export function regionLabel(remark: string): string {
+  const [region] = remark.split(' \u00b7 ');
+  return (region || remark).trim();
+}

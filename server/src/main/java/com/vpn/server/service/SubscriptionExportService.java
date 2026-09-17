@@ -418,6 +418,9 @@ public class SubscriptionExportService {
         return Base64.getEncoder().encodeToString(rawContent.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Separates the user-facing region from the operator-facing node hostname in a vless link's remark. */
+    public static final String REMARK_SEPARATOR = " \u00b7 ";
+
     private String buildVlessUrl(Node node, UUID uuid) {
         String sni = "dl.google.com";
         String pbk = node.getRealityPublicKey() != null ? node.getRealityPublicKey() : "";
@@ -428,7 +431,11 @@ public class SubscriptionExportService {
         // clients decode this URI fragment with decodeURIComponent, which leaves a literal
         // "+" alone instead of turning it back into a space, so a form-encoded remark showed
         // up as garbled text like "India,+Mumbai-vmi3163824" instead of "India, Mumbai-vmi3163824".
-        String remark = URLEncoder.encode(node.getRegion() + "-" + node.getHostname(), StandardCharsets.UTF_8)
+        // " \u00b7 " (and not "-"): our own clients show only the region part of this
+        // label to the user, and a hostname like "centos-4gb-hel1-2" makes a "-"
+        // separator impossible to split on — the desktop/Android UI ended up
+        // showing "India, Mumbai-vmi3163824" as the region name.
+        String remark = URLEncoder.encode(node.getRegion() + REMARK_SEPARATOR + node.getHostname(), StandardCharsets.UTF_8)
                 .replace("+", "%20");
 
         // VLESS + XHTTP + Reality URL

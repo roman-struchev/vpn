@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { ApiHostRotation } from '../../shared/apiHostRotation';
-import { parseVlessUri } from '../../shared/vlessUri';
+import { regionLabel, parseVlessUri } from '../../shared/vlessUri';
 import { pingTcp } from '../vpn/pingUtil';
 import type { TokenStore } from './tokenStore';
 
@@ -257,7 +257,10 @@ export class ApiClient {
         links.map(async (link) => {
           try {
             const parsed = parseVlessUri(link);
-            const key = parsed.remark || parsed.host;
+            // Keyed by the region label the UI looks these up by (see ConnectPage's
+            // `pings[r.region]`) — the raw remark also carries the node hostname, so
+            // nothing ever matched and the ping indicator never appeared.
+            const key = parsed.remark ? regionLabel(parsed.remark) : parsed.host;
             if (results[key] === undefined) {
               const latency = await pingTcp(parsed.host, parsed.port, 2000);
               if (latency !== null) {

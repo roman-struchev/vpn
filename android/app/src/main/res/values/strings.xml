@@ -143,4 +143,5 @@
     <string name="update_downloading_title">Загрузка обновления…</string>
     <string name="update_download_failed">Не удалось скачать обновление</string>
     <string name="update_install_permission_needed">Разрешите установку приложений из этого источника, затем повторите попытку</string>
+    <string name="reconnecting_with_new_settings">Переподключаемся с новыми настройками…</string>
 </resources>
