@@ -12,6 +12,14 @@ import { TransportFallbackPolicy, type Transport } from '../../shared/transportF
 import { parseVlessUri, regionLabel, type ParsedVlessUri } from '../../shared/vlessUri';
 import { buildXrayConfig, HTTP_PORT, type GrpcFallback, type RussianRoutingMode } from '../../shared/xrayConfigFactory';
 import { reportError } from '../diagnostics';
+import { P2pRelayBridge } from '../p2p/relayClient';
+
+/**
+ * How many relay peers to try before telling the user the network is blocked.
+ * Each attempt is a full WebRTC negotiation, so more would mostly mean a
+ * longer wait for the same answer.
+ */
+const MAX_RELAY_ATTEMPTS = 3;
 
 export interface VpnControllerEvents {
   state: [ConnectionState];
@@ -35,6 +43,10 @@ export class VpnController extends EventEmitter {
   private nodeIndex = 0;
   private backoff: ReconnectBackoffPolicy | null = null;
   private transportFallback: TransportFallbackPolicy | null = null;
+  // The P2P hop, when one is in use: a local TCP bridge that forwards this
+  // connection to the node through somebody else's device.
+  private relayBridge: P2pRelayBridge | null = null;
+  private relayNodeId: number | null = null;
   private grpcByHost = new Map<string, GrpcFallback>();
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
@@ -193,6 +205,7 @@ export class VpnController extends EventEmitter {
       this.retryTimer = null;
     }
     this.xrayProcess.stop();
+    await this.teardownRelayBridge();
     try {
       await this.systemProxy.disable();
     } catch (e) {
@@ -245,6 +258,99 @@ export class VpnController extends EventEmitter {
     }
   }
 
+  /**
+   * Last resort before declaring the network blocked: reach a node *through*
+   * another user's device.
+   *
+   * The relay dials the node for us and pipes opaque bytes; the VLESS/Reality
+   * session still terminates at the node itself, so nothing about the tunnel's
+   * secrecy changes — only how the packets get there. That is why the outbound
+   * keeps the node's own SNI, UUID and transport and merely dials the local
+   * bridge instead (see XrayConfigOptions#dialThrough).
+   *
+   * Tries a handful of relays rather than all of them: each attempt costs a
+   * negotiation, and if the first few peers cannot be reached, the honest
+   * answer to the user is sooner rather than later.
+   */
+  private async tryRelayedConnection(): Promise<boolean> {
+    if (this.stopping || !this.backoff) return false;
+
+    let relays: { nodeId: number; region: string | null }[];
+    try {
+      relays = await this.apiClient.getP2pRelays();
+    } catch (e) {
+      console.warn('Could not look up P2P relays', e);
+      return false;
+    }
+    if (relays.length === 0) {
+      console.log('No P2P relay peers are available right now');
+      return false;
+    }
+
+    const vless = this.nodes[this.nodeIndex % this.nodes.length];
+    for (const relay of relays.slice(0, MAX_RELAY_ATTEMPTS)) {
+      if (this.stopping) return false;
+      console.log(`Trying to reach ${vless.host} through relay node ${relay.nodeId} (${relay.region ?? 'unknown region'})`);
+      await this.teardownRelayBridge();
+
+      const bridge = new P2pRelayBridge(this.apiClient, relay.nodeId, { host: vless.host, port: vless.port });
+      try {
+        const localPort = await bridge.start();
+        this.relayBridge = bridge;
+        this.relayNodeId = relay.nodeId;
+
+        const config = buildXrayConfig(
+          vless,
+          this.backoff.getFingerprint(),
+          this.transportFallback?.getCurrentTransport() ?? 'XHTTP',
+          this.grpcByHost.get(vless.host),
+          { russianRoutingMode: this.russianRoutingMode, dialThrough: { host: '127.0.0.1', port: localPort } }
+        );
+        this.xrayProcess.start(config, (code, signal) => this.onXrayExit(code, signal));
+
+        const ready = await waitForPortOpen(HTTP_PORT);
+        if (!ready) {
+          this.xrayProcess.stop();
+          throw new Error('xray did not start listening in time over the relay');
+        }
+        await this.systemProxy.enable();
+        this.backoff.onSuccess();
+        this.transition('TUNNEL_UP');
+        // Say so in the status: a relayed connection goes through a stranger's
+        // device and is usually slower, so presenting it as an ordinary
+        // connection would be misleading.
+        this.emit('region', `${vless.remark ? regionLabel(vless.remark) : vless.host} (via peer)`);
+        void this.registerOrTouchDevice();
+        return true;
+      } catch (e) {
+        console.warn(`Relay node ${relay.nodeId} did not work out`, e);
+        reportError('p2p-relay', 'RELAY_CONNECT_FAILED', 'Could not reach a node through a relay peer', e, {
+          relayNodeId: String(relay.nodeId),
+        });
+        await this.teardownRelayBridge();
+      }
+    }
+    return false;
+  }
+
+  /** Closes the P2P hop, if one is up. Safe to call when there is none. */
+  private async teardownRelayBridge(): Promise<void> {
+    const bridge = this.relayBridge;
+    this.relayBridge = null;
+    this.relayNodeId = null;
+    if (!bridge) return;
+    try {
+      await bridge.stop();
+    } catch {
+      // already gone
+    }
+  }
+
+  /** Whether this connection currently runs through another user's device. */
+  isRelayed(): boolean {
+    return this.relayBridge !== null;
+  }
+
   private onXrayExit(code: number | null, signal: NodeJS.Signals | null): void {
     if (this.stopping) return;
     const state = this.getState();
@@ -273,6 +379,15 @@ export class VpnController extends EventEmitter {
         const verdict = await probeCensorship();
         whitelistSuspected = verdict === 'OPERATOR_RESTRICTION';
         if (whitelistSuspected) {
+          // Every direct path to every node has failed, and the probe says the
+          // network itself is doing it. This is precisely the situation P2P
+          // relaying exists for: another user's device can still reach a node
+          // we cannot, and will forward our bytes to it. Only if no relay is
+          // available (or none works) do we fall through to telling the user
+          // their operator is blocking us.
+          if (await this.tryRelayedConnection()) {
+            return;
+          }
           this.reportTelemetry(true, failedNodeId, 0, this.backoff.getConsecutiveFailuresOnNode());
           this.transition('OPERATOR_BLOCK_DETECTED');
           return;

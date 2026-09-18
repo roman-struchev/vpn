@@ -7,6 +7,8 @@ import com.vpn.server.repository.P2pRelayCreditRepository;
 import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.service.P2pRelayAccountingService;
+import com.vpn.server.service.P2pRelayDirectory;
+import com.vpn.server.service.P2pSessionRegistry;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -34,19 +36,25 @@ public class P2pRelayController {
     private final AgentStreamServiceImpl agentStreamService;
     private final P2pRelayAccountingService p2pRelayAccountingService;
     private final P2pRelayCreditRepository creditRepository;
+    private final P2pRelayDirectory p2pRelayDirectory;
+    private final P2pSessionRegistry p2pSessionRegistry;
 
     public P2pRelayController(
             UserRepository userRepository,
             NodeManagementService nodeManagementService,
             AgentStreamServiceImpl agentStreamService,
             P2pRelayAccountingService p2pRelayAccountingService,
-            P2pRelayCreditRepository creditRepository
+            P2pRelayCreditRepository creditRepository,
+            P2pRelayDirectory p2pRelayDirectory,
+            P2pSessionRegistry p2pSessionRegistry
     ) {
         this.userRepository = userRepository;
         this.nodeManagementService = nodeManagementService;
         this.agentStreamService = agentStreamService;
         this.p2pRelayAccountingService = p2pRelayAccountingService;
         this.creditRepository = creditRepository;
+        this.p2pRelayDirectory = p2pRelayDirectory;
+        this.p2pSessionRegistry = p2pSessionRegistry;
     }
 
     /** Same signal UserController#getProfile's own isGuest uses — no password/Telegram/Google credential means no real accountability yet. */
@@ -126,11 +134,28 @@ public class P2pRelayController {
     }
 
     /**
-     * Forwards this connecting client's SDP offer / ICE candidate to a p2p
-     * relay node and waits (bounded) for that node's reply — pure opaque
-     * passthrough (docs §8.1). `payloadBase64` in, `payloadBase64` out (or
-     * 504 on timeout / node not connected). No client currently calls this
-     * (phase 2/3) — the plumbing is what this phase delivers.
+     * Relay peers this user may currently connect *through* (docs §8.1). A
+     * relay is not an exit: it forwards opaque bytes to a VPN node the client
+     * names in its offer, so this is the list of paths available when dialing
+     * a node directly does not work — which is the whole point of the feature.
+     *
+     * Excludes the caller's own devices (Node#isOwnRelayDeviceOf: relaying
+     * through yourself circumvents nothing and would credit you for your own
+     * bytes) and anything outside their tariff's pool.
+     */
+    @GetMapping("/relays")
+    public ResponseEntity<?> availableRelays(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ResponseEntity.ok(Map.of("relays", p2pRelayDirectory.availableRelaysFor(userId)));
+    }
+
+    /**
+     * Forwards this connecting client's SDP offer / ICE candidate to a relay
+     * node — pure opaque passthrough (docs §8.1), the server never looks
+     * inside. Returns as soon as it has been handed to the node's stream; what
+     * the relay says back is collected from {@link #pollSignals} instead,
+     * because the two directions do not pair up one-to-one (one offer draws an
+     * answer plus a burst of candidates).
      */
     @PostMapping("/nodes/{nodeId}/signal")
     public ResponseEntity<?> sendSignal(
@@ -146,12 +171,51 @@ public class P2pRelayController {
         if (ownsRelayNode(auth, nodeId)) {
             return ResponseEntity.status(403).body(Map.of("error", OWN_RELAY_NODE_ERROR));
         }
-        byte[] payload = Base64.getDecoder().decode(payloadBase64);
-        byte[] reply = agentStreamService.sendSignalToNodeAndAwaitReply(nodeId, sessionId, payload);
-        if (reply == null) {
-            return ResponseEntity.status(504).body(Map.of("error", "No reply from the relay node — it may be offline or unreachable right now"));
+        if (!p2pSessionRegistry.claim(sessionId, (Long) auth.getPrincipal())) {
+            return ResponseEntity.status(403).body(Map.of("error", "This signaling session belongs to another account"));
         }
-        return ResponseEntity.ok(Map.of("payloadBase64", Base64.getEncoder().encodeToString(reply)));
+
+        byte[] payload = Base64.getDecoder().decode(payloadBase64);
+        boolean sent = agentStreamService.sendSignalToNode(nodeId, sessionId, payload);
+        if (!sent) {
+            return ResponseEntity.status(503).body(Map.of(
+                    "error", "The relay node is not reachable right now — it may be offline or no longer offering relay"));
+        }
+        return ResponseEntity.ok(Map.of("status", "SENT"));
+    }
+
+    /**
+     * Long-polls for the relay's next signal in this session. Returns
+     * {@code payloadBase64: null} when nothing arrives within the wait, which
+     * is an ordinary outcome: a client polls in a loop while negotiating and
+     * stops once its data channel is open.
+     */
+    @GetMapping("/sessions/{sessionId}/signals")
+    public ResponseEntity<?> pollSignals(
+            @PathVariable String sessionId,
+            @RequestParam(required = false, defaultValue = "10000") long waitMs,
+            Authentication auth
+    ) {
+        if (!p2pSessionRegistry.isOwnedBy(sessionId, (Long) auth.getPrincipal())) {
+            // Also the answer for a session nobody started: a caller must not
+            // be able to fish for another account's negotiation by guessing ids.
+            return ResponseEntity.status(403).body(Map.of("error", "This signaling session belongs to another account"));
+        }
+        byte[] payload = agentStreamService.awaitSignal(sessionId, Math.min(Math.max(waitMs, 1_000), 30_000));
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("payloadBase64", payload == null ? null : Base64.getEncoder().encodeToString(payload));
+        return ResponseEntity.ok(body);
+    }
+
+    /** Frees the session's mailbox once a client is done negotiating. */
+    @DeleteMapping("/sessions/{sessionId}")
+    public ResponseEntity<?> closeSession(@PathVariable String sessionId, Authentication auth) {
+        if (!p2pSessionRegistry.isOwnedBy(sessionId, (Long) auth.getPrincipal())) {
+            return ResponseEntity.status(403).body(Map.of("error", "This signaling session belongs to another account"));
+        }
+        agentStreamService.closeSignalSession(sessionId);
+        p2pSessionRegistry.release(sessionId);
+        return ResponseEntity.ok(Map.of("status", "CLOSED"));
     }
 
     /**

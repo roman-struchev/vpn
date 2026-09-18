@@ -403,6 +403,44 @@ export class ApiClient {
   }
 
   /**
+   * Relay peers this account can currently connect *through*
+   * (GET /api/v1/user/p2p/relays). A relay is a path to a node, not an exit —
+   * see main/p2p/relayClient.ts.
+   */
+  async getP2pRelays(): Promise<{ nodeId: number; region: string | null; activeConnections: number }[]> {
+    const resp = await this.get<{ relays: { nodeId: number; region: string | null; activeConnections: number }[] }>(
+      'api/v1/user/p2p/relays'
+    );
+    return resp.relays ?? [];
+  }
+
+  /** One signaling payload on its way to a relay; the relay's own replies come from pollP2pSignals. */
+  async sendP2pSignal(nodeId: number, sessionId: string, payloadBase64: string): Promise<void> {
+    await this.post<unknown>(`api/v1/user/p2p/nodes/${nodeId}/signal`, { sessionId, payloadBase64 }, true);
+  }
+
+  /** Long-polls for the relay's next signal. Null means nothing arrived in the wait, which is ordinary. */
+  async pollP2pSignals(sessionId: string, waitMs: number): Promise<string | null> {
+    const resp = await this.get<{ payloadBase64: string | null }>(
+      `api/v1/user/p2p/sessions/${encodeURIComponent(sessionId)}/signals?waitMs=${waitMs}`
+    );
+    return resp?.payloadBase64 ?? null;
+  }
+
+  async closeP2pSession(sessionId: string): Promise<void> {
+    await this.request<unknown>(`api/v1/user/p2p/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, true);
+  }
+
+  /** The client half of the dual traffic report that pays the relay's owner. */
+  async reportP2pSessionTraffic(sessionId: string, nodeId: number, bytesRelayed: number): Promise<void> {
+    await this.post<unknown>(
+      `api/v1/user/p2p/sessions/${encodeURIComponent(sessionId)}/traffic-report`,
+      { nodeId, bytesRelayed },
+      true
+    );
+  }
+
+  /**
    * Ships collected failures (see main/diagnostics.ts). Unauthenticated on
    * purpose — "cannot obtain a token" is one of the failures worth reporting,
    * and the server bounds this channel itself rather than trusting callers.

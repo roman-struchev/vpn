@@ -42,6 +42,20 @@ export type RussianRoutingMode = 'off' | 'bypassRu' | 'onlyRu';
 
 export interface XrayConfigOptions {
   russianRoutingMode?: RussianRoutingMode;
+  /**
+   * Dial this address instead of the node's own, keeping everything else
+   * about the outbound identical — used for the P2P relay hop, where a local
+   * bridge (main/p2p/relayClient.ts) forwards the connection to the node
+   * through somebody else's device.
+   *
+   * Deliberately affects only where the TCP connection goes: the Reality
+   * serverName, the fingerprint, the UUID and the transport all stay as the
+   * node issued them, because the VLESS/Reality session is negotiated
+   * end-to-end with that node. Rewriting the SNI to the local address would
+   * break the handshake — and would be the relay reading the traffic, which
+   * is exactly what this design avoids.
+   */
+  dialThrough?: { host: string; port: number };
 }
 
 export function buildXrayConfig(
@@ -147,7 +161,7 @@ export function buildXrayConfig(
     ],
 
     outbounds: [
-      buildProxyOutbound(vless, fingerprint, reality, transport, grpcFallback),
+      buildProxyOutbound(vless, fingerprint, reality, transport, grpcFallback, options),
       { tag: DNS_OUTBOUND_TAG, protocol: 'dns' },
       { tag: BLOCK_OUTBOUND_TAG, protocol: 'blackhole' },
       { tag: 'direct', protocol: 'freedom' },
@@ -165,7 +179,8 @@ function buildProxyOutbound(
   fingerprint: Fingerprint,
   reality: boolean,
   transport: Transport,
-  grpcFallback?: GrpcFallback
+  grpcFallback?: GrpcFallback,
+  options?: XrayConfigOptions
 ) {
   const useGrpc = transport === 'GRPC';
 
@@ -203,10 +218,10 @@ function buildProxyOutbound(
     settings: {
       vnext: [
         {
-          address: vless.host,
+          address: options?.dialThrough?.host ?? vless.host,
           // Same node, different port when falling back to gRPC — see
           // NodeManagementService#buildNodeConfigSync on the server (Phase 9).
-          port: useGrpc ? grpcFallback!.port : vless.port,
+          port: options?.dialThrough?.port ?? (useGrpc ? grpcFallback!.port : vless.port),
           users: [{ id: vless.uuid, encryption: 'none' }],
         },
       ],

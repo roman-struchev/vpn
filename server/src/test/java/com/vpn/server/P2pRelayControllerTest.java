@@ -6,6 +6,8 @@ import com.vpn.server.repository.P2pRelayCreditRepository;
 import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.service.P2pRelayAccountingService;
+import com.vpn.server.service.P2pRelayDirectory;
+import com.vpn.server.service.P2pSessionRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,7 +37,12 @@ class P2pRelayControllerTest {
     @Mock private AgentStreamServiceImpl agentStreamService;
     @Mock private P2pRelayAccountingService p2pRelayAccountingService;
     @Mock private P2pRelayCreditRepository creditRepository;
+    @Mock private P2pRelayDirectory relayDirectory;
     @Mock private Authentication auth;
+
+    // Real, not mocked: session ownership is the access rule under test here,
+    // and a mock would only assert that the controller calls it.
+    private final P2pSessionRegistry sessionRegistry = new P2pSessionRegistry();
 
     private P2pRelayController controller;
 
@@ -47,7 +54,7 @@ class P2pRelayControllerTest {
     void setUp() {
         controller = new P2pRelayController(
                 userRepository, nodeManagementService, agentStreamService,
-                p2pRelayAccountingService, creditRepository);
+                p2pRelayAccountingService, creditRepository, relayDirectory, sessionRegistry);
         lenient().when(auth.getPrincipal()).thenReturn(CALLER_ID);
         lenient().when(nodeManagementService.isOwnRelayDevice(OWN_NODE_ID, CALLER_ID)).thenReturn(true);
         lenient().when(nodeManagementService.isOwnRelayDevice(SOMEBODY_ELSES_NODE_ID, CALLER_ID)).thenReturn(false);
@@ -63,17 +70,76 @@ class P2pRelayControllerTest {
 
         assertEquals(403, response.getStatusCode().value());
         assertTrue(response.getBody().toString().contains("your own device"), response.getBody().toString());
-        verify(agentStreamService, never()).sendSignalToNodeAndAwaitReply(anyLong(), anyString(), any());
+        verify(agentStreamService, never()).sendSignalToNode(anyLong(), anyString(), any());
     }
 
     @Test
     void testSignalToSomebodyElsesRelayNodeStillGoesThrough() {
-        when(agentStreamService.sendSignalToNodeAndAwaitReply(eq(SOMEBODY_ELSES_NODE_ID), eq("s-1"), any()))
-                .thenReturn("answer".getBytes());
+        when(agentStreamService.sendSignalToNode(eq(SOMEBODY_ELSES_NODE_ID), eq("s-1"), any())).thenReturn(true);
 
         ResponseEntity<?> response = controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), auth);
 
         assertEquals(200, response.getStatusCode().value());
+    }
+
+    @Test
+    void testAnUnreachableRelayIsReportedRatherThanLookingLikeSuccess() {
+        // The node went offline, or its relay window lapsed, between being
+        // listed and being signalled — the client has to know to pick another
+        // one rather than sit waiting for an answer that cannot come.
+        when(agentStreamService.sendSignalToNode(eq(SOMEBODY_ELSES_NODE_ID), eq("s-1"), any())).thenReturn(false);
+
+        ResponseEntity<?> response = controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), auth);
+
+        assertEquals(503, response.getStatusCode().value());
+    }
+
+    @Test
+    void testAnotherAccountCannotReadOrInjectIntoSomebodyElsesSession() {
+        // Session ids are minted by clients and route the whole negotiation, so
+        // without an owner anyone could collect another account's SDP and
+        // candidates, or push signals into its session.
+        when(agentStreamService.sendSignalToNode(anyLong(), anyString(), any())).thenReturn(true);
+        assertEquals(200, controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), auth).getStatusCode().value());
+
+        Authentication stranger = mock(Authentication.class);
+        when(stranger.getPrincipal()).thenReturn(CALLER_ID + 1);
+
+        assertEquals(403, controller.pollSignals("s-1", 1000, stranger).getStatusCode().value());
+        assertEquals(403, controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), stranger).getStatusCode().value());
+        assertEquals(403, controller.closeSession("s-1", stranger).getStatusCode().value());
+        verify(agentStreamService, never()).awaitSignal(eq("s-1"), anyLong());
+    }
+
+    @Test
+    void testPollingAnUnknownSessionIsRefusedRatherThanOpeningOne() {
+        assertEquals(403, controller.pollSignals("never-started", 1000, auth).getStatusCode().value());
+    }
+
+    @Test
+    void testTheOwnerCollectsWhatTheRelayHasSaid() {
+        when(agentStreamService.sendSignalToNode(anyLong(), anyString(), any())).thenReturn(true);
+        controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), auth);
+        when(agentStreamService.awaitSignal(eq("s-1"), anyLong())).thenReturn("answer".getBytes());
+
+        ResponseEntity<?> response = controller.pollSignals("s-1", 1000, auth);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertTrue(response.getBody().toString().contains(Base64.getEncoder().encodeToString("answer".getBytes())));
+    }
+
+    @Test
+    void testAQuietPollIsAnOrdinaryEmptyAnswerNotAnError() {
+        // A client polls in a loop while negotiating; nothing to report yet is
+        // the normal case and must not read as a failure.
+        when(agentStreamService.sendSignalToNode(anyLong(), anyString(), any())).thenReturn(true);
+        controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), auth);
+        when(agentStreamService.awaitSignal(eq("s-1"), anyLong())).thenReturn(null);
+
+        ResponseEntity<?> response = controller.pollSignals("s-1", 1000, auth);
+
+        assertEquals(200, response.getStatusCode().value());
+        assertTrue(response.getBody().toString().contains("payloadBase64"));
     }
 
     @Test

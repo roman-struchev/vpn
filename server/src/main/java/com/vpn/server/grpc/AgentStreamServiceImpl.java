@@ -35,8 +35,31 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
     // connecting client when it starts signaling to a given node; a signal
     // arriving here from the NODE side (its answer/ICE) is stashed until the
     // client's poll picks it up, or it expires unclaimed.
-    private final Map<String, CompletableFuture<byte[]>> pendingClientSignals = new ConcurrentHashMap<>();
+    private final Map<String, SessionInbox> signalInboxes = new ConcurrentHashMap<>();
     private static final long SIGNAL_WAIT_TIMEOUT_SECONDS = 15;
+    /** Per session; ICE trickles a handful of candidates, so this is generous. */
+    private static final int MAX_QUEUED_SIGNALS_PER_SESSION = 64;
+    /** Sessions with no traffic either way for this long are forgotten. */
+    private static final long INBOX_IDLE_TIMEOUT_MS = 300_000;
+    /** Ceiling on concurrently tracked sessions, so a caller cannot mint inboxes without bound. */
+    private static final int MAX_INBOXES = 2000;
+
+    /**
+     * What a relay has said for one session that the connecting client has not
+     * collected yet.
+     *
+     * A queue rather than a single slot because the relay answers with an SDP
+     * *and then* trickles ICE candidates, while the client can only be waiting
+     * for one of them at a time. Dropping the rest — which is what happened
+     * before this existed — loses exactly the candidates a connection through
+     * a NAT depends on, so sessions would negotiate and then never open.
+     */
+    private static final class SessionInbox {
+        final java.util.Queue<byte[]> queued = new java.util.concurrent.ConcurrentLinkedQueue<>();
+        final java.util.concurrent.atomic.AtomicInteger queuedCount = new java.util.concurrent.atomic.AtomicInteger();
+        volatile CompletableFuture<byte[]> waiter;
+        volatile long lastActivityAt = System.currentTimeMillis();
+    }
 
     public AgentStreamServiceImpl(NodeManagementService nodeManagementService,
                                   P2pRelayAccountingService p2pRelayAccountingService,
@@ -156,6 +179,104 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
      * endpoint) surface that as "try another node" rather than an error the
      * client can't act on.
      */
+    /**
+     * Hands one signaling payload to a relay node. Returns whether it went out;
+     * the relay's own answer/candidates come back through {@link #awaitSignal}
+     * rather than as a reply here, because there is no one-to-one relationship
+     * between the two directions.
+     */
+    public boolean sendSignalToNode(Long nodeId, String sessionId, byte[] payload) {
+        // The actual enforcement point for Node#isEligibleForRelay (docs
+        // §8.5) — a node's relay window is otherwise just stored state nothing
+        // consults, letting an expired TIMED node keep answering signals.
+        if (!nodeManagementService.isNodeEligibleForRelay(nodeId)) {
+            log.warn("P2P signal for session {} rejected — node {} is not currently eligible for relay", sessionId, nodeId);
+            return false;
+        }
+        StreamObserver<ServerMessage> observer = activeStreams.get(nodeId);
+        if (observer == null) {
+            log.warn("P2P signal for session {} could not be sent — node {} has no active stream", sessionId, nodeId);
+            return false;
+        }
+
+        inboxFor(sessionId).lastActivityAt = System.currentTimeMillis();
+        try {
+            observer.onNext(ServerMessage.newBuilder()
+                    .setTimestampEpochMs(System.currentTimeMillis())
+                    .setP2PSignal(P2pSignal.newBuilder()
+                            .setSessionId(sessionId)
+                            .setPayload(com.google.protobuf.ByteString.copyFrom(payload))
+                            .build())
+                    .build());
+            return true;
+        } catch (Exception e) {
+            log.warn("Failed to deliver P2P signal for session {} to node {}: {}", sessionId, nodeId, e.toString());
+            return false;
+        }
+    }
+
+    /**
+     * The connecting client's side of the broker: the next thing the relay has
+     * said for this session, waiting up to {@code timeoutMs} for it. Null when
+     * nothing arrives in time, which is an ordinary outcome — a client polls in
+     * a loop while negotiating and stops when the channel opens.
+     */
+    public byte[] awaitSignal(String sessionId, long timeoutMs) {
+        SessionInbox inbox = inboxFor(sessionId);
+        inbox.lastActivityAt = System.currentTimeMillis();
+
+        byte[] queued = inbox.queued.poll();
+        if (queued != null) {
+            inbox.queuedCount.decrementAndGet();
+            return queued;
+        }
+
+        CompletableFuture<byte[]> waiter = new CompletableFuture<>();
+        inbox.waiter = waiter;
+        try {
+            return waiter.get(Math.max(1, timeoutMs), TimeUnit.MILLISECONDS);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (inbox.waiter == waiter) {
+                inbox.waiter = null;
+            }
+            inbox.lastActivityAt = System.currentTimeMillis();
+        }
+    }
+
+    /** Drops a finished session's mailbox instead of waiting for it to idle out. */
+    public void closeSignalSession(String sessionId) {
+        SessionInbox inbox = signalInboxes.remove(sessionId);
+        if (inbox != null && inbox.waiter != null) {
+            inbox.waiter.complete(null);
+        }
+    }
+
+    private SessionInbox inboxFor(String sessionId) {
+        SessionInbox existing = signalInboxes.get(sessionId);
+        if (existing != null) {
+            return existing;
+        }
+        evictIdleInboxes();
+        return signalInboxes.computeIfAbsent(sessionId, id -> new SessionInbox());
+    }
+
+    private void evictIdleInboxes() {
+        long cutoff = System.currentTimeMillis() - INBOX_IDLE_TIMEOUT_MS;
+        signalInboxes.entrySet().removeIf(e -> e.getValue().lastActivityAt < cutoff && e.getValue().waiter == null);
+        if (signalInboxes.size() >= MAX_INBOXES) {
+            // Nothing sane left to do but refuse to grow: keep the newest,
+            // since an old idle session is the one least likely to still matter.
+            signalInboxes.entrySet().stream()
+                    .sorted(java.util.Comparator.comparingLong(e -> e.getValue().lastActivityAt))
+                    .limit(Math.max(1, signalInboxes.size() - MAX_INBOXES + 1))
+                    .map(Map.Entry::getKey)
+                    .toList()
+                    .forEach(signalInboxes::remove);
+        }
+    }
+
     public byte[] sendSignalToNodeAndAwaitReply(Long nodeId, String sessionId, byte[] payload) {
         // The actual enforcement point for Node#isEligibleForRelay (docs
         // §8.5) — a node's relay window/eligibility is otherwise just stored
@@ -163,44 +284,41 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
         // one that never turned relay on) keep answering signals until its
         // next heartbeat happens to overwrite relayMode. Checked here, on
         // every dispatch, not only at registration/heartbeat time.
-        if (!nodeManagementService.isNodeEligibleForRelay(nodeId)) {
-            log.warn("P2P signal for session {} rejected — node {} is not currently eligible for relay", sessionId, nodeId);
+        if (!sendSignalToNode(nodeId, sessionId, payload)) {
             return null;
         }
-
-        StreamObserver<ServerMessage> observer = activeStreams.get(nodeId);
-        if (observer == null) {
-            log.warn("P2P signal for session {} could not be sent — node {} has no active stream", sessionId, nodeId);
-            return null;
-        }
-
-        CompletableFuture<byte[]> pending = new CompletableFuture<>();
-        pendingClientSignals.put(sessionId, pending);
         try {
-            ServerMessage msg = ServerMessage.newBuilder()
-                    .setTimestampEpochMs(System.currentTimeMillis())
-                    .setP2PSignal(P2pSignal.newBuilder()
-                            .setSessionId(sessionId)
-                            .setPayload(com.google.protobuf.ByteString.copyFrom(payload))
-                            .build())
-                    .build();
-            observer.onNext(msg);
-            return pending.get(SIGNAL_WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return awaitSignal(sessionId, SIGNAL_WAIT_TIMEOUT_SECONDS * 1000);
         } catch (Exception e) {
             log.warn("P2P signal round-trip for session {} on node {} failed/timed out: {}", sessionId, nodeId, e.getMessage());
             return null;
-        } finally {
-            pendingClientSignals.remove(sessionId);
         }
     }
 
+    /**
+     * A relay's answer or ICE candidate on its way back to the connecting
+     * client: handed straight to whoever is waiting, or queued for the next
+     * poll. Queuing is the part that makes NAT traversal work at all —
+     * candidates arrive in a burst while the client is between polls.
+     */
     private void resolvePendingClientSignal(P2pSignal signal) {
-        CompletableFuture<byte[]> pending = pendingClientSignals.get(signal.getSessionId());
-        if (pending != null) {
-            pending.complete(signal.getPayload().toByteArray());
-        } else {
-            log.debug("P2P signal for session {} arrived with no (or an already-timed-out) waiting client", signal.getSessionId());
+        SessionInbox inbox = inboxFor(signal.getSessionId());
+        inbox.lastActivityAt = System.currentTimeMillis();
+        byte[] payload = signal.getPayload().toByteArray();
+
+        CompletableFuture<byte[]> waiter = inbox.waiter;
+        if (waiter != null && waiter.complete(payload)) {
+            inbox.waiter = null;
+            return;
         }
+        if (inbox.queuedCount.get() >= MAX_QUEUED_SIGNALS_PER_SESSION) {
+            log.debug("P2P session {} has more unclaimed signals than the inbox holds — dropping the oldest", signal.getSessionId());
+            if (inbox.queued.poll() != null) {
+                inbox.queuedCount.decrementAndGet();
+            }
+        }
+        inbox.queued.add(payload);
+        inbox.queuedCount.incrementAndGet();
     }
 
     public boolean sendCommand(Long nodeId, ServerCommand command) {

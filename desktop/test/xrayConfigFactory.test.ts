@@ -89,3 +89,34 @@ describe('buildXrayConfig', () => {
   });
 });
 
+
+describe('dialing a node through a P2P relay', () => {
+  const vless = parseVlessUri(
+    'vless://11111111-2222-3333-4444-555555555555@node.example.com:443?security=reality&sni=www.microsoft.com&pbk=abc&sid=ff&type=xhttp&path=/vless-xhttp#Finland'
+  );
+
+  it('sends the connection to the local bridge while keeping the node\'s own identity', () => {
+    const config: any = buildXrayConfig(vless, 'firefox', 'XHTTP', undefined, {
+      dialThrough: { host: '127.0.0.1', port: 51820 },
+    });
+    const outbound = config.outbounds.find((o: any) => o.protocol === 'vless');
+
+    // Where the packets go changes...
+    expect(outbound.settings.vnext[0].address).toBe('127.0.0.1');
+    expect(outbound.settings.vnext[0].port).toBe(51820);
+    // ...but nothing about the session inside them: the Reality handshake is
+    // still with the node, so rewriting the SNI would break it — and would be
+    // the relay reading traffic it must not see.
+    expect(outbound.streamSettings.realitySettings.serverName).toBe('www.microsoft.com');
+    expect(outbound.settings.vnext[0].users[0].id).toBe('11111111-2222-3333-4444-555555555555');
+    expect(outbound.streamSettings.network).toBe('xhttp');
+  });
+
+  it('dials the node directly when no relay is in use', () => {
+    const config: any = buildXrayConfig(vless, 'firefox', 'XHTTP');
+    const outbound = config.outbounds.find((o: any) => o.protocol === 'vless');
+
+    expect(outbound.settings.vnext[0].address).toBe('node.example.com');
+    expect(outbound.settings.vnext[0].port).toBe(443);
+  });
+});
