@@ -69,6 +69,33 @@ public class DiagnosticsService {
     /** Per source per minute, across all reporters: the flood valve. */
     static final int MAX_EVENTS_PER_SOURCE_PER_MINUTE = 600;
 
+    /**
+     * Hard ceiling on distinct issues held at once, enforced HERE, on insert,
+     * not only by DiagnosticsPruneTask's periodic sweep.
+     *
+     * The valve above bounds how many reports arrive, but says nothing about
+     * how many of them are *new* issues, and only a new fingerprint creates a
+     * row. Since /api/v1/client/diagnostics is open (a client that cannot get
+     * a token still has to be able to report), a sender making every message
+     * unique would otherwise create a row per report for however long it is
+     * until the next sweep — hundreds of thousands of rows, entirely within
+     * the valve's allowance. The sweep then reclaims it, but the disk is
+     * already gone by the time it runs.
+     *
+     * Once full, occurrences of issues already known keep being counted —
+     * that data costs nothing and is the part worth having — while genuinely
+     * new ones are dropped until the sweep makes room.
+     */
+    public static final int MAX_ISSUE_ROWS = 2000;
+
+    /**
+     * How long a row count may be reused before being re-read. The count only
+     * matters near the ceiling, and a few seconds of staleness can overshoot
+     * it by at most one refresh window's worth of new issues, which the sweep
+     * then reclaims.
+     */
+    private static final long ROW_COUNT_CACHE_MS = 5_000;
+
     // Masking patterns, applied in this order. Deliberately blunt: the goal is
     // that two occurrences of the same problem produce the same text, and that
     // identifiers do not get stored, not perfect classification.
@@ -88,6 +115,10 @@ public class DiagnosticsService {
     // table, not to be an exact quota, and it must not cost a database round
     // trip on a path that runs while things are already going wrong.
     private final Map<String, long[]> rateBuckets = new HashMap<>();
+
+    // Cached row count for the ceiling check above; -1 means "never read".
+    private volatile long cachedRowCount = -1;
+    private volatile long cachedRowCountAt = 0;
 
     public DiagnosticsService(DiagnosticEventRepository repository,
                               UserRepository userRepository,
@@ -160,6 +191,14 @@ public class DiagnosticsService {
         DiagnosticEvent event = repository.findByFingerprint(fingerprint).orElse(null);
         Instant now = Instant.now();
         if (event == null) {
+            if (!hasRoomForANewIssue()) {
+                // Deliberately silent to the reporter (it gets its 200 either
+                // way) and logged at most once per refresh window, since the
+                // situation this fires in is a flood.
+                log.warn("Diagnostics store is at its {}-issue ceiling; dropping new issue [{}/{}] until the next sweep",
+                        MAX_ISSUE_ROWS, component, code);
+                return false;
+            }
             event = new DiagnosticEvent();
             event.setFingerprint(fingerprint);
             event.setSource(source);
@@ -196,8 +235,27 @@ public class DiagnosticsService {
             nodeRepository.findById(report.nodeId()).ifPresent(event::setLastNode);
         }
 
+        boolean isNew = event.getId() == null;
         repository.save(event);
+        if (isNew) {
+            cachedRowCount++;
+        }
         return true;
+    }
+
+    /**
+     * Whether another distinct issue fits under MAX_ISSUE_ROWS. Counts through
+     * a short-lived cache rather than on every insert: this runs on a path
+     * that is busiest exactly when things are going wrong, and the count only
+     * changes when a genuinely new issue appears or the sweep removes some.
+     */
+    private boolean hasRoomForANewIssue() {
+        long now = System.currentTimeMillis();
+        if (cachedRowCount < 0 || now - cachedRowCountAt > ROW_COUNT_CACHE_MS) {
+            cachedRowCount = repository.count();
+            cachedRowCountAt = now;
+        }
+        return cachedRowCount < MAX_ISSUE_ROWS;
     }
 
     private synchronized boolean withinRateLimit(String source) {

@@ -2,6 +2,7 @@ package com.vpn.server.repository;
 
 import com.vpn.server.entity.ConnTelemetry;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -12,6 +13,19 @@ import java.util.List;
 @Repository
 public interface ConnTelemetryRepository extends JpaRepository<ConnTelemetry, Long> {
     
+    /** Retention sweep — see TelemetryRetentionTask. */
+    long deleteByCreatedAtBefore(Instant cutoff);
+
+    /**
+     * Keeps only the newest {@code keep} rows. Expressed as one bulk statement
+     * rather than loading the excess into memory first: this is the path that
+     * runs precisely when the table has grown to something worth not loading.
+     */
+    @Modifying
+    @Query(value = "DELETE FROM conn_telemetry WHERE id NOT IN "
+            + "(SELECT id FROM conn_telemetry ORDER BY created_at DESC LIMIT :keep)", nativeQuery = true)
+    int deleteOldestBeyond(@Param("keep") long keep);
+
     @Query("SELECT t FROM ConnTelemetry t WHERE t.createdAt >= :since ORDER BY t.createdAt DESC")
     List<ConnTelemetry> findRecent(@Param("since") Instant since);
 

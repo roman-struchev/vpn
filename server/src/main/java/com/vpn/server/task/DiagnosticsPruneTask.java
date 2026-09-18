@@ -2,6 +2,7 @@ package com.vpn.server.task;
 
 import com.vpn.server.entity.DiagnosticEvent;
 import com.vpn.server.repository.DiagnosticEventRepository;
+import com.vpn.server.service.DiagnosticsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -37,12 +38,13 @@ public class DiagnosticsPruneTask {
     static final long RETENTION_DAYS = 14;
 
     /**
-     * Hard ceiling on distinct issues. Well above what a healthy fleet
-     * produces (each row is one *kind* of failure, not one occurrence), and
-     * small enough that the whole table stays a few MB and can be read in one
-     * pass by an analysis.
+     * Hard ceiling on distinct issues, shared with the ingest path — which
+     * enforces it on every insert (DiagnosticsService#MAX_ISSUE_ROWS), so the
+     * table cannot balloon between two sweeps. This sweep is what brings it
+     * back down after the retention pass frees rows, and the safety net if
+     * rows appear by any other route.
      */
-    static final int MAX_ROWS = 2000;
+    static final int MAX_ROWS = DiagnosticsService.MAX_ISSUE_ROWS;
 
     private final DiagnosticEventRepository repository;
 
@@ -50,7 +52,11 @@ public class DiagnosticsPruneTask {
         this.repository = repository;
     }
 
-    @Scheduled(fixedDelay = 3_600_000, initialDelay = 120_000)
+    // Every 10 minutes rather than hourly: the ingest-side ceiling already
+    // prevents runaway growth, but a shorter interval keeps the window in
+    // which new issues are being refused (because the table is full of
+    // expired ones) correspondingly short.
+    @Scheduled(fixedDelay = 600_000, initialDelay = 120_000)
     @Transactional
     public void run() {
         pruneExpired();

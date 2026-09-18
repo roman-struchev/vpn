@@ -172,4 +172,41 @@ class DiagnosticsServiceTest {
         DiagnosticEvent event = stored.values().iterator().next();
         assertEquals("0.1.12,0.1.13", event.getAppVersions(), "an issue's builds, oldest first, deduplicated");
     }
+
+    @Test
+    void testNewIssuesStopBeingCreatedOnceTheTableIsFull() {
+        // The ingest endpoint is open, and only a *new* fingerprint creates a
+        // row — so without a ceiling checked here, a sender making every
+        // message unique could fill the disk long before the periodic sweep
+        // runs. Occurrences of issues already known must keep counting: that
+        // data costs no extra rows and is the part worth having.
+        when(repository.count()).thenReturn((long) DiagnosticsService.MAX_ISSUE_ROWS);
+
+        DiagnosticEvent known = new DiagnosticEvent();
+        known.setId(1L);
+        known.setFingerprint("existing");
+        known.setOccurrences(5L);
+        when(repository.findByFingerprint("existing")).thenReturn(Optional.of(known));
+
+        int acceptedNew = service.record(List.of(report("a brand new failure nobody has seen", "attacker")));
+        assertEquals(0, acceptedNew, "a new issue must be refused while the table is at its ceiling");
+        assertTrue(stored.isEmpty());
+    }
+
+    @Test
+    void testTheCeilingCountsRowsOnceRatherThanOnEveryReport() {
+        // The check runs on a path that is busiest exactly when things are
+        // going wrong, so it must not mean a COUNT per report.
+        when(repository.count()).thenReturn(0L);
+
+        // Letters, not numbers: digits are masked away, so numbered
+        // variants would (correctly) collapse into one issue and the test
+        // would not actually create 20 rows.
+        for (char c = 'a'; c <= 't'; c++) {
+            service.record(List.of(report("distinct failure variant " + c, "node-1")));
+        }
+
+        verify(repository, atMost(2)).count();
+        assertEquals(20, stored.size());
+    }
 }
