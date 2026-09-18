@@ -199,4 +199,68 @@ class DeviceManagementServiceTest {
         assertSame(active, result.get(0));
         verify(deviceRepository).findByUserIdAndIsActiveTrue(7L);
     }
+
+    @Test
+    void testOverlongNameAndPlatformAreClippedToTheirColumns() {
+        // A long hostname used to reach Postgres verbatim and come back as a
+        // 500, i.e. that machine could not register a device at all. The two
+        // fields are cosmetic, so they are clipped rather than refused.
+        User user = new User();
+        user.setId(7L);
+
+        Tariff standardTariff = new Tariff();
+        standardTariff.setId("standard");
+
+        Subscription sub = new Subscription();
+        sub.setId(10L);
+        sub.setUser(user);
+        sub.setTariff(standardTariff);
+        sub.setCurrentPeriodEnd(Instant.now().plus(15, ChronoUnit.DAYS));
+
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(7L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(deviceRepository.countRecentlyActiveByUserId(eq(7L), any(Instant.class))).thenReturn(0L);
+        when(deviceRepository.save(any(Device.class))).thenAnswer(i -> i.getArgument(0));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of());
+
+        Device result = deviceManagementService.addDevice(7L, "n".repeat(5000), "p".repeat(500));
+
+        assertEquals(128, result.getDeviceName().length(), "device_name is VARCHAR(128)");
+        assertEquals(32, result.getPlatform().length(), "platform is VARCHAR(32)");
+    }
+
+    @Test
+    void testClippingNeverSplitsACharacterInHalf() {
+        // Java counts an emoji as two chars, so a naive substring at the limit
+        // can leave an unpaired surrogate behind — an invalid string Postgres
+        // would reject in its own right. An odd-length prefix puts the cut
+        // exactly on such a boundary at char 128.
+        User user = new User();
+        user.setId(7L);
+
+        Tariff standardTariff = new Tariff();
+        standardTariff.setId("standard");
+
+        Subscription sub = new Subscription();
+        sub.setId(10L);
+        sub.setUser(user);
+        sub.setTariff(standardTariff);
+        sub.setCurrentPeriodEnd(Instant.now().plus(15, ChronoUnit.DAYS));
+
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(7L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(deviceRepository.countRecentlyActiveByUserId(eq(7L), any(Instant.class))).thenReturn(0L);
+        when(deviceRepository.save(any(Device.class))).thenAnswer(i -> i.getArgument(0));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of());
+
+        String emoji = "\uD83D\uDCF1"; // one emoji = two Java chars
+        Device result = deviceManagementService.addDevice(7L, "x" + emoji.repeat(200), "ANDROID");
+
+        String name = result.getDeviceName();
+        assertEquals(127, name.length(), "the orphaned high surrogate must be dropped, not stored");
+        assertFalse(Character.isHighSurrogate(name.charAt(name.length() - 1)));
+        assertTrue(name.codePoints().allMatch(Character::isDefined));
+    }
 }

@@ -67,9 +67,26 @@ public class DeviceAuthService {
         this.newUserTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
+    /**
+     * Comfortably above a real UUID (36 chars) and far below the narrower of
+     * the two columns this value lands in: users.device_uuid VARCHAR(255)
+     * (V6__device_uuid.sql) and users.email VARCHAR(255), which gets the
+     * synthetic "device_<uuid>@device.local" built from it in
+     * createNewDeviceUser — so the email is what actually overflows first.
+     */
+    static final int MAX_DEVICE_UUID_LENGTH = 128;
+
     public AuthResponse authenticateDevice(String deviceUuid, String referralCode) {
         if (deviceUuid == null || deviceUuid.isBlank()) {
             throw new IllegalArgumentException("deviceUuid cannot be empty");
+        }
+        // Deliberately rejected rather than clipped, unlike the cosmetic
+        // device name (DeviceManagementService#fitColumn): this value is the
+        // identity of the guest account, so trimming it would silently merge
+        // two different installs into one. Without the check it reached
+        // users.device_uuid VARCHAR(255) and came back as a 500.
+        if (deviceUuid.trim().length() > MAX_DEVICE_UUID_LENGTH) {
+            throw new IllegalArgumentException("deviceUuid is too long (max " + MAX_DEVICE_UUID_LENGTH + " characters)");
         }
 
         User user = findOrCreateDeviceUser(deviceUuid.trim(), referralCode);

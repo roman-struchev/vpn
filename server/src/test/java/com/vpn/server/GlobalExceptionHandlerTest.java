@@ -2,6 +2,7 @@ package com.vpn.server;
 
 import com.vpn.server.config.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -58,5 +59,24 @@ class GlobalExceptionHandlerTest {
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertEquals("Internal server error", response.getBody().get("error"));
+    }
+
+    @Test
+    void testDatabaseConstraintViolationIsABadRequestAndLeaksNothing() {
+        // The safety net under the explicit length checks: whatever slips
+        // through to a column must read as bad input, not as a server fault,
+        // and the driver's message (which quotes the SQL and the offending
+        // value) must stay in the log.
+        DataIntegrityViolationException ex = new DataIntegrityViolationException(
+                "could not execute statement",
+                new RuntimeException("ERROR: value too long for type character varying(128); INSERT INTO devices ..."));
+
+        ResponseEntity<Map<String, String>> response = handler.handleDataIntegrityViolation(ex);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        String error = response.getBody().get("error");
+        assertFalse(error.contains("INSERT INTO"), "must not echo the statement back: " + error);
+        assertFalse(error.contains("character varying"), "must not echo the column type back: " + error);
+        assertTrue(error.toLowerCase().contains("too long") || error.toLowerCase().contains("invalid"));
     }
 }

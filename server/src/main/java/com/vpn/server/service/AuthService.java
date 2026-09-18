@@ -17,6 +17,11 @@ import java.util.Optional;
 @Service
 public class AuthService {
 
+    /** RFC 5321's own maximum, and one under users.email's VARCHAR(255). */
+    static final int MAX_EMAIL_LENGTH = 254;
+    /** Generous for a passphrase, bounded for the hashing cost — see register(). */
+    static final int MAX_PASSWORD_LENGTH = 200;
+
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
@@ -33,8 +38,20 @@ public class AuthService {
         if (request.email() == null || request.email().isBlank()) {
             throw new IllegalArgumentException("Email cannot be blank");
         }
+        // An address longer than its column (users.email VARCHAR(255)) used to
+        // reach Postgres as-is and come back as a 500 "Internal server error";
+        // 254 is the longest an email address may be anyway (RFC 5321).
+        if (request.email().trim().length() > MAX_EMAIL_LENGTH) {
+            throw new IllegalArgumentException("Email is too long (max " + MAX_EMAIL_LENGTH + " characters)");
+        }
         if (request.password() == null || request.password().length() < 6) {
             throw new IllegalArgumentException("Password must be at least 6 characters");
+        }
+        // Not a column-width problem (only the hash is stored) but a work one:
+        // hashing cost scales with input length, so an unbounded password is
+        // free CPU for whoever asks. bcrypt reads the first 72 bytes anyway.
+        if (request.password().length() > MAX_PASSWORD_LENGTH) {
+            throw new IllegalArgumentException("Password is too long (max " + MAX_PASSWORD_LENGTH + " characters)");
         }
         if (userRepository.existsByEmail(request.email().toLowerCase().trim())) {
             throw new IllegalArgumentException("Email already registered");

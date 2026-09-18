@@ -126,4 +126,20 @@ class AuthServiceTest {
         assertThrows(IllegalStateException.class, () ->
                 authService.upgradeGuest(301L, new UpgradeRequest("real@example.com", "securePassword123")));
     }
+
+    @Test
+    void testRegisterRejectsAnOverlongEmailAndPassword() {
+        // Both used to reach the database/hasher unbounded: the address
+        // overflowed users.email VARCHAR(255) as a 500, and an arbitrarily
+        // long password is unbounded hashing work for whoever asks.
+        String longLocalPart = "a".repeat(300);
+
+        IllegalArgumentException email = assertThrows(IllegalArgumentException.class, () ->
+                authService.register(new RegisterRequest(longLocalPart + "@example.com", "password123", null)));
+        assertTrue(email.getMessage().toLowerCase().contains("email"), email.getMessage());
+
+        IllegalArgumentException password = assertThrows(IllegalArgumentException.class, () ->
+                authService.register(new RegisterRequest("fine@example.com", "p".repeat(5000), null)));
+        assertTrue(password.getMessage().toLowerCase().contains("password"), password.getMessage());
+    }
 }

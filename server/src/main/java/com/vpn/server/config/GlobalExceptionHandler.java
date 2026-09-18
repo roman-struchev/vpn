@@ -2,6 +2,7 @@ package com.vpn.server.config;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -69,6 +70,26 @@ public class GlobalExceptionHandler {
         String reason = ex.getReason() != null ? ex.getReason() : ex.getStatusCode().toString();
         log.warn("ResponseStatusException ({}): {}", ex.getStatusCode(), reason);
         return ResponseEntity.status(ex.getStatusCode()).body(Map.of("error", reason));
+    }
+
+    /**
+     * A value the database itself refused: too long for its column, or
+     * colliding with a unique constraint. That is bad input, not a server
+     * fault, so it must not read as a 500 — which is exactly how an overlong
+     * device name, platform, e-mail or device UUID used to surface, complete
+     * with the client having no idea what it did wrong.
+     *
+     * Each of those inputs is also checked up front now (see AuthService#
+     * register, DeviceAuthService#authenticateDevice, DeviceManagementService#
+     * addDevice) with a message naming the offending field; this is the net
+     * underneath, so the next unbounded string to reach a column degrades to a
+     * 400 instead of a 500. The detail is logged, never returned: the driver's
+     * message quotes the SQL and the value.
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> handleDataIntegrityViolation(DataIntegrityViolationException ex) {
+        log.warn("Rejected request violating a database constraint: {}", ex.getMostSpecificCause().getMessage());
+        return ResponseEntity.badRequest().body(Map.of("error", "Invalid input: a value is too long or already in use"));
     }
 
     @ExceptionHandler(Exception.class)

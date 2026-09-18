@@ -95,8 +95,12 @@ public class DeviceManagementService {
 
         Device device = new Device();
         device.setUser(user);
-        device.setDeviceName(deviceName != null && !deviceName.isBlank() ? deviceName.trim() : "Device " + (activeCount + 1));
-        device.setPlatform(platform != null && !platform.isBlank() ? platform.trim() : "OTHER");
+        device.setDeviceName(deviceName != null && !deviceName.isBlank()
+                ? fitColumn(deviceName.trim(), MAX_DEVICE_NAME_LENGTH)
+                : "Device " + (activeCount + 1));
+        device.setPlatform(platform != null && !platform.isBlank()
+                ? fitColumn(platform.trim(), MAX_PLATFORM_LENGTH)
+                : "OTHER");
         device.setIsActive(true);
         device.setLastSeenAt(Instant.now());
         device = deviceRepository.save(device);
@@ -144,6 +148,35 @@ public class DeviceManagementService {
 
         log.info("Revoked device #{} for user {}. Pushing config sync to all nodes.", deviceId, userId);
         agentStreamService.pushConfigSyncToAll();
+    }
+
+    // Mirrors Device's own column widths (device_name VARCHAR(128),
+    // platform VARCHAR(32)).
+    static final int MAX_DEVICE_NAME_LENGTH = 128;
+    static final int MAX_PLATFORM_LENGTH = 32;
+
+    /**
+     * Clips a client-supplied label to what its column can hold. These two
+     * fields are cosmetic (a hostname, a device model — whatever the app
+     * happened to read off the OS), so an overlong one must not stop a device
+     * from being registered: before this, a long name reached Postgres as-is
+     * and came back as a 500 "Internal server error", i.e. a user whose
+     * machine had a long hostname simply could not connect.
+     *
+     * Cuts on a whole character: a Java substring can otherwise split an
+     * emoji's surrogate pair and store an unpaired half. The limit counts
+     * Java chars, which is never more permissive than Postgres' character
+     * count, so the result always fits.
+     */
+    static String fitColumn(String value, int maxLength) {
+        if (value.length() <= maxLength) {
+            return value;
+        }
+        int end = maxLength;
+        if (Character.isHighSurrogate(value.charAt(end - 1))) {
+            end--;
+        }
+        return value.substring(0, end);
     }
 
     private int resolveMaxDevices(String tariffId) {
