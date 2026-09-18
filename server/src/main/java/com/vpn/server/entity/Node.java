@@ -167,6 +167,25 @@ public class Node {
     public boolean isP2p() { return "p2p".equalsIgnoreCase(type); }
 
     /**
+     * Whether this is the given user's *own* relay device — their phone or
+     * laptop running P2P mode. Such a node must never be offered back to
+     * them: relaying your own traffic through your own device gains you
+     * nothing (same IP, same censor's view of it), while the accounting
+     * would credit you for carrying your own bytes (P2pRelayAccountingService
+     * pays the relay's owner), i.e. free quota out of thin air — and the
+     * repo owner's own report was simply seeing their laptop listed as a
+     * region to connect to from the very account it belongs to.
+     *
+     * Deliberately restricted to p2p: a VPS/direct/cdn node also carries an
+     * ownerUser (whoever's bootstrap token registered it — see the
+     * ownerUser field), and that is almost always the operator running this
+     * whole network, who must keep seeing their own infrastructure.
+     */
+    public boolean isOwnRelayDeviceOf(Long userId) {
+        return isP2p() && userId != null && userId.equals(getOwnerUserId());
+    }
+
+    /**
      * Whether this node should currently be handed out to a connecting
      * client at all. Always true for a non-p2p node (a VPS node's
      * relayMode/relayExpiresAt are meaningless — its ONLINE status is the

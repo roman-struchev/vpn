@@ -204,6 +204,20 @@ public class NodeManagementService {
     }
 
     /**
+     * Whether this node is the given user's own relay device (see
+     * Node#isOwnRelayDeviceOf) — the check behind "you cannot relay through
+     * your own phone/laptop", enforced server-side in P2pRelayController
+     * rather than trusted to the client. False for an unknown node id, so a
+     * caller still gets the ordinary not-found/timeout path for those.
+     */
+    public boolean isOwnRelayDevice(Long nodeId, Long userId) {
+        if (nodeId == null || userId == null) {
+            return false;
+        }
+        return nodeRepository.findById(nodeId).map(n -> n.isOwnRelayDeviceOf(userId)).orElse(false);
+    }
+
+    /**
      * Derives the two tariff-access flags purely from `pool` (docs §8.3) —
      * "trial" and "both" grant availableToTrial=true (paid tariffs already
      * reach trial-pool nodes as bonus/fallback capacity — see

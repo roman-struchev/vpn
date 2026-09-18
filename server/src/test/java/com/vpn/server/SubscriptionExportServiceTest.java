@@ -779,4 +779,112 @@ class SubscriptionExportServiceTest {
                 exportService.exportVlessLinksForOwnApp(30L));
         assertTrue(ex.getMessage().contains("Account is suspended or blocked"));
     }
+
+    @Test
+    void testGetAvailableRegionsHidesTheCallersOwnRelayDevice() {
+        // Reported by the repo owner: turning P2P relay mode on made their own
+        // laptop appear as a connection region in their own app. Another
+        // user's p2p node must stay listed (that is the whole point of the
+        // relay pool) — only the caller's own device disappears.
+        User owner = new User();
+        owner.setId(60L);
+        User somebodyElse = new User();
+        somebodyElse.setId(61L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(owner);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node vps = new Node();
+        vps.setId(70L);
+        vps.setRegion("Finland, Helsinki");
+        vps.setStatus("ONLINE");
+        vps.setType("vps");
+        vps.setAvailableToPaid(true);
+        // A VPS node is owned by whoever's bootstrap token registered it —
+        // usually the operator, i.e. possibly this very caller. It must never
+        // be hidden from them.
+        vps.setOwnerUser(owner);
+
+        Node myLaptop = new Node();
+        myLaptop.setId(71L);
+        myLaptop.setRegion("Spain, Madrid");
+        myLaptop.setStatus("ONLINE");
+        myLaptop.setType("p2p");
+        myLaptop.setRelayMode("ALWAYS");
+        myLaptop.setAvailableToPaid(true);
+        myLaptop.setOwnerUser(owner);
+
+        Node otherPersonsPhone = new Node();
+        otherPersonsPhone.setId(72L);
+        otherPersonsPhone.setRegion("Germany, Berlin");
+        otherPersonsPhone.setStatus("ONLINE");
+        otherPersonsPhone.setType("p2p");
+        otherPersonsPhone.setRelayMode("ALWAYS");
+        otherPersonsPhone.setAvailableToPaid(true);
+        otherPersonsPhone.setOwnerUser(somebodyElse);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(60L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE"))
+                .thenReturn(List.of(vps, myLaptop, otherPersonsPhone));
+        when(nodeRepository.findByStatus("ONLINE"))
+                .thenReturn(List.of(vps, myLaptop, otherPersonsPhone));
+
+        List<String> regions = exportService.getAvailableRegions(60L).stream()
+                .map(SubscriptionExportService.RegionSummary::region)
+                .toList();
+
+        assertEquals(List.of("Finland, Helsinki", "Germany, Berlin"), regions);
+    }
+
+    @Test
+    void testExportNeverLinksTheCallersOwnRelayDevice() {
+        // Belt and braces for the same rule on the path that actually hands
+        // out credentials: even if a p2p node ever becomes directly dialable,
+        // the caller's own device must not be among the links.
+        User owner = new User();
+        owner.setId(62L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(owner);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Device device = new Device();
+        device.setId(500L);
+        device.setUser(owner);
+        device.setDeviceName("Phone");
+
+        Node myLaptop = new Node();
+        myLaptop.setId(73L);
+        myLaptop.setHostname("MacBookPro");
+        myLaptop.setPublicIp("10.0.0.5");
+        myLaptop.setRegion("Spain, Madrid");
+        myLaptop.setStatus("ONLINE");
+        myLaptop.setType("p2p");
+        myLaptop.setRelayMode("ALWAYS");
+        myLaptop.setAvailableToPaid(true);
+        myLaptop.setOwnerUser(owner);
+        myLaptop.setRealityPublicKey("pk");
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(62L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(deviceRepository.findByUserIdAndIsActiveTrue(62L)).thenReturn(List.of(device));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(myLaptop));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(myLaptop));
+
+        assertTrue(exportService.exportVlessLinksForOwnApp(62L).isEmpty());
+    }
 }

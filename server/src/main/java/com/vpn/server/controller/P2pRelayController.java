@@ -54,6 +54,26 @@ public class P2pRelayController {
         return user.getPasswordHash() == null && user.getTelegramId() == null && user.getGoogleSub() == null;
     }
 
+    static final String OWN_RELAY_NODE_ERROR =
+            "This relay node is your own device — relaying your own traffic through it is not allowed";
+
+    /**
+     * Whether {@code nodeId} is the caller's own relay device (see
+     * Node#isOwnRelayDeviceOf). Nobody may connect through, or claim relay
+     * credit for, their own phone/laptop: the traffic would leave from the
+     * same IP it entered (so it circumvents nothing), while the accounting
+     * credits a relay's owner — which would turn "relay to yourself" into a
+     * free-quota generator. SubscriptionExportService keeps such a node out
+     * of the region list the same way, so a well-behaved client never even
+     * offers it; this is the enforcement that does not trust the client.
+     */
+    private boolean ownsRelayNode(Authentication auth, Long nodeId) {
+        if (auth == null || nodeId == null) {
+            return false;
+        }
+        return nodeManagementService.isOwnRelayDevice(nodeId, (Long) auth.getPrincipal());
+    }
+
     @PostMapping("/accept-terms")
     public ResponseEntity<?> acceptTerms(Authentication auth) {
         Long userId = (Long) auth.getPrincipal();
@@ -115,12 +135,16 @@ public class P2pRelayController {
     @PostMapping("/nodes/{nodeId}/signal")
     public ResponseEntity<?> sendSignal(
             @PathVariable Long nodeId,
-            @RequestBody Map<String, String> req
+            @RequestBody Map<String, String> req,
+            Authentication auth
     ) {
         String sessionId = req.get("sessionId");
         String payloadBase64 = req.get("payloadBase64");
         if (sessionId == null || sessionId.isBlank() || payloadBase64 == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "sessionId and payloadBase64 are required"));
+        }
+        if (ownsRelayNode(auth, nodeId)) {
+            return ResponseEntity.status(403).body(Map.of("error", OWN_RELAY_NODE_ERROR));
         }
         byte[] payload = Base64.getDecoder().decode(payloadBase64);
         byte[] reply = agentStreamService.sendSignalToNodeAndAwaitReply(nodeId, sessionId, payload);
@@ -138,7 +162,8 @@ public class P2pRelayController {
     @PostMapping("/sessions/{sessionId}/traffic-report")
     public ResponseEntity<?> reportSessionTraffic(
             @PathVariable String sessionId,
-            @RequestBody Map<String, Object> req
+            @RequestBody Map<String, Object> req,
+            Authentication auth
     ) {
         Object nodeIdObj = req.get("nodeId");
         Object bytesObj = req.get("bytesRelayed");
@@ -146,6 +171,13 @@ public class P2pRelayController {
             return ResponseEntity.badRequest().body(Map.of("error", "nodeId and bytesRelayed are required"));
         }
         long nodeId = Long.parseLong(nodeIdObj.toString());
+        // A session with one's own relay device can never be legitimate (see
+        // ownsRelayNode) — and this is the half of the dual report that comes
+        // from the *client*, so accepting it would let an account pair it with
+        // its own relay agent's half and mint credit for itself.
+        if (ownsRelayNode(auth, nodeId)) {
+            return ResponseEntity.status(403).body(Map.of("error", OWN_RELAY_NODE_ERROR));
+        }
         long bytesRelayed = Long.parseLong(bytesObj.toString());
         p2pRelayAccountingService.recordClientReport(nodeId, sessionId, bytesRelayed);
         return ResponseEntity.ok(Map.of("status", "RECEIVED"));

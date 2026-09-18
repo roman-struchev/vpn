@@ -142,9 +142,16 @@ public class SubscriptionExportService {
         // Excludes p2p nodes for the same reason exportVlessLinks does (see
         // findAccessibleOnlineNodesForVless) — no client can consume a p2p
         // node via this path yet, so it shouldn't count as real capacity here.
-        boolean ownPoolHasCapacity = !findAccessibleOnlineNodesForVless(effectiveTariff).isEmpty();
+        boolean ownPoolHasCapacity = !findAccessibleOnlineNodesForVless(userId, effectiveTariff).isEmpty();
 
-        List<Node> activeNodes = nodeRepository.findByStatus("ONLINE");
+        // The caller's own relay device is not a region they can pick (see
+        // Node#isOwnRelayDeviceOf) — without this filter, turning P2P mode on
+        // made your own laptop/phone show up as a connection region in your
+        // own app, which is what the repo owner reported. Other users' p2p
+        // nodes stay listed exactly as before.
+        List<Node> activeNodes = nodeRepository.findByStatus("ONLINE").stream()
+                .filter(n -> !n.isOwnRelayDeviceOf(userId))
+                .toList();
 
         Map<String, List<Node>> byRegion = activeNodes.stream()
                 .filter(n -> n.getRegion() != null && !n.getRegion().isBlank())
@@ -206,12 +213,22 @@ public class SubscriptionExportService {
                 : Boolean.TRUE.equals(node.getAvailableToPaid());
     }
 
-    /** Online nodes the given tariff can actually connect through right now, VLESS-dialable p2p nodes excluded (see findAccessibleOnlineNodesForVless). */
-    private List<Node> findAccessibleOnlineNodes(Tariff tariff) {
+    /**
+     * Online nodes the given tariff can actually connect through right now,
+     * VLESS-dialable p2p nodes excluded (see findAccessibleOnlineNodesForVless).
+     *
+     * The caller's own relay device is dropped here rather than only at the
+     * call sites, so the "never route a user through their own phone/laptop"
+     * rule (Node#isOwnRelayDeviceOf) holds for whatever consumes this next —
+     * in particular once p2p nodes do become dialable (docs §8.1 phase 2/3)
+     * and the blanket p2p exclusion below goes away.
+     */
+    private List<Node> findAccessibleOnlineNodes(Long userId, Tariff tariff) {
         String pool = (tariff != null && tariff.getServerPool() != null) ? tariff.getServerPool() : "paid";
-        return "trial".equalsIgnoreCase(pool)
+        List<Node> nodes = "trial".equalsIgnoreCase(pool)
                 ? nodeRepository.findByAvailableToTrialTrueAndStatus("ONLINE")
                 : nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE");
+        return nodes.stream().filter(n -> !n.isOwnRelayDeviceOf(userId)).toList();
     }
 
     /**
@@ -224,8 +241,8 @@ public class SubscriptionExportService {
      * has no client-side consumer yet (phase 2/3). Until that exists, a p2p
      * node must never end up producing a direct-dial link here.
      */
-    private List<Node> findAccessibleOnlineNodesForVless(Tariff tariff) {
-        return findAccessibleOnlineNodes(tariff).stream().filter(n -> !n.isP2p()).toList();
+    private List<Node> findAccessibleOnlineNodesForVless(Long userId, Tariff tariff) {
+        return findAccessibleOnlineNodes(userId, tariff).stream().filter(n -> !n.isP2p()).toList();
     }
 
     private static double round1(double v) {
@@ -367,7 +384,7 @@ public class SubscriptionExportService {
         }
 
         Device primaryDevice = devices.get(0);
-        List<Node> activeNodes = findAccessibleOnlineNodesForVless(effectiveTariff);
+        List<Node> activeNodes = findAccessibleOnlineNodesForVless(userId, effectiveTariff);
         if (activeNodes.isEmpty()) {
             // Same p2p exclusion as findAccessibleOnlineNodesForVless — this
             // fallback must never hand out a p2p node's direct-dial link either.
