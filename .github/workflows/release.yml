@@ -15,10 +15,12 @@ name: Release (Docker images, APK, DMG)
 # this workflow does not depend on.
 #
 # Realistic-scope notes (see also inline comments in the jobs below):
-#   - The Android APK is signed with the SDK's auto-generated local debug
-#     keystore (see android/app/build.gradle) — there is no production
-#     signing keystore/secrets in this repo. Installable via `adb install`,
-#     not Play Store-ready.
+#   - The Android APK is signed with the project's own release keystore,
+#     supplied by the ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD /
+#     ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD secrets (see the android-apk
+#     job and android/README.md). That key never changes: an update signed by
+#     a different key cannot install over an existing one. Self-signed, so
+#     side-loadable via `adb install`/the in-app updater, not Play-Store-ready.
 #   - The macOS DMG is unsigned/not notarized (no Apple Developer ID or
 #     notarization credentials exist in this repo's secrets — see
 #     `notarize: false` in desktop/package.json). Gatekeeper will warn on
@@ -247,7 +249,7 @@ jobs:
       # whatever compileSdk platform it needs.
 
       - name: Grant execute permission for gradlew
-        run: chmod +x gradlew scripts/fetch-libxray.sh
+        run: chmod +x gradlew scripts/fetch-libxray.sh scripts/verify-apk-signature.sh
         working-directory: android
 
       - name: Fetch libXray .aar
@@ -265,15 +267,39 @@ jobs:
           # release for any future Play Store upload.
           echo "code=$((MAJOR * 10000 + MINOR * 100 + PATCH))" >> "$GITHUB_OUTPUT"
 
+      # The APK must be signed with the project's one stable release key:
+      # Android will not install an update signed by a different key, and a
+      # phone that already has the app can then only be rescued by
+      # uninstalling it. Hard-fail rather than fall back to a debug key, which
+      # is how v0.1.x releases each ended up with a different certificate.
+      - name: Decode release signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::Secret ANDROID_KEYSTORE_BASE64 is not configured — refusing to publish an APK that cannot update existing installs. See android/README.md (release signing)."
+            exit 1
+          fi
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/vpn-release.jks"
+
       - name: Assemble release APK (no tests)
-        # See android/app/build.gradle: signed with the SDK's local debug
-        # keystore (no production signing cert/secrets exist here) — this
-        # is an internal-testing artifact, not a Play Store release.
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/vpn-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           ./gradlew :app:assembleRelease \
             -PversionName=${{ needs.version.outputs.version }} \
             -PversionCode=${{ steps.vc.outputs.code }}
+
+      # Signing silently falling back, or the keystore being swapped, produces
+      # an APK that installs fine on a clean device and breaks every upgrade —
+      # so the certificate is pinned and checked before anything is published.
+      - name: Verify APK signing certificate
+        working-directory: android
+        run: ./scripts/verify-apk-signature.sh app/build/outputs/apk/release/app-release.apk
 
       - name: Upload APK to release
         env:

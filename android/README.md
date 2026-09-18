@@ -24,6 +24,44 @@ run fine under a JDK 25 daemon, no `JAVA_HOME` override needed.
 ./gradlew :app:assembleDebug       # full APK, links against the real libXray .so
 ```
 
+## Release signing
+
+Every published APK must be signed with the project's **one** release key.
+Android refuses to install an update signed by a different key — it fails with
+"App not installed as package conflicts with an existing package", and the only
+way out on that device is uninstalling the app (losing the saved login and all
+local settings). Releases v0.1.7…v0.1.12 each shipped with a *different*
+certificate because the release build fell back to the SDK's auto-generated
+debug keystore, which CI regenerates on every run.
+
+The keystore is never committed. `android/app/build.gradle` picks it up from
+`-PreleaseKeystore=...`/`-PreleaseKeystorePassword=...`/`-PreleaseKeyAlias=...`/
+`-PreleaseKeyPassword=...` or the equivalent `ANDROID_KEYSTORE_FILE`,
+`ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`
+environment variables:
+
+```bash
+ANDROID_KEYSTORE_FILE=~/.android/vpn-release.jks \
+ANDROID_KEYSTORE_PASSWORD=... ANDROID_KEY_ALIAS=vpn \
+./gradlew :app:assembleRelease -PversionName=0.1.13 -PversionCode=113
+
+./scripts/verify-apk-signature.sh app/build/outputs/apk/release/app-release.apk
+```
+
+With nothing configured, `assembleRelease` still produces a debug-signed APK
+for local `adb install` use, but it logs a warning and
+`verify-apk-signature.sh` rejects it — that script pins the release
+certificate's SHA-256 and runs in `.github/workflows/release.yml` before the
+APK is attached to a release, so a signing regression fails the build instead
+of reaching a phone.
+
+CI reads the keystore from the repo secrets `ANDROID_KEYSTORE_BASE64` (the
+`.jks` file, base64-encoded), `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`
+and `ANDROID_KEY_PASSWORD`; the release job hard-fails if the first is missing.
+**Back the keystore file and its password up somewhere durable** — losing them
+means minting a new key, which forces every existing install to be uninstalled
+by hand.
+
 ## What this talks to
 
 Server endpoints consumed (see `server/src/main/java/com/vpn/server/controller`):
@@ -93,6 +131,7 @@ backup domains, tried in order on a network-level (not HTTP-error) failure —
   resolved by matching the currently-active `VlessUri` host against
   `RoutingConfigResponse.NodeInfo.publicIp`. Successful connects report `TUNNEL_UP`
   with measured `connectTimeMs`, while connection failures report `FAILURE`.
-- Release signing / Play Store listing (docs/stores-and-liability.md) is out
-  of scope for this MVP pass. Note that `google_web_client_id` in `strings.xml`
-  requires configuring your Web OAuth Client ID from Google Cloud Console.
+- Play Store listing (docs/stores-and-liability.md) is out of scope for this
+  MVP pass; the APK is self-signed and side-loaded (see "Release signing").
+  Note that `google_web_client_id` in `strings.xml` requires configuring your
+  Web OAuth Client ID from Google Cloud Console.

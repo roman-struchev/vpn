@@ -59,15 +59,51 @@ android {
         }
     }
 
+    // Release signing identity, supplied out-of-band (never committed): a
+    // keystore path + credentials via -PreleaseKeystore=... or the
+    // ANDROID_KEYSTORE_FILE/_PASSWORD/_ALIAS/ANDROID_KEY_PASSWORD env vars
+    // that .github/workflows/release.yml sets from repo secrets.
+    //
+    // This MUST be a stable key. Android refuses to install an update whose
+    // signature differs from the installed app ("App not installed as package
+    // conflicts with an existing package"), and the debug keystore this used
+    // to fall back to is not stable: the SDK auto-generates
+    // ~/.android/debug.keystore per machine and nothing caches it on a CI
+    // runner, so every release was signed with a fresh random key and could
+    // never update the one before it (v0.1.11 and v0.1.12 shipped with two
+    // different certificates). android/scripts/verify-apk-signature.sh pins
+    // the expected certificate so that regression fails the build instead of
+    // reaching a phone.
+    def releaseKeystorePath = project.findProperty('releaseKeystore') ?: System.getenv('ANDROID_KEYSTORE_FILE')
+    def releaseKeystorePassword = project.findProperty('releaseKeystorePassword') ?: System.getenv('ANDROID_KEYSTORE_PASSWORD')
+    def releaseKeyAlias = project.findProperty('releaseKeyAlias') ?: System.getenv('ANDROID_KEY_ALIAS') ?: 'vpn'
+    def releaseKeyPassword = project.findProperty('releaseKeyPassword') ?: System.getenv('ANDROID_KEY_PASSWORD') ?: releaseKeystorePassword
+    def hasReleaseKeystore = releaseKeystorePath && file(releaseKeystorePath).exists()
+
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create('release') {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // No production signing certificate/secrets exist anywhere in this
-            // repo. Signing with the SDK's auto-generated local debug keystore
-            // keeps the release APK installable (`adb install`) for internal
-            // testing/CI artifacts; it is NOT a Play Store-ready signed build.
-            // Swap this for a real signingConfig if/when a production keystore
-            // and secrets are provisioned.
-            signingConfig signingConfigs.debug
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.getByName('release')
+            } else {
+                // Local convenience only: an unconfigured dev machine still
+                // gets an installable APK (`adb install`), but one that cannot
+                // update a released build and must never be published. The
+                // release workflow hard-fails instead of taking this branch.
+                logger.warn('WARNING: no release keystore configured (-PreleaseKeystore=... or ANDROID_KEYSTORE_FILE) — '
+                        + 'signing with the local debug key. This APK cannot update a published release.')
+                signingConfig signingConfigs.debug
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

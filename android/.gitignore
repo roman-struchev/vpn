@@ -9,3 +9,7 @@ local.properties
 .externalNativeBuild
 .cxx
 /app/libs/*.aar
+
+# Signing keystores must never be committed (see README "Release signing").
+*.jks
+*.keystore
