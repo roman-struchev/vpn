@@ -74,10 +74,15 @@ android {
     // different certificates). android/scripts/verify-apk-signature.sh pins
     // the expected certificate so that regression fails the build instead of
     // reaching a phone.
-    def releaseKeystorePath = project.findProperty('releaseKeystore') ?: System.getenv('ANDROID_KEYSTORE_FILE')
-    def releaseKeystorePassword = project.findProperty('releaseKeystorePassword') ?: System.getenv('ANDROID_KEYSTORE_PASSWORD')
-    def releaseKeyAlias = project.findProperty('releaseKeyAlias') ?: System.getenv('ANDROID_KEY_ALIAS') ?: 'vpn'
-    def releaseKeyPassword = project.findProperty('releaseKeyPassword') ?: System.getenv('ANDROID_KEY_PASSWORD') ?: releaseKeystorePassword
+    // .trim(): these routinely arrive from a CI secret or a `... < file`
+    // redirect that carries a trailing newline, and a password with a stray
+    // "\n" fails signing with nothing but "keystore password was incorrect".
+    // No credential here legitimately begins or ends with whitespace.
+    def trimmed = { value -> value?.toString()?.trim() ?: null }
+    def releaseKeystorePath = trimmed(project.findProperty('releaseKeystore') ?: System.getenv('ANDROID_KEYSTORE_FILE'))
+    def releaseKeystorePassword = trimmed(project.findProperty('releaseKeystorePassword') ?: System.getenv('ANDROID_KEYSTORE_PASSWORD'))
+    def releaseKeyAlias = trimmed(project.findProperty('releaseKeyAlias') ?: System.getenv('ANDROID_KEY_ALIAS')) ?: 'vpn'
+    def releaseKeyPassword = trimmed(project.findProperty('releaseKeyPassword') ?: System.getenv('ANDROID_KEY_PASSWORD')) ?: releaseKeystorePassword
     def hasReleaseKeystore = releaseKeystorePath && file(releaseKeystorePath).exists()
 
     signingConfigs {
