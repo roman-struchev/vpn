@@ -45,6 +45,8 @@ import java.util.concurrent.Executors;
 
 import libXray.DialerController;
 import com.vpn.android.diagnostics.DiagnosticsReporter;
+import com.vpn.android.p2p.P2pRelayConnector;
+import com.vpn.android.api.model.RelayInfo;
 
 /**
  * Owns the whole VPN session lifecycle: fetching the node/policy list, building the
@@ -65,6 +67,17 @@ public class XrayVpnService extends VpnService implements DialerController {
     private static final int LIVENESS_PROBE_PORT = 443;
     private static final int LIVENESS_PROBE_TIMEOUT_MS = 6000;
     private static final int LIVENESS_FAILURES_BEFORE_RECONNECT = 2;
+
+    /**
+     * How many relay peers to try before telling the user the network is
+     * blocked. Each attempt is a full WebRTC negotiation, so more would mostly
+     * mean a longer wait for the same answer.
+     */
+    private static final int MAX_RELAY_ATTEMPTS = 3;
+
+    // The P2P hop, when one is in use, and the WebRTC factory behind it.
+    private volatile P2pRelayConnector relayConnector;
+    private org.webrtc.PeerConnectionFactory webRtcFactory;
 
     public static final String ACTION_CONNECT = "com.vpn.android.vpn.action.CONNECT";
     public static final String ACTION_DISCONNECT = "com.vpn.android.vpn.action.DISCONNECT";
@@ -309,6 +322,127 @@ public class XrayVpnService extends VpnService implements DialerController {
         }
     }
 
+    /**
+     * Last resort before declaring the network blocked: reach a node *through*
+     * another user's device (docs §8.1).
+     *
+     * The relay dials the node for us and pipes opaque bytes; the tunnel is
+     * still negotiated end-to-end with the node, so only the path changes —
+     * which is why the config below keeps the node's own identity and merely
+     * dials the local bridge (XrayConfigFactory's dialHost/dialPort).
+     *
+     * Tries a few peers rather than all of them: each attempt costs a
+     * negotiation, and a user waiting to connect deserves an honest answer
+     * sooner rather than a longer silence.
+     */
+    private boolean tryRelayedConnection() {
+        if (stopping) return false;
+
+        List<RelayInfo> relays;
+        try {
+            relays = apiClient.getP2pRelays();
+        } catch (Exception e) {
+            Log.w(TAG, "Could not look up P2P relays", e);
+            return false;
+        }
+        if (relays.isEmpty()) {
+            Log.i(TAG, "No P2P relay peers are available right now");
+            return false;
+        }
+
+        VlessUri vless = nodes.get(currentNodeIndex % nodes.size());
+        int attempts = 0;
+        for (RelayInfo relay : relays) {
+            if (stopping || attempts++ >= MAX_RELAY_ATTEMPTS) break;
+            Log.i(TAG, "Trying to reach " + vless.getHost() + " through relay node " + relay.nodeId);
+            stopRelayConnector();
+            try {
+                P2pRelayConnector connector = new P2pRelayConnector(
+                        new ApiClientSignaling(apiClient),
+                        peerConnectionFactory(),
+                        relay.nodeId, vless.getHost(), vless.getPort());
+                int localPort = connector.start();
+                relayConnector = connector;
+
+                ensureTunEstablished();
+                XrayInvoker.registerDialerController(this);
+                XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
+                String config = XrayConfigFactory.build(
+                        vless, backoffPolicy.getFingerprint(), tunInterface.getFd(), TUN_MTU,
+                        "XHTTP", null, null, ensureGeoAssetsExtracted(), "127.0.0.1", localPort);
+                XrayInvoker.runXray(config);
+
+                backoffPolicy.onSuccess();
+                transition(ConnectionEvent.TUNNEL_UP);
+                // Said out loud: this path runs through a stranger's device and
+                // is usually slower, so presenting it as an ordinary connection
+                // would be misleading.
+                VpnStatusBus.activeRegion.postValue(
+                        getString(R.string.region_via_peer, vless.getRegionLabel()));
+                updateNotification();
+                mainHandler.postDelayed(healthCheck, 30_000);
+                registerOrTouchDevice();
+                return true;
+            } catch (Exception e) {
+                Log.w(TAG, "Relay node " + relay.nodeId + " did not work out", e);
+                DiagnosticsReporter.error("p2p-relay", "RELAY_CONNECT_FAILED",
+                        "Could not reach a node through a relay peer", e,
+                        java.util.Map.of("relayNodeId", String.valueOf(relay.nodeId)));
+                stopRelayConnector();
+            }
+        }
+        return false;
+    }
+
+    /** Closes the P2P hop, if one is up. Safe when there is none. */
+    private void stopRelayConnector() {
+        P2pRelayConnector connector = relayConnector;
+        relayConnector = null;
+        if (connector != null) {
+            connector.stop();
+        }
+    }
+
+    /** Lazily built: WebRTC's factory costs native initialisation nobody should pay for a direct connection. */
+    private synchronized org.webrtc.PeerConnectionFactory peerConnectionFactory() {
+        if (webRtcFactory == null) {
+            org.webrtc.PeerConnectionFactory.initialize(
+                    org.webrtc.PeerConnectionFactory.InitializationOptions.builder(this)
+                            .createInitializationOptions());
+            webRtcFactory = org.webrtc.PeerConnectionFactory.builder().createPeerConnectionFactory();
+        }
+        return webRtcFactory;
+    }
+
+    /** Adapts ApiClient to what the connector needs, so it depends on four calls rather than the whole client. */
+    private static final class ApiClientSignaling implements P2pRelayConnector.Signaling {
+        private final ApiClient apiClient;
+
+        ApiClientSignaling(ApiClient apiClient) {
+            this.apiClient = apiClient;
+        }
+
+        @Override
+        public void sendSignal(long relayNodeId, String sessionId, byte[] payload) throws Exception {
+            apiClient.sendP2pSignal(relayNodeId, sessionId, payload);
+        }
+
+        @Override
+        public byte[] pollSignal(String sessionId, long waitMs) throws Exception {
+            return apiClient.pollP2pSignal(sessionId, waitMs);
+        }
+
+        @Override
+        public void closeSession(String sessionId) {
+            apiClient.closeP2pSession(sessionId);
+        }
+
+        @Override
+        public void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed) {
+            apiClient.reportP2pSessionTraffic(sessionId, relayNodeId, bytesRelayed);
+        }
+    }
+
     private void handleFailure() {
         if (stopping) return;
 
@@ -326,6 +460,14 @@ public class XrayVpnService extends VpnService implements DialerController {
                 CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
                 whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
                 if (whitelistSuspected) {
+                    // Every node has failed on every transport and the probe
+                    // blames the network itself — which is exactly what P2P
+                    // relaying is for: another user's device can still reach a
+                    // node we cannot, and will carry our bytes to it. Only if no
+                    // relay works do we tell the user their operator is blocking.
+                    if (tryRelayedConnection()) {
+                        return;
+                    }
                     reportTelemetry(0, backoffPolicy.getConsecutiveFailuresOnNode(), true, failedNodeId);
                     transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
                     updateNotification();
@@ -553,6 +695,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private void disconnect() {
         stopping = true;
         mainHandler.removeCallbacks(healthCheck);
+        stopRelayConnector();
         worker.execute(() -> {
             try {
                 XrayInvoker.stopXray();
@@ -599,6 +742,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     public void onDestroy() {
         stopping = true;
         mainHandler.removeCallbacks(healthCheck);
+        stopRelayConnector();
         closeTun();
         worker.shutdownNow();
         super.onDestroy();

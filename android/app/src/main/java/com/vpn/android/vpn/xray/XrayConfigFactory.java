@@ -71,6 +71,25 @@ public final class XrayConfigFactory {
     public static String build(
             VlessUri vless, String fingerprint, int tunFd, int mtu,
             String transport, Integer grpcPort, String grpcServiceName, String xrayAssetDir) {
+        return build(vless, fingerprint, tunFd, mtu, transport, grpcPort, grpcServiceName, xrayAssetDir, null, 0);
+    }
+
+    /**
+     * Same again, plus {@code dialHost}/{@code dialPort}: connect there instead
+     * of to the node's own address, keeping everything else identical. Used for
+     * the P2P relay hop, where a local bridge (p2p/P2pRelayConnector) forwards
+     * the connection to the node through somebody else's device.
+     *
+     * Only the TCP destination changes. The Reality serverName, the fingerprint,
+     * the UUID and the transport stay exactly as the node issued them, because
+     * the VLESS/Reality session is negotiated end-to-end with that node —
+     * rewriting the SNI would break the handshake, and would mean the relay was
+     * reading traffic this design deliberately keeps opaque to it.
+     */
+    public static String build(
+            VlessUri vless, String fingerprint, int tunFd, int mtu,
+            String transport, Integer grpcPort, String grpcServiceName, String xrayAssetDir,
+            String dialHost, int dialPort) {
         if (!"firefox".equals(fingerprint) && !"edge".equals(fingerprint)) {
             throw new IllegalArgumentException("fingerprint must be firefox or edge, got: " + fingerprint);
         }
@@ -123,7 +142,7 @@ public final class XrayConfigFactory {
         JsonArray outbounds = new JsonArray();
         // First outbound is Xray's default match for anything not covered by a routing
         // rule below — must be the proxy, not direct/block.
-        outbounds.add(buildProxyOutbound(vless, fingerprint, useGrpc, grpcPort, grpcServiceName));
+        outbounds.add(buildProxyOutbound(vless, fingerprint, useGrpc, grpcPort, grpcServiceName, dialHost, dialPort));
         outbounds.add(buildDnsOutbound());
         outbounds.add(buildBlockOutbound());
         root.add("outbounds", outbounds);
@@ -152,16 +171,17 @@ public final class XrayConfigFactory {
     }
 
     private static JsonObject buildProxyOutbound(
-            VlessUri vless, String fingerprint, boolean useGrpc, Integer grpcPort, String grpcServiceName) {
+            VlessUri vless, String fingerprint, boolean useGrpc, Integer grpcPort, String grpcServiceName,
+            String dialHost, int dialPort) {
         JsonObject outbound = new JsonObject();
         outbound.addProperty("tag", PROXY_OUTBOUND_TAG);
         outbound.addProperty("protocol", "vless");
 
         JsonObject vnext = new JsonObject();
-        vnext.addProperty("address", vless.getHost());
+        vnext.addProperty("address", dialHost != null ? dialHost : vless.getHost());
         // Same node, different port when falling back to gRPC — see
         // NodeManagementService#buildNodeConfigSync on the server (Phase 9).
-        vnext.addProperty("port", useGrpc ? grpcPort : vless.getPort());
+        vnext.addProperty("port", dialHost != null ? dialPort : (useGrpc ? grpcPort : vless.getPort()));
         JsonArray users = new JsonArray();
         JsonObject user = new JsonObject();
         user.addProperty("id", vless.getUuid());

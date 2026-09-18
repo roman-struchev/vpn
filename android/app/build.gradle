@@ -128,6 +128,18 @@ android {
         abortOnError false
     }
 
+    testOptions {
+        unitTests {
+            // android.jar in a JVM unit test is a stub whose every method throws
+            // "not mocked" by default. That turns an ordinary Log.w on a failure
+            // path into an exception that skips whatever came after it — which is
+            // exactly what hid a session-teardown bug here (P2pRelayConnectorTest):
+            // the code was right, the log line swallowed it. Returning defaults
+            // makes logging inert in tests instead of hostile.
+            returnDefaultValues = true
+        }
+    }
+
     // Android modules configure source dirs under `android.sourceSets`, not a
     // top-level `sourceSets {}` (that's the plain-Java-project DSL and
     // collides with the Android plugin's own configuration of that name).

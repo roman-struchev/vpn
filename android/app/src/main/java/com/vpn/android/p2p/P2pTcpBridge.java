@@ -60,6 +60,29 @@ public class P2pTcpBridge {
         });
     }
 
+    /**
+     * The mirror case: an already-connected socket, used by the *connecting*
+     * side (P2pRelayConnector), where the socket is the local one xray dialed
+     * and the channel leads out to the relay. Identical piping and counting —
+     * only the direction of the story differs, so it would be a mistake to
+     * write it twice.
+     */
+    public P2pTcpBridge(Socket connectedSocket, RelayChannel channel) {
+        this.channel = channel;
+        this.socket = connectedSocket;
+        channel.setListener(new RelayChannel.Listener() {
+            @Override
+            public void onMessage(byte[] data) {
+                writeToSocket(data);
+            }
+
+            @Override
+            public void onClosed() {
+                close();
+            }
+        });
+    }
+
     /** Starts the socket-to-channel direction; channel-to-socket is driven by {@link RelayChannel.Listener#onMessage}. */
     public void start() {
         readerThread = new Thread(this::pumpSocketToChannel, "p2p-tcp-bridge-reader");

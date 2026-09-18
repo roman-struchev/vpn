@@ -7,6 +7,8 @@ import com.vpn.android.api.model.AuthResponse;
 import com.vpn.android.api.model.DeviceDto;
 import com.vpn.android.api.model.P2pStatusResponse;
 import com.vpn.android.api.model.RegionInfo;
+import com.vpn.android.api.model.RelayInfo;
+import com.vpn.android.api.model.RelaysResponse;
 import com.vpn.android.api.model.TariffInfo;
 import com.vpn.android.api.model.RegionsResponse;
 import com.vpn.android.api.model.RoutingConfigResponse;
@@ -249,6 +251,52 @@ public class ApiClient {
     public List<TariffInfo> getTariffs() throws ApiException, IOException {
         TariffInfo[] tariffs = get("api/v1/user/tariffs", TariffInfo[].class);
         return tariffs != null ? List.of(tariffs) : List.of();
+    }
+
+    /**
+     * Relay peers this account can connect *through* right now. A relay is a
+     * path to a node, not an exit — see p2p/P2pRelayConnector.
+     */
+    public List<RelayInfo> getP2pRelays() throws ApiException, IOException {
+        RelaysResponse resp = get("api/v1/user/p2p/relays", RelaysResponse.class);
+        return resp != null && resp.relays != null ? resp.relays : List.of();
+    }
+
+    /** Hands one signaling payload to a relay; its replies are collected by pollP2pSignal. */
+    public void sendP2pSignal(long relayNodeId, String sessionId, byte[] payload) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("sessionId", sessionId);
+        body.addProperty("payloadBase64", android.util.Base64.encodeToString(payload, android.util.Base64.NO_WRAP));
+        post("api/v1/user/p2p/nodes/" + relayNodeId + "/signal", body, JsonObject.class, true);
+    }
+
+    /** The relay's next signal, or null when none arrived within the wait — an ordinary outcome while negotiating. */
+    public byte[] pollP2pSignal(String sessionId, long waitMs) throws ApiException, IOException {
+        JsonObject resp = get("api/v1/user/p2p/sessions/" + sessionId + "/signals?waitMs=" + waitMs, JsonObject.class);
+        if (resp == null || !resp.has("payloadBase64") || resp.get("payloadBase64").isJsonNull()) {
+            return null;
+        }
+        return android.util.Base64.decode(resp.get("payloadBase64").getAsString(), android.util.Base64.DEFAULT);
+    }
+
+    /** The client half of the dual traffic report that pays the relay's owner. */
+    public void reportP2pSessionTraffic(String sessionId, long relayNodeId, long bytesRelayed) {
+        JsonObject body = new JsonObject();
+        body.addProperty("nodeId", relayNodeId);
+        body.addProperty("bytesRelayed", bytesRelayed);
+        try {
+            post("api/v1/user/p2p/sessions/" + sessionId + "/traffic-report", body, JsonObject.class, true);
+        } catch (Exception ignored) {
+            // Best-effort: the relay's own half is what actually credits it.
+        }
+    }
+
+    public void closeP2pSession(String sessionId) {
+        try {
+            delete("api/v1/user/p2p/sessions/" + sessionId);
+        } catch (Exception ignored) {
+            // The broker forgets idle sessions on its own.
+        }
     }
 
     /** Regions with at least one online node this user's subscription can reach, each with a rough load indicator. */

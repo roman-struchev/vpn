@@ -96,6 +96,7 @@
     <string name="tariff_trial">Пробный</string>
     <string name="tariff_basic">Basic</string>
     <string name="tariff_pro">Pro</string>
+    <string name="region_via_peer">%1$s (через участника сети)</string>
     <string name="profile_plan_title">Ваш тариф</string>
     <string name="profile_plan_none">Тариф не выбран</string>
     <string name="profile_plan_free">%1$s · бесплатно</string>
