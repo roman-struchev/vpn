@@ -144,13 +144,28 @@ public class SubscriptionExportService {
         // node via this path yet, so it shouldn't count as real capacity here.
         boolean ownPoolHasCapacity = !findAccessibleOnlineNodesForVless(userId, effectiveTariff).isEmpty();
 
+        // Only nodes a client can actually connect through today.
+        //
         // The caller's own relay device is not a region they can pick (see
-        // Node#isOwnRelayDeviceOf) — without this filter, turning P2P mode on
-        // made your own laptop/phone show up as a connection region in your
-        // own app, which is what the repo owner reported. Other users' p2p
-        // nodes stay listed exactly as before.
+        // Node#isOwnRelayDeviceOf) — without that filter, turning P2P mode on
+        // made your own laptop show up as a connection region in your own app.
+        //
+        // Neither is anybody else's: a p2p node is reached over WebRTC
+        // signaling, not by dialing its publicIp, and no client implements the
+        // connecting half of that yet (only the relaying half exists — see
+        // desktop's relayAgent / Android's P2pRelayAgent), which is why
+        // findAccessibleOnlineNodesForVless never hands one out either.
+        // Listing such a region produced a row that could never be selected:
+        // `accessible` below requires a non-p2p node, so a p2p-only region
+        // came back locked no matter what plan the caller was on, and the
+        // clients render every locked row as "requires a paid plan" — telling
+        // a Pro subscriber to upgrade for a region no tariff can unlock.
+        //
+        // When the connecting half lands (docs §8.1 phase 2/3), this filter is
+        // what has to change, together with findAccessibleOnlineNodesForVless.
         List<Node> activeNodes = nodeRepository.findByStatus("ONLINE").stream()
                 .filter(n -> !n.isOwnRelayDeviceOf(userId))
+                .filter(n -> !n.isP2p())
                 .toList();
 
         Map<String, List<Node>> byRegion = activeNodes.stream()
@@ -184,8 +199,12 @@ public class SubscriptionExportService {
                     .average();
             Double avgMemoryPercent = avgMemoryPercentOpt.isPresent() ? round1(avgMemoryPercentOpt.getAsDouble()) : null;
 
+            // With p2p nodes already filtered out above, a false here means
+            // exactly one thing — this region's nodes are not in the caller's
+            // pool — which is what the clients' "requires a paid plan" label
+            // actually claims.
             boolean accessible = !ownPoolHasCapacity
-                    || nodes.stream().anyMatch(n -> !n.isP2p() && accessibleViaFlags(n, effectiveTariff));
+                    || nodes.stream().anyMatch(n -> accessibleViaFlags(n, effectiveTariff));
 
             summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
                     avgBytesPerSec, avgMemoryPercent,

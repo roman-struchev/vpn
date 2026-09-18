@@ -783,9 +783,13 @@ class SubscriptionExportServiceTest {
     @Test
     void testGetAvailableRegionsHidesTheCallersOwnRelayDevice() {
         // Reported by the repo owner: turning P2P relay mode on made their own
-        // laptop appear as a connection region in their own app. Another
-        // user's p2p node must stay listed (that is the whole point of the
-        // relay pool) — only the caller's own device disappears.
+        // laptop appear as a connection region in their own app.
+        //
+        // Somebody else's relay device is gone from this list too, but for a
+        // different reason and by a different rule (see
+        // testARegionWithOnlyAP2pNodeIsNotOfferedAtAll): no client can dial a
+        // p2p node yet at all. This case is specifically about the *owner*,
+        // which must keep holding once that changes.
         User owner = new User();
         owner.setId(60L);
         User somebodyElse = new User();
@@ -841,7 +845,7 @@ class SubscriptionExportServiceTest {
                 .map(SubscriptionExportService.RegionSummary::region)
                 .toList();
 
-        assertEquals(List.of("Finland, Helsinki", "Germany, Berlin"), regions);
+        assertEquals(List.of("Finland, Helsinki"), regions);
     }
 
     @Test
@@ -886,5 +890,106 @@ class SubscriptionExportServiceTest {
         when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(myLaptop));
 
         assertTrue(exportService.exportVlessLinksForOwnApp(62L).isEmpty());
+    }
+
+    @Test
+    void testARegionWithOnlyAP2pNodeIsNotOfferedAtAll() {
+        // Reported live: a Pro subscriber saw "Montenegro, Podgorica — requires
+        // a paid plan" with a padlock. The tariff had nothing to do with it —
+        // `accessible` required a non-p2p node, so a p2p-only region came back
+        // locked on every plan, and the clients label every locked row that
+        // way. No client can connect through a p2p node yet at all, so the row
+        // must not be offered rather than be permanently locked.
+        User owner = new User();
+        owner.setId(70L);
+        User somebodyElse = new User();
+        somebodyElse.setId(71L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(owner);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node vps = new Node();
+        vps.setId(80L);
+        vps.setRegion("Finland, Helsinki");
+        vps.setStatus("ONLINE");
+        vps.setType("vps");
+        vps.setAvailableToPaid(true);
+
+        // Somebody else's relay device, with both pools enabled — still not
+        // something a client can dial today.
+        Node relayDevice = new Node();
+        relayDevice.setId(81L);
+        relayDevice.setRegion("Montenegro, Podgorica");
+        relayDevice.setStatus("ONLINE");
+        relayDevice.setType("p2p");
+        relayDevice.setRelayMode("ALWAYS");
+        relayDevice.setAvailableToPaid(true);
+        relayDevice.setAvailableToTrial(true);
+        relayDevice.setOwnerUser(somebodyElse);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(70L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(vps, relayDevice));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(vps, relayDevice));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(70L);
+
+        assertEquals(List.of("Finland, Helsinki"),
+                regions.stream().map(SubscriptionExportService.RegionSummary::region).toList());
+        assertTrue(regions.get(0).accessible());
+    }
+
+    @Test
+    void testARegionIsCountedAndJudgedOnlyOnItsConnectableNodes() {
+        // A relay device sitting in the same region as a real node must not
+        // inflate that region's node count or its load average either: both
+        // exist to help the user pick where to connect.
+        User user = new User();
+        user.setId(72L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node vps = new Node();
+        vps.setId(82L);
+        vps.setRegion("Finland, Helsinki");
+        vps.setStatus("ONLINE");
+        vps.setType("vps");
+        vps.setAvailableToPaid(true);
+        vps.setActiveConnections(1);
+
+        Node relayInSameRegion = new Node();
+        relayInSameRegion.setId(83L);
+        relayInSameRegion.setRegion("Finland, Helsinki");
+        relayInSameRegion.setStatus("ONLINE");
+        relayInSameRegion.setType("p2p");
+        relayInSameRegion.setRelayMode("ALWAYS");
+        relayInSameRegion.setAvailableToPaid(true);
+        relayInSameRegion.setActiveConnections(999);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(72L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(vps, relayInSameRegion));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(vps, relayInSameRegion));
+
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(72L);
+
+        assertEquals(1, regions.size());
+        assertEquals(1, regions.get(0).nodeCount(), "only the node a client can actually use counts");
+        assertEquals(1, regions.get(0).avgActiveConnections(), "the relay's load must not skew the region's");
     }
 }
