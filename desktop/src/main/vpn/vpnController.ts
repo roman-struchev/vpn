@@ -46,7 +46,6 @@ export class VpnController extends EventEmitter {
   // The P2P hop, when one is in use: a local TCP bridge that forwards this
   // connection to the node through somebody else's device.
   private relayBridge: P2pRelayBridge | null = null;
-  private relayNodeId: number | null = null;
   private grpcByHost = new Map<string, GrpcFallback>();
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
@@ -297,7 +296,6 @@ export class VpnController extends EventEmitter {
       try {
         const localPort = await bridge.start();
         this.relayBridge = bridge;
-        this.relayNodeId = relay.nodeId;
 
         const config = buildXrayConfig(
           vless,
@@ -337,7 +335,6 @@ export class VpnController extends EventEmitter {
   private async teardownRelayBridge(): Promise<void> {
     const bridge = this.relayBridge;
     this.relayBridge = null;
-    this.relayNodeId = null;
     if (!bridge) return;
     try {
       await bridge.stop();

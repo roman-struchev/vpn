@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { PeerConnection, type DataChannel } from 'node-datachannel';
+import { PeerConnection, type DataChannel, type DescriptionType } from 'node-datachannel';
 import { decodeSignal, encodeSignal, type SignalEnvelope } from './signalEnvelope';
 
 /**
@@ -251,7 +251,7 @@ export class P2pRelayBridge {
       try {
         const envelope = decodeSignal(Buffer.from(payload, 'base64'));
         if (envelope.kind === 'answer') {
-          session.peer.setRemoteDescription(envelope.sdp, 'answer');
+          session.peer.setRemoteDescription(envelope.sdp, 'answer' as DescriptionType);
         } else if (envelope.kind === 'ice') {
           session.peer.addRemoteCandidate(envelope.candidate, envelope.sdpMid);
         }
