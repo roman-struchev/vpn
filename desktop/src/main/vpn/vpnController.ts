@@ -11,6 +11,7 @@ import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnect
 import { TransportFallbackPolicy, type Transport } from '../../shared/transportFallbackPolicy';
 import { parseVlessUri, regionLabel, type ParsedVlessUri } from '../../shared/vlessUri';
 import { buildXrayConfig, HTTP_PORT, type GrpcFallback, type RussianRoutingMode } from '../../shared/xrayConfigFactory';
+import { reportError } from '../diagnostics';
 
 export interface VpnControllerEvents {
   state: [ConnectionState];
@@ -152,6 +153,9 @@ export class VpnController extends EventEmitter {
 
       await this.attemptStart();
     } catch (e) {
+      // The user-visible dead end ("connected, nothing works" starts here) —
+      // worth reporting with the reason, since the user only sees the state.
+      reportError('vpn', 'PROFILE_LOAD_FAILED', 'Failed to load the VPN profile', e);
       console.error('Failed to load VPN profile', e);
       this.transition('FATAL_ERROR');
     }
@@ -192,6 +196,9 @@ export class VpnController extends EventEmitter {
     try {
       await this.systemProxy.disable();
     } catch (e) {
+      // Leaving the system proxy pointing at a stopped tunnel is what makes
+      // the whole machine appear offline after disconnecting.
+      reportError('proxy', 'PROXY_DISABLE_FAILED', 'Failed to disable the system proxy on disconnect', e);
       console.warn('Failed to disable system proxy', e);
     }
     if (this.getState() !== 'DISCONNECTED') {

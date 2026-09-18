@@ -402,6 +402,15 @@ export class ApiClient {
     this.tokenStore.saveDeviceId(deviceId);
   }
 
+  /**
+   * Ships collected failures (see main/diagnostics.ts). Unauthenticated on
+   * purpose — "cannot obtain a token" is one of the failures worth reporting,
+   * and the server bounds this channel itself rather than trusting callers.
+   */
+  postDiagnostics(payload: unknown): Promise<unknown> {
+    return this.post<unknown>('api/v1/client/diagnostics', payload, false);
+  }
+
   private get<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: 'GET' }, true);
   }

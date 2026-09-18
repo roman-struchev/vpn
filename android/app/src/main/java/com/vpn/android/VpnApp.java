@@ -4,6 +4,8 @@ import android.app.Application;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 
+import com.vpn.android.diagnostics.DiagnosticsReporter;
+
 public class VpnApp extends Application {
 
     public static final String VPN_STATUS_CHANNEL_ID = "vpn_status";
@@ -11,6 +13,10 @@ public class VpnApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        // First thing, before anything that can fail: from here on a crash
+        // anywhere in the app is collected and shipped, instead of only ever
+        // being visible in a logcat nobody is watching on a user's phone.
+        DiagnosticsReporter.init(this);
         createNotificationChannel();
     }
 

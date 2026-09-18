@@ -2,6 +2,7 @@ package com.vpn.server;
 
 import com.google.protobuf.ByteString;
 import com.vpn.server.grpc.AgentStreamServiceImpl;
+import com.vpn.server.service.DiagnosticsService;
 import com.vpn.server.grpc.agent.v1.*;
 import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.service.P2pRelayAccountingService;
@@ -35,7 +36,7 @@ class AgentStreamServiceImplTest {
     void setUp() {
         nodeManagementService = mock(NodeManagementService.class);
         p2pRelayAccountingService = mock(P2pRelayAccountingService.class);
-        service = new AgentStreamServiceImpl(nodeManagementService, p2pRelayAccountingService);
+        service = new AgentStreamServiceImpl(nodeManagementService, p2pRelayAccountingService, mock(DiagnosticsService.class));
     }
 
     @SuppressWarnings("unchecked")

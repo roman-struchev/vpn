@@ -75,7 +75,40 @@ message AgentMessage {
     // client's half arrives over REST (UserController's p2p endpoints), not
     // this stream, since ordinary clients don't hold an AgentStream.
     P2pSessionTrafficReport p2p_traffic_report = 9;
+    // Failures the agent hit on the node itself (xray dying, a config sync
+    // that would not apply, a probe that keeps timing out). Sent here rather
+    // than over the REST diagnostics endpoint the apps use, because an agent
+    // already holds this authenticated stream and its node_id is already
+    // known on it — there is nothing for it to authenticate with over HTTP.
+    DiagnosticsReport diagnostics = 10;
   }
+}
+
+// A batch of failures observed on one node. Batched because they arrive in
+// bursts (a crash-looping process reports the same thing repeatedly), and the
+// server folds repetitions into one aggregated row anyway — see
+// DiagnosticsService.
+message DiagnosticsReport {
+  repeated DiagnosticEvent events = 1;
+  // The agent build that produced them, so an issue can be tied to a release.
+  string agent_version = 2;
+}
+
+message DiagnosticEvent {
+  // ERROR or WARN; anything lower is not worth shipping off the machine.
+  string severity = 1;
+  // Subsystem inside the agent: 'xray', 'config', 'stats', 'relay', ...
+  string component = 2;
+  // Stable machine-readable label, e.g. 'XRAY_EXITED'. Groups occurrences
+  // whose wording differs.
+  string code = 3;
+  string message = 4;
+  // Stack trace / process output. Truncated by the server.
+  string detail = 5;
+  // Small free-form key/values (transport, exit code, ...). Values are masked
+  // and the map is truncated server-side.
+  map<string, string> context = 6;
+  int64 occurred_at_epoch_ms = 7;
 }
 
 // Opaque WebRTC signaling blob (SDP offer/answer or an ICE candidate) — the

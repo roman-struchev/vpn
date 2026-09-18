@@ -4,6 +4,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { logger } from '../utils/logger.js';
 import { buildXrayConfig, hasStructuralChanges, ServerConfigSyncPayload } from './config-builder.js';
 import { XrayHandlerApi, computeClientDiff, type XrayClient } from './handler-api.js';
+import { reportError, reportWarning } from '../utils/diagnostics.js';
 
 export interface WatchdogStats {
   watchdogAttempts: number;
@@ -73,7 +74,9 @@ export class XraySupervisor {
       this.lastConfigSync = syncPayload;
       return true;
     } catch (err) {
-      logger.error('Failed to apply Xray configuration:', err);
+      reportError('xray', 'CONFIG_APPLY_FAILED', 'Failed to apply Xray configuration', err, {
+        configVersion: String(syncPayload?.configVersion ?? 'unknown'),
+      });
       return false;
     }
   }
@@ -115,7 +118,8 @@ export class XraySupervisor {
       );
       return true;
     } catch (err) {
-      logger.warn(`Live user update failed (${err}); falling back to an Xray restart`);
+      reportWarning('xray', 'LIVE_USER_UPDATE_FAILED',
+        `Live user update failed (${err}); falling back to an Xray restart`);
       return false;
     }
   }
@@ -170,7 +174,13 @@ export class XraySupervisor {
 
         if (!this.isStopping) {
           this.lastCrashTimestamp = Date.now();
-          logger.warn(`Xray process exited unexpectedly with code ${code}, signal ${signal}. Triggering watchdog auto-restart.`);
+          // The single most important thing a node can tell the server: its
+          // proxy died and everyone connected through it was dropped.
+          reportError('xray', 'XRAY_EXITED', `Xray exited unexpectedly with code ${code}, signal ${signal}`, undefined, {
+            exitCode: String(code),
+            signal: String(signal),
+            watchdogAttempt: String(this.watchdogAttempts + 1),
+          });
           this.scheduleWatchdogRestart();
         } else {
           logger.info(`Xray process stopped cleanly (code ${code}, signal ${signal})`);

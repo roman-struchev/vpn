@@ -7,6 +7,18 @@ import { XraySupervisor } from '../xray/xray-supervisor.js';
 import { StatsCollector } from '../xray/stats-collector.js';
 import { P2pManager } from '../p2p/p2p-manager.js';
 import { SignalEnvelope } from '../p2p/relay-session.js';
+import { diagnostics, reportError, reportWarning } from '../utils/diagnostics.js';
+
+/**
+ * How often collected failures are shipped. Slower than the heartbeat on
+ * purpose: reports are bursty and already folded by issue, so there is
+ * nothing to gain from sending them more eagerly, and a quiet node sends
+ * nothing at all.
+ */
+const DIAGNOSTICS_FLUSH_INTERVAL_MS = 60_000;
+
+/** Reported alongside the events so an issue can be tied to an agent build. */
+const AGENT_VERSION = process.env.AGENT_VERSION || '1.0.0';
 
 export class AgentGrpcClient {
   private config: AgentConfig;
@@ -17,6 +29,7 @@ export class AgentGrpcClient {
   private activeStream: any = null;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private statsTimer: NodeJS.Timeout | null = null;
+  private diagnosticsTimer: NodeJS.Timeout | null = null;
   private isShuttingDown: boolean = false;
   private currentConfigVersion: number = 0;
   private currentConfigHash: string = '';
@@ -104,7 +117,7 @@ export class AgentGrpcClient {
 
       regClient.registerNode(req, (err: any, response: any) => {
         if (err) {
-          logger.error('Registration failed:', err);
+          reportError('registration', 'NODE_REGISTRATION_FAILED', 'Node registration with the server failed', err);
           return reject(err);
         }
 
@@ -146,7 +159,7 @@ export class AgentGrpcClient {
 
     this.activeStream.on('error', (err: any) => {
       if (!this.isShuttingDown) {
-        logger.warn(`Sync stream error: ${err.message}.`);
+        reportWarning('control-plane', 'STREAM_ERROR', `Sync stream error: ${err.message}`);
         this.scheduleReconnect();
       }
     });
@@ -164,6 +177,13 @@ export class AgentGrpcClient {
 
     // Start periodic traffic stats reporting
     this.statsTimer = setInterval(() => this.sendTrafficStats(), this.config.statsIntervalMs);
+
+    // Ship whatever failures have been collected since the last drain. Sent
+    // on its own slower timer rather than piggybacking on the heartbeat, so
+    // an incident's reports are not paced by it — and so a node that is
+    // healthy sends nothing at all here.
+    this.sendDiagnostics();
+    this.diagnosticsTimer = setInterval(() => this.sendDiagnostics(), DIAGNOSTICS_FLUSH_INTERVAL_MS);
   }
 
   private scheduleReconnect(): void {
@@ -289,6 +309,45 @@ export class AgentGrpcClient {
     }
   }
 
+  /**
+   * Hands the collected failures to the server. Drains only when there is a
+   * live stream: with none, the reports stay queued (bounded) until one comes
+   * back, which is precisely the window in which a node's own errors matter
+   * most and would otherwise be lost.
+   */
+  private sendDiagnostics(): void {
+    if (!this.activeStream || !this.config.nodeId || !this.config.nodeToken) return;
+    if (diagnostics.size === 0) return;
+
+    const events = diagnostics.drain();
+    if (events.length === 0) return;
+
+    try {
+      this.activeStream.write({
+        nodeId: this.config.nodeId,
+        nodeToken: this.config.nodeToken,
+        timestampEpochMs: Date.now(),
+        diagnostics: {
+          agentVersion: AGENT_VERSION,
+          events: events.map((e) => ({
+            severity: e.severity,
+            component: e.component,
+            code: e.code,
+            message: e.message,
+            detail: e.detail ?? '',
+            context: e.context ?? {},
+            occurredAtEpochMs: e.occurredAtEpochMs,
+          })),
+        },
+      });
+      logger.debug(`Reported ${events.length} diagnostic event(s)`);
+    } catch (err) {
+      // Nothing to recover: these reports are gone, and the stream failing is
+      // itself about to be handled by the reconnect path.
+      logger.warn('Failed to send diagnostics:', err);
+    }
+  }
+
   private async handleServerMessage(message: any): Promise<void> {
     if (message.heartbeatAck) {
       logger.debug('Received HeartbeatAck from server');
@@ -399,6 +458,10 @@ export class AgentGrpcClient {
     if (this.statsTimer) {
       clearInterval(this.statsTimer);
       this.statsTimer = null;
+    }
+    if (this.diagnosticsTimer) {
+      clearInterval(this.diagnosticsTimer);
+      this.diagnosticsTimer = null;
     }
     if (this.reconnectTimer && this.isShuttingDown) {
       clearTimeout(this.reconnectTimer);

@@ -298,6 +298,48 @@ public class ApiClient {
         }, RoutingConfigResponse.class);
     }
 
+    /**
+     * Ships collected client failures (see DiagnosticsReporter). Sent without
+     * requiring a token: "cannot authenticate" is one of the failures worth
+     * hearing about, and the server bounds this channel itself rather than
+     * trusting the caller.
+     */
+    public void submitDiagnostics(String source, String appVersion, String reporterId,
+                                  java.util.List<com.vpn.android.diagnostics.DiagnosticsBuffer.Event> events) {
+        if (events == null || events.isEmpty()) {
+            return;
+        }
+        JsonObject body = new JsonObject();
+        body.addProperty("source", source);
+        body.addProperty("appVersion", appVersion);
+        body.addProperty("reporterId", reporterId);
+
+        com.google.gson.JsonArray array = new com.google.gson.JsonArray();
+        for (com.vpn.android.diagnostics.DiagnosticsBuffer.Event event : events) {
+            JsonObject item = new JsonObject();
+            item.addProperty("severity", event.severity);
+            item.addProperty("component", event.component);
+            item.addProperty("code", event.code);
+            item.addProperty("message", event.message);
+            if (event.detail != null) item.addProperty("detail", event.detail);
+            if (event.context != null && !event.context.isEmpty()) {
+                JsonObject context = new JsonObject();
+                for (java.util.Map.Entry<String, String> entry : event.context.entrySet()) {
+                    context.addProperty(entry.getKey(), entry.getValue());
+                }
+                item.add("context", context);
+            }
+            array.add(item);
+        }
+        body.add("events", array);
+
+        try {
+            post("api/v1/client/diagnostics", body, JsonObject.class, false);
+        } catch (Exception ignored) {
+            // Best-effort by design — see DiagnosticsReporter#flush.
+        }
+    }
+
     public void submitTelemetry(Long nodeId, String operator, String region, String transport,
                                  int connectTimeMs, int failureCount, boolean whitelistSuspected) {
         JsonObject body = new JsonObject();

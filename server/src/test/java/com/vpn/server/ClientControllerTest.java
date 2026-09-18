@@ -1,6 +1,7 @@
 package com.vpn.server;
 
 import com.vpn.server.controller.ClientController;
+import com.vpn.server.service.DiagnosticsService;
 import com.vpn.server.service.DynamicRoutingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +27,7 @@ class ClientControllerTest {
 
     @BeforeEach
     void setUp() {
-        clientController = new ClientController(dynamicRoutingService);
+        clientController = new ClientController(dynamicRoutingService, mock(DiagnosticsService.class));
     }
 
     @Test

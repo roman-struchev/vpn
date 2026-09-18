@@ -303,3 +303,64 @@ test.describe('account identity', () => {
     expect(duplicate.status(), 'and must not be registrable a second time').toBeGreaterThanOrEqual(400);
   });
 });
+
+test.describe('diagnostics collection', () => {
+  test('a client can report failures without being logged in, and the reports are bounded', async ({ request }) => {
+    // Deliberately unauthenticated: "cannot get a token" is itself one of the
+    // failures worth hearing about, so this channel must work without one.
+    const res = await request.post('/api/v1/client/diagnostics', {
+      data: {
+        source: 'DESKTOP',
+        appVersion: '0.0.0-e2e',
+        reporterId: `e2e-${Date.now()}`,
+        events: [
+          {
+            severity: 'ERROR',
+            component: 'e2e',
+            code: 'E2E_PROBE',
+            message: `e2e diagnostics probe from 10.0.0.${Math.floor(Math.random() * 250)}`,
+            detail: 'stack trace would go here',
+            context: { check: 'ingest' },
+          },
+        ],
+      },
+    });
+
+    expect(res.status()).toBe(200);
+    expect((await res.json()).accepted, 'the report must be recorded').toBe(1);
+  });
+
+  test('a batch larger than the cap is accepted but only partly recorded', async ({ request }) => {
+    const events = Array.from({ length: 100 }, (_, i) => ({
+      severity: 'ERROR',
+      component: 'e2e',
+      code: 'E2E_FLOOD',
+      message: `e2e flood probe variant ${i}`,
+    }));
+
+    const res = await request.post('/api/v1/client/diagnostics', {
+      data: { source: 'ANDROID', appVersion: '0.0.0-e2e', reporterId: 'e2e-flood', events },
+    });
+
+    expect(res.status(), 'a reporter in trouble must never get an error back').toBe(200);
+    const accepted = (await res.json()).accepted;
+    expect(accepted, 'the per-request cap must hold').toBeLessThanOrEqual(20);
+  });
+
+  test('a malformed report is swallowed rather than failing the reporter', async ({ request }) => {
+    for (const body of [{}, { events: 'not-a-list' }, { events: [{}] }, { events: [{ message: '   ' }] }]) {
+      const res = await request.post('/api/v1/client/diagnostics', { data: body });
+      expect(res.status(), `malformed body ${JSON.stringify(body)}`).toBe(200);
+    }
+  });
+
+  test('the collected reports are not readable without admin rights', async ({ request }) => {
+    const user = await register(request, 'diagread');
+
+    const anonymous = await request.get('/api/v1/admin/diagnostics');
+    expect(anonymous.status(), 'reports must not be world-readable').toBeGreaterThanOrEqual(400);
+
+    const asUser = await request.get('/api/v1/admin/diagnostics', { headers: authed(user.token) });
+    expect(asUser.status(), 'a normal account must not read the fleet\'s errors').toBe(403);
+  });
+});

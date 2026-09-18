@@ -1,6 +1,7 @@
 package com.vpn.server.grpc;
 
 import com.vpn.server.grpc.agent.v1.*;
+import com.vpn.server.service.DiagnosticsService;
 import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.service.P2pRelayAccountingService;
 import io.grpc.Status;
@@ -9,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,6 +23,7 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
 
     private final NodeManagementService nodeManagementService;
     private final P2pRelayAccountingService p2pRelayAccountingService;
+    private final DiagnosticsService diagnosticsService;
     // Map of active node streams: nodeId -> StreamObserver<ServerMessage>
     private final Map<Long, StreamObserver<ServerMessage>> activeStreams = new ConcurrentHashMap<>();
 
@@ -35,7 +38,10 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
     private final Map<String, CompletableFuture<byte[]>> pendingClientSignals = new ConcurrentHashMap<>();
     private static final long SIGNAL_WAIT_TIMEOUT_SECONDS = 15;
 
-    public AgentStreamServiceImpl(NodeManagementService nodeManagementService, P2pRelayAccountingService p2pRelayAccountingService) {
+    public AgentStreamServiceImpl(NodeManagementService nodeManagementService,
+                                  P2pRelayAccountingService p2pRelayAccountingService,
+                                  DiagnosticsService diagnosticsService) {
+        this.diagnosticsService = diagnosticsService;
         this.nodeManagementService = nodeManagementService;
         this.p2pRelayAccountingService = p2pRelayAccountingService;
     }
@@ -94,6 +100,7 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
                     case P2P_SIGNAL -> resolvePendingClientSignal(message.getP2PSignal());
                     case P2P_TRAFFIC_REPORT -> p2pRelayAccountingService.recordRelayNodeReport(
                             nodeId, message.getP2PTrafficReport().getSessionId(), message.getP2PTrafficReport().getBytesRelayed());
+                    case DIAGNOSTICS -> recordNodeDiagnostics(nodeId, message.getDiagnostics());
                     case PAYLOAD_NOT_SET -> log.debug("Empty message received from node {}", nodeId);
                 }
             }
@@ -213,4 +220,30 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
         }
         return false;
     }
+
+    /**
+     * Failures the node itself hit, folded into the same store the client
+     * apps report into (DiagnosticsService). node_id comes from the stream,
+     * not from the payload, so an agent can only ever file errors against
+     * itself.
+     */
+    private void recordNodeDiagnostics(Long nodeId, DiagnosticsReport report) {
+        List<DiagnosticsService.Report> reports = report.getEventsList().stream()
+                .map(e -> new DiagnosticsService.Report(
+                        "NODE_AGENT",
+                        e.getSeverity(),
+                        e.getComponent(),
+                        e.getCode(),
+                        e.getMessage(),
+                        e.getDetail(),
+                        e.getContextMap(),
+                        report.getAgentVersion(),
+                        nodeId != null ? "node-" + nodeId : null,
+                        null,
+                        nodeId))
+                .toList();
+        int accepted = diagnosticsService.record(reports);
+        log.debug("Recorded {}/{} diagnostic event(s) from node {}", accepted, reports.size(), nodeId);
+    }
+
 }

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initAutoUpdater } from './autoUpdater';
 import { ApiClient } from './api/apiClient';
+import { flushDiagnostics, initDiagnostics, reportError } from './diagnostics';
 import { installDohDispatcher } from './api/dohDispatcher';
 import { TokenStore } from './api/tokenStore';
 import { registerIpcHandlers } from './ipc';
@@ -93,9 +94,17 @@ app.whenReady().then(() => {
   const apiClient = new ApiClient(tokenStore);
   const systemProxyManager = createSystemProxyManager();
 
+  // Before anything that can fail: from here on, an uncaught exception or a
+  // rejected promise anywhere in the main process is collected and shipped
+  // instead of only reaching a console nobody is reading. Keyed by this
+  // install's device UUID so the server can tell one machine looping from a
+  // problem everybody has — it identifies the install, not the person.
+  initDiagnostics(apiClient, apiClient.getOrCreateDeviceUuid());
+
   // Clean up any stale system proxy setting from previous crashes/force quits (Stability 2.5)
   void systemProxyManager.disable().catch((err) => {
     console.warn('Failed to clean up stale system proxy on startup:', err);
+    reportError('proxy', 'STALE_PROXY_CLEANUP_FAILED', 'Failed to clean up a stale system proxy setting on startup', err);
   });
 
   vpnController = new VpnController(apiClient, systemProxyManager);
@@ -111,7 +120,10 @@ app.whenReady().then(() => {
   // safely, but there is deliberately nothing to resume before login anyway
   // since setP2pRelayMode is never reachable from LoginPage's UI.
   if (tokenStore.getToken()) {
-    void relayManager.resumeIfNeeded().catch((err) => console.warn('[p2p relay] resume failed:', err));
+    void relayManager.resumeIfNeeded().catch((err) => {
+      console.warn('[p2p relay] resume failed:', err);
+      reportError('p2p-relay', 'RELAY_RESUME_FAILED', 'Could not resume the P2P relay window after launch', err);
+    });
   }
 
   registerIpcHandlers(mainWindow, apiClient, vpnController, tokenStore, relayManager);
@@ -159,7 +171,10 @@ app.on('before-quit', (event) => {
   // Relay-agent teardown (closing any live DataChannels/sockets cleanly)
   // matters for the same reason vpnController's does — best-effort, must
   // never block the actual quit if it hangs or errors.
-  void Promise.allSettled([vpnController.disconnect(), relayManagerRef?.shutdown()]).finally(() => {
+  // flushDiagnostics alongside the teardown, not after it: a failure hit
+  // during this last disconnect is exactly the kind that would otherwise
+  // never be reported, since the process is about to be gone.
+  void Promise.allSettled([vpnController.disconnect(), relayManagerRef?.shutdown(), flushDiagnostics()]).finally(() => {
     trayHandle?.destroy();
     quitTeardownDone = true;
     app.quit();

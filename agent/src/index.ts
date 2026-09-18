@@ -3,8 +3,13 @@ import { logger } from './utils/logger.js';
 import { XraySupervisor } from './xray/xray-supervisor.js';
 import { StatsCollector } from './xray/stats-collector.js';
 import { AgentGrpcClient } from './client/grpc-client.js';
+import { installProcessHandlers, reportError } from './utils/diagnostics.js';
 
 async function main() {
+  // Before anything else: an uncaught exception or rejection during startup
+  // is exactly the failure nobody is watching for on an unattended node.
+  installProcessHandlers();
+
   logger.info('Starting VPN Node Agent...');
   logger.info(`Server: ${config.serverGrpcUrl}, Region: ${config.region}, Hostname: ${config.hostname}`);
 
@@ -25,7 +30,7 @@ async function main() {
     await client.init();
     logger.info('VPN Node Agent is running.');
   } catch (err) {
-    logger.error('Fatal agent error during startup:', err);
+    reportError('startup', 'STARTUP_FAILED', 'Fatal agent error during startup', err);
     process.exit(1);
   }
 }

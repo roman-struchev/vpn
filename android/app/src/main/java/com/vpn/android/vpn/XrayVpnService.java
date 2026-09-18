@@ -44,6 +44,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import libXray.DialerController;
+import com.vpn.android.diagnostics.DiagnosticsReporter;
 
 /**
  * Owns the whole VPN session lifecycle: fetching the node/policy list, building the
@@ -228,6 +229,8 @@ public class XrayVpnService extends VpnService implements DialerController {
 
             attemptTunnelStart();
         } catch (Exception e) {
+            // The dead end the user sees as "it just doesn't connect".
+            DiagnosticsReporter.error("vpn", "PROFILE_LOAD_FAILED", "Failed to load the VPN profile", e);
             Log.e(TAG, "Failed to load VPN profile", e);
             transition(ConnectionEvent.FATAL_ERROR);
             updateNotification();
@@ -297,6 +300,9 @@ public class XrayVpnService extends VpnService implements DialerController {
             reportTelemetry(connectTimeMs, 0, false, connectedNodeId);
             registerOrTouchDevice();
         } catch (Exception e) {
+            DiagnosticsReporter.error("vpn", "TUNNEL_START_FAILED",
+                    "Tunnel start failed (transport=" + transportFallbackPolicy.getCurrentTransport() + ")", e,
+                    java.util.Map.of("nodeIndex", String.valueOf(currentNodeIndex)));
             Log.w(TAG, "Tunnel start failed on node " + currentNodeIndex
                     + " (transport=" + transportFallbackPolicy.getCurrentTransport() + ")", e);
             handleFailure();
@@ -406,6 +412,10 @@ public class XrayVpnService extends VpnService implements DialerController {
             // catches that — same intent as the desktop client's checkLiveness().
             if (!isTunnelAlive()) {
                 consecutiveLivenessFailures++;
+                // "Protected" with no working internet — invisible to the
+                // user as a failure, so nobody would ever report it.
+                DiagnosticsReporter.warn("vpn", "TUNNEL_PROBE_FAILED",
+                        "Tunnel liveness probe failed while the tunnel was up");
                 Log.w(TAG, "Health check: tunnel probe failed (" + consecutiveLivenessFailures + " in a row)");
                 if (consecutiveLivenessFailures >= LIVENESS_FAILURES_BEFORE_RECONNECT) {
                     consecutiveLivenessFailures = 0;
