@@ -27,6 +27,8 @@ import com.vpn.android.api.model.AuthResponse;
 import com.vpn.android.databinding.ActivityLoginBinding;
 import com.vpn.android.ui.MainActivity;
 import com.vpn.android.util.Async;
+import android.text.TextWatcher;
+import android.text.Editable;
 
 public class LoginActivity extends AppCompatActivity {
 
@@ -78,6 +80,7 @@ public class LoginActivity extends AppCompatActivity {
         binding.googleSignInButton.setOnClickListener(v -> signInWithGoogle());
         binding.retryButton.setOnClickListener(v -> attemptDeviceLogin());
         applyMode();
+        clearErrorsOnInput();
 
         if (forceForm) {
             binding.formContainer.setVisibility(View.VISIBLE);
@@ -135,8 +138,13 @@ public class LoginActivity extends AppCompatActivity {
     private void submit() {
         String email = text(binding.emailInput);
         String password = text(binding.passwordInput);
+        // Mark the field that is actually empty. The shared error label at the
+        // bottom of the screen sits under the Google button, several controls
+        // away from either input — "This field is required" there left the
+        // user guessing which field it meant.
+        binding.emailInputLayout.setError(TextUtils.isEmpty(email) ? getString(R.string.field_required) : null);
+        binding.passwordInputLayout.setError(TextUtils.isEmpty(password) ? getString(R.string.field_required) : null);
         if (TextUtils.isEmpty(email) || TextUtils.isEmpty(password)) {
-            showError(getString(R.string.field_required));
             return;
         }
 
@@ -250,6 +258,28 @@ public class LoginActivity extends AppCompatActivity {
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(intent);
         finish();
+    }
+
+    /**
+     * Clears a field's error as soon as it is typed into. Without this the
+     * complaint stayed on screen while the user was busy fixing it, so the
+     * form looked broken even once it was valid — and the message survived a
+     * successful correction all the way to the next submit.
+     */
+    private void clearErrorsOnInput() {
+        TextWatcher watcher = new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
+                binding.emailInputLayout.setError(null);
+                binding.passwordInputLayout.setError(null);
+                binding.errorText.setVisibility(View.GONE);
+            }
+
+            @Override public void afterTextChanged(Editable s) {}
+        };
+        binding.emailInput.addTextChangedListener(watcher);
+        binding.passwordInput.addTextChangedListener(watcher);
     }
 
     private void setLoading(boolean loading) {

@@ -27,14 +27,29 @@ import java.util.concurrent.TimeUnit;
  */
 public class P2pRelaySettingsActivity extends AppCompatActivity {
 
-    // TODO: replace with the real published path once the web team's terms
-    // page (phase 5 of this same feature, built in parallel) is live — this
-    // is a placeholder origin+path guess, not a confirmed URL.
-    private static final String TERMS_URL_PATH = "p2p-terms";
+    // The dashboard is hash-routed (web/src/App.tsx reads
+    // window.location.hash === "#p2p-terms"), so a path-style URL is not a
+    // page at all: it fell through to Spring Security's catch-all and came
+    // back 403, which the browser showed as a blank screen. Desktop builds
+    // the same hash form in ipc.ts ("p2p:getTermsUrl").
+    private static final String TERMS_URL_FRAGMENT = "#p2p-terms";
 
     private ActivityP2pRelaySettingsBinding binding;
     private ApiClient apiClient;
     private TokenStore tokenStore;
+
+    /** Web origin + the dashboard's hash route, tolerating a trailing slash on the configured base URL. */
+    static String termsUrl(String webBaseUrl) {
+        String base = webBaseUrl == null ? "" : webBaseUrl.trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base + "/" + TERMS_URL_FRAGMENT;
+    }
+
+    private static String termsUrl() {
+        return termsUrl(BuildConfig.WEB_BASE_URL);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,7 +61,7 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
         apiClient = new ApiClient(tokenStore);
 
         binding.p2pTermsLink.setOnClickListener(v ->
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.WEB_BASE_URL + TERMS_URL_PATH))));
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(termsUrl()))));
         binding.p2pApplyButton.setOnClickListener(v -> applySelection());
 
         // Only known once the node has actually registered at least once

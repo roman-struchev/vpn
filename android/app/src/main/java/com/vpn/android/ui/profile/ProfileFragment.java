@@ -26,6 +26,13 @@ import com.vpn.android.util.WebHandoffLauncher;
 import com.vpn.android.vpn.XrayVpnService;
 
 import java.util.Locale;
+import java.util.List;
+import java.util.Date;
+import java.time.Instant;
+import java.text.DateFormat;
+import com.vpn.android.billing.PlanSummary;
+import com.vpn.android.api.model.UserProfile;
+import com.vpn.android.api.model.TariffInfo;
 
 public class ProfileFragment extends Fragment {
 
@@ -51,6 +58,7 @@ public class ProfileFragment extends Fragment {
         binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
         binding.manageBillingButton.setOnClickListener(v -> openBillingPage());
+        binding.changePlanButton.setOnClickListener(v -> openPlansPage());
         binding.p2pRelayButton.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
         loadProfile();
@@ -58,8 +66,24 @@ public class ProfileFragment extends Fragment {
 
     private void loadProfile() {
         Async.run(
-                () -> apiClient.getProfile(),
-                profile -> {
+                // Both in one background pass: the profile carries the
+                // subscription, the catalogue turns its bare tariffId into a
+                // name, a price and a device allowance. The catalogue is
+                // best-effort — PlanSummary falls back to the id rather than
+                // leaving the card empty if this half fails.
+                () -> {
+                    UserProfile profile = apiClient.getProfile();
+                    List<TariffInfo> tariffs;
+                    try {
+                        tariffs = apiClient.getTariffs();
+                    } catch (Exception e) {
+                        tariffs = null;
+                    }
+                    return new ProfileWithPlan(profile, PlanSummary.of(profile, tariffs));
+                },
+                loaded -> {
+                    UserProfile profile = loaded.profile;
+                    renderPlan(loaded.plan);
                     binding.emailText.setText(profile.email);
                     binding.balanceText.setText(getString(R.string.profile_balance,
                             String.format(Locale.US, "%.2f", profile.balanceUsdt())));
@@ -78,6 +102,103 @@ public class ProfileFragment extends Fragment {
                 },
                 error -> { /* keep placeholders on failure */ });
 
+    }
+
+    /** Carries both halves of one background load — see loadProfile. */
+    private static final class ProfileWithPlan {
+        final UserProfile profile;
+        final PlanSummary plan;
+
+        ProfileWithPlan(UserProfile profile, PlanSummary plan) {
+            this.profile = profile;
+            this.plan = plan;
+        }
+    }
+
+    /**
+     * Renders the plan card. Every line is omitted rather than shown empty
+     * when the underlying fact is unknown: a plan with no expiry says so, a
+     * catalogue that could not be loaded simply drops the device allowance,
+     * and an account with no plan at all gets a "choose a plan" state instead
+     * of a card full of blanks.
+     */
+    private void renderPlan(PlanSummary plan) {
+        if (!plan.hasSubscription()) {
+            binding.planNameText.setText(R.string.profile_plan_none);
+            binding.planTrafficText.setVisibility(View.GONE);
+            binding.planTrafficProgress.setVisibility(View.GONE);
+            binding.planExpiryText.setVisibility(View.GONE);
+            binding.planDevicesText.setVisibility(View.GONE);
+            binding.changePlanButton.setText(R.string.profile_change_plan_choose);
+            return;
+        }
+
+        binding.changePlanButton.setText(R.string.profile_change_plan);
+        String planName = localizedPlanName(plan);
+        binding.planNameText.setText(plan.isFree()
+                ? getString(R.string.profile_plan_free, planName)
+                : getString(R.string.profile_plan_paid, planName, plan.monthlyPriceUsdt()));
+
+        binding.planTrafficText.setVisibility(View.VISIBLE);
+        if (plan.trafficLimitBytes() > 0) {
+            binding.planTrafficText.setText(getString(R.string.profile_plan_traffic,
+                    formatBytes(plan.trafficUsedBytes()), formatBytes(plan.trafficLimitBytes())));
+            binding.planTrafficProgress.setVisibility(View.VISIBLE);
+            binding.planTrafficProgress.setProgress(plan.trafficPercent());
+        } else {
+            binding.planTrafficText.setText(getString(R.string.profile_plan_traffic_unlimited,
+                    formatBytes(plan.trafficUsedBytes())));
+            binding.planTrafficProgress.setVisibility(View.GONE);
+        }
+
+        binding.planExpiryText.setVisibility(View.VISIBLE);
+        String expiresAt = plan.expiresAtIso();
+        if (expiresAt == null) {
+            binding.planExpiryText.setText(R.string.profile_plan_no_expiry);
+        } else {
+            binding.planExpiryText.setText(getString(R.string.profile_plan_expiry, formatDate(expiresAt)));
+        }
+
+        if (plan.maxDevices() != null) {
+            binding.planDevicesText.setVisibility(View.VISIBLE);
+            binding.planDevicesText.setText(getString(R.string.profile_plan_devices, plan.maxDevices()));
+        } else {
+            binding.planDevicesText.setVisibility(View.GONE);
+        }
+    }
+
+    /**
+     * Tariff names live in the database in one language, so an English UI
+     * rendered the trial as "Пробный · free". Translate the ids this build
+     * knows; anything else keeps whatever the server called it, which is still
+     * better than an internal id.
+     */
+    private String localizedPlanName(PlanSummary plan) {
+        String id = plan.tariffId() == null ? "" : plan.tariffId().toLowerCase(Locale.ROOT);
+        switch (id) {
+            case "trial": return getString(R.string.tariff_trial);
+            case "basic": return getString(R.string.tariff_basic);
+            case "pro": return getString(R.string.tariff_pro);
+            default: return plan.planName();
+        }
+    }
+
+    private static String formatBytes(long bytes) {
+        double gb = bytes / (1024.0 * 1024 * 1024);
+        if (gb >= 1) {
+            return String.format(Locale.getDefault(), "%.2f GB", gb);
+        }
+        double mb = bytes / (1024.0 * 1024);
+        return String.format(Locale.getDefault(), "%.1f MB", mb);
+    }
+
+    private String formatDate(String iso) {
+        try {
+            return DateFormat.getDateInstance(DateFormat.MEDIUM)
+                    .format(Date.from(Instant.parse(iso)));
+        } catch (Exception e) {
+            return iso;
+        }
     }
 
     private void copyReferralLink() {
@@ -105,6 +226,15 @@ public class ProfileFragment extends Fragment {
     // destination because the web app has no dedicated /billing route yet.
     private void openBillingPage() {
         WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/");
+    }
+
+    /**
+     * Same signed-in handoff, but landing on the plans themselves
+     * (DashboardView scrolls to #tariffs) rather than the top of the
+     * dashboard — the user pressed "change plan", not "open the website".
+     */
+    private void openPlansPage() {
+        WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/#tariffs");
     }
 
     private void logout() {

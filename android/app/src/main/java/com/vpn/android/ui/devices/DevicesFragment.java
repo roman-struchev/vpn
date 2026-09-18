@@ -20,6 +20,8 @@ import com.vpn.android.api.TokenStore;
 import com.vpn.android.api.model.DeviceDto;
 import com.vpn.android.databinding.FragmentDevicesBinding;
 import com.vpn.android.util.Async;
+import java.util.List;
+import com.vpn.android.billing.PlanSummary;
 
 public class DevicesFragment extends Fragment {
 
@@ -52,15 +54,46 @@ public class DevicesFragment extends Fragment {
     private void loadDevices() {
         binding.swipeRefresh.setRefreshing(true);
         Async.run(
-                () -> apiClient.getDevices(),
-                devices -> {
+                () -> {
+                    List<DeviceDto> devices = apiClient.getDevices();
+                    // The allowance comes from the plan, so it needs the
+                    // profile's tariffId plus the catalogue. Best-effort: a
+                    // failure here costs the counter, never the device list.
+                    Integer maxDevices = null;
+                    try {
+                        maxDevices = PlanSummary.of(apiClient.getProfile(), apiClient.getTariffs()).maxDevices();
+                    } catch (Exception ignored) {
+                        // counter stays unknown
+                    }
+                    return new DeviceListWithAllowance(devices, maxDevices);
+                },
+                loaded -> {
                     binding.swipeRefresh.setRefreshing(false);
-                    adapter.submitList(devices);
+                    adapter.submitList(loaded.devices);
+                    renderUsage(loaded.devices.size(), loaded.maxDevices);
                 },
                 error -> {
                     binding.swipeRefresh.setRefreshing(false);
                     Snackbar.make(binding.getRoot(), error.getMessage(), Snackbar.LENGTH_LONG).show();
                 });
+    }
+
+    /** Carries the list together with what the plan allows — see loadDevices. */
+    private static final class DeviceListWithAllowance {
+        final List<DeviceDto> devices;
+        final Integer maxDevices;
+
+        DeviceListWithAllowance(List<DeviceDto> devices, Integer maxDevices) {
+            this.devices = devices;
+            this.maxDevices = maxDevices;
+        }
+    }
+
+    private void renderUsage(int used, Integer maxDevices) {
+        binding.devicesUsageText.setText(maxDevices != null
+                ? getString(R.string.devices_usage, used, maxDevices)
+                : getString(R.string.devices_usage_unknown, used));
+        binding.devicesEmptyText.setVisibility(used == 0 ? View.VISIBLE : View.GONE);
     }
 
     private void showAddDeviceDialog() {

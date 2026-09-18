@@ -21,6 +21,28 @@
         android:textColor="?android:attr/textColorSecondary"
         android:layout_marginBottom="12dp" />
 
+    <!-- "Add device" 400s once the plan's allowance is used up, and nothing in
+         the app said what that allowance was or how much of it was left. -->
+    <TextView
+        android:id="@+id/devicesUsageText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+    <!-- Shown in place of the list when there is nothing in it: the tab was
+         otherwise a large blank area between the hint and the button. -->
+    <TextView
+        android:id="@+id/devicesEmptyText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:text="@string/devices_empty"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:textColor="?android:attr/textColorSecondary"
+        android:visibility="gone" />
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"

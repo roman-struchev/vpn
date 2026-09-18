@@ -7,6 +7,7 @@ import com.vpn.android.api.model.AuthResponse;
 import com.vpn.android.api.model.DeviceDto;
 import com.vpn.android.api.model.P2pStatusResponse;
 import com.vpn.android.api.model.RegionInfo;
+import com.vpn.android.api.model.TariffInfo;
 import com.vpn.android.api.model.RegionsResponse;
 import com.vpn.android.api.model.RoutingConfigResponse;
 import com.vpn.android.api.model.SubscriptionLinksResponse;
@@ -237,6 +238,17 @@ public class ApiClient {
             applyAuth(builder);
             return builder.build();
         }, SubscriptionLinksResponse.class);
+    }
+
+    /**
+     * The public tariff catalogue. The profile endpoint only carries the
+     * subscription's {@code tariffId}, so this is what lets the app name the
+     * user's plan, and say what it costs and how many devices it allows,
+     * rather than showing an internal id or nothing at all.
+     */
+    public List<TariffInfo> getTariffs() throws ApiException, IOException {
+        TariffInfo[] tariffs = get("api/v1/user/tariffs", TariffInfo[].class);
+        return tariffs != null ? List.of(tariffs) : List.of();
     }
 
     /** Regions with at least one online node this user's subscription can reach, each with a rough load indicator. */

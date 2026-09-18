@@ -85,6 +85,24 @@
     <string name="confirm_revoke_device">Revoke access for \"%1$s\"? It will need to reconnect to use the VPN again.</string>
     <string name="device_name_hint">Device name</string>
 
+    <string name="tariff_trial">Trial</string>
+    <string name="tariff_basic">Basic</string>
+    <string name="tariff_pro">Pro</string>
+    <string name="profile_plan_title">Your plan</string>
+    <string name="profile_plan_none">No plan selected</string>
+    <string name="profile_plan_free">%1$s · free</string>
+    <string name="profile_plan_paid">%1$s · $%2$.2f per month</string>
+    <string name="profile_plan_traffic">Traffic: %1$s of %2$s</string>
+    <string name="profile_plan_traffic_unlimited">Traffic: %1$s (unlimited)</string>
+    <string name="profile_plan_expiry">Valid until %1$s</string>
+    <string name="profile_plan_no_expiry">No expiry — only the traffic cap applies</string>
+    <string name="profile_plan_devices">Devices on this plan: %1$d</string>
+    <string name="profile_change_plan">Change plan</string>
+    <string name="profile_change_plan_choose">Choose a plan</string>
+    <string name="profile_change_plan_hint">Plans are paid for on the website — it opens in a browser and signs you in automatically.</string>
+    <string name="devices_usage">%1$d of %2$d devices used</string>
+    <string name="devices_usage_unknown">Devices: %1$d</string>
+    <string name="devices_empty">No devices yet. One is added automatically the first time you connect.</string>
     <string name="profile_balance">Balance: %1$s USDT</string>
     <string name="profile_manage_billing">Add funds</string>
     <string name="profile_sign_in_existing">Sign in with an existing account</string>

@@ -93,6 +93,24 @@
     <string name="device_name_hint">Название устройства</string>
 
     <!-- Profile -->
+    <string name="tariff_trial">Пробный</string>
+    <string name="tariff_basic">Basic</string>
+    <string name="tariff_pro">Pro</string>
+    <string name="profile_plan_title">Ваш тариф</string>
+    <string name="profile_plan_none">Тариф не выбран</string>
+    <string name="profile_plan_free">%1$s · бесплатно</string>
+    <string name="profile_plan_paid">%1$s · $%2$.2f в месяц</string>
+    <string name="profile_plan_traffic">Трафик: %1$s из %2$s</string>
+    <string name="profile_plan_traffic_unlimited">Трафик: %1$s (без ограничения)</string>
+    <string name="profile_plan_expiry">Действует до %1$s</string>
+    <string name="profile_plan_no_expiry">Без срока действия — ограничение только по трафику</string>
+    <string name="profile_plan_devices">Устройств по тарифу: %1$d</string>
+    <string name="profile_change_plan">Сменить тариф</string>
+    <string name="profile_change_plan_choose">Выбрать тариф</string>
+    <string name="profile_change_plan_hint">Тарифы оплачиваются на сайте — откроется в браузере, вход выполнится автоматически.</string>
+    <string name="devices_usage">Использовано %1$d из %2$d устройств</string>
+    <string name="devices_usage_unknown">Устройств: %1$d</string>
+    <string name="devices_empty">Пока ни одного устройства. Оно добавится само при первом подключении.</string>
     <string name="profile_balance">Баланс: %1$s USDT</string>
     <string name="profile_manage_billing">Пополнить баланс</string>
     <string name="profile_p2p_relay">P2P-режим (получать трафик за ретрансляцию)</string>

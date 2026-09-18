@@ -79,6 +79,14 @@ export function App() {
   // routing for arbitrary paths, so a hash fragment is the zero-backend-
   // changes way to give the feature a stable, linkable URL: <origin>/#p2p-terms).
   const [showP2pTerms, setShowP2pTerms] = useState(() => window.location.hash.startsWith('#p2p-terms'));
+  // "Take me to the plans" — the destination the mobile apps' "Change plan"
+  // button hands over (next=/#tariffs). Resolved once, here, rather than read
+  // off location inside the dashboard: the handoff rewrites the URL only after
+  // its code is exchanged, which may land before or after the tariffs load.
+  const [scrollToTariffs] = useState(() =>
+    window.location.hash.startsWith('#tariffs') ||
+    (new URLSearchParams(window.location.search).get('next') ?? '').startsWith('/#tariffs')
+  );
 
   const openAdmin = () => {
     if (!window.location.hash.startsWith('#admin')) window.location.hash = 'admin';
@@ -223,6 +231,7 @@ export function App() {
               openTopUp={isTopUpOpen}
               setOpenTopUp={setIsTopUpOpen}
               highlightTariffId={selectedTariffId}
+              scrollToTariffs={scrollToTariffs}
             />
           ) : (
             <LandingView

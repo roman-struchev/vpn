@@ -40,6 +40,8 @@ interface DashboardViewProps {
   lang: Lang;
   user: UserProfile;
   tariffs: Tariff[];
+  /** Land on the plans instead of the top of the dashboard — see App.tsx. */
+  scrollToTariffs?: boolean;
   onRefreshUser: () => void;
   openTopUp: boolean;
   setOpenTopUp: (open: boolean) => void;
@@ -57,6 +59,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   lang,
   user,
   tariffs,
+  scrollToTariffs,
   onRefreshUser,
   openTopUp,
   setOpenTopUp,
@@ -117,6 +120,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   useEffect(() => {
     loadData();
   }, []);
+
+  // Deep link straight to the plans (<origin>/#tariffs), used by the mobile
+  // apps' "Change plan" button: plans are bought here, so landing the user at
+  // the top of the dashboard leaves them hunting for the section they were
+  // just sent to. Waits for `tariffs` because the section does not exist until
+  // they have loaded.
+  useEffect(() => {
+    if (tariffs.length === 0 || !scrollToTariffs) return;
+    document.getElementById('tariffs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [tariffs, scrollToTariffs]);
 
   useEffect(() => {
     if (!highlightTariffId || !tariffs.some((tf) => tf.id === highlightTariffId)) return;
@@ -536,7 +549,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div id="tariffs" className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {tariffs.map((tariff) => {
             const priceMicro = isAnnual
               ? tariff.annualPriceUsdtMicro

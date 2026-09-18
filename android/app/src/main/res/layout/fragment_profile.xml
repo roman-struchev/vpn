@@ -2,6 +2,7 @@
 <!-- Scrollable: on a small phone the P2P relay / sign-in / logout buttons at the
      bottom used to be cut off below the bottom navigation with no way to reach them. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
@@ -12,12 +13,99 @@
     android:orientation="vertical"
     android:padding="24dp">
 
+    <!-- titleMedium, not headlineSmall: a real address is long, and at headline
+         size it wrapped to two oversized lines that pushed everything below it
+         off the first screen. It labels the account; it is not the headline. -->
     <TextView
         android:id="@+id/emailText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceHeadlineSmall"
-        android:layout_marginBottom="24dp" />
+        android:textAppearance="?attr/textAppearanceTitleMedium"
+        android:maxLines="2"
+        android:ellipsize="middle"
+        android:layout_marginBottom="16dp" />
+
+    <!-- The plan card. Before it, the app showed a raw traffic bar on the
+         connect screen and a balance here, so a user could not see which plan
+         they were on, what it allows, when it renews, or how to change it —
+         and the only way to a different tariff was to find the website
+         unaided. -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="?attr/colorSurfaceVariant">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/profile_plan_title"
+                android:textAppearance="?attr/textAppearanceLabelLarge" />
+
+            <TextView
+                android:id="@+id/planNameText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceHeadlineSmall" />
+
+            <TextView
+                android:id="@+id/planTrafficText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/planTrafficProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                app:trackCornerRadius="4dp"
+                app:trackStopIndicatorSize="0dp"
+                android:max="100" />
+
+            <TextView
+                android:id="@+id/planExpiryText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <TextView
+                android:id="@+id/planDevicesText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/changePlanButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/profile_change_plan" />
+
+            <!-- Says where the button leads before it is pressed: plans are
+                 paid for on the website, and being sent to a browser without
+                 warning reads like the app failing. -->
+            <TextView
+                android:id="@+id/changePlanHintText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/profile_change_plan_hint"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 
     <TextView
         android:id="@+id/balanceText"
