@@ -13,14 +13,13 @@ interface P2pRelaySectionProps {
  * P2P_RELAY_FEASIBILITY.md §8.6). Turning relay mode ON only happens in the
  * native desktop/Android clients (separate phases) — this card's job is just
  * the terms link + brief summary the repo owner explicitly asked for
- * ("показываем как минимум ссылку на них и краткую выжимку"), the consent
- * checkbox POST /accept-terms gates, and a glance at today's credit once
- * accepted.
+ * ("показываем как минимум ссылку на них и краткую выжимку"), the single
+ * consent button behind POST /accept-terms, and a glance at today's credit
+ * once accepted.
  */
 export const P2pRelaySection: React.FC<P2pRelaySectionProps> = ({ lang }) => {
   const t = translations[lang];
   const [status, setStatus] = useState<P2pRelayStatus | null>(null);
-  const [checked, setChecked] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,9 +64,9 @@ export const P2pRelaySection: React.FC<P2pRelaySectionProps> = ({ lang }) => {
         {t.p2pTermsLink}
       </a>
 
-      {status?.isGuest ? (
+      {!status ? null /* status unknown (guest check and acceptance both unanswered) — the card still shows its summary + terms link, but asking someone who may have already accepted to accept again would be wrong */ : status.isGuest ? (
         <p className="mt-4 text-[11px] text-slate-500">{t.p2pGuestBlocked}</p>
-      ) : status?.termsAccepted ? (
+      ) : status.termsAccepted ? (
         <div className="mt-4 pt-4 border-t border-dark-800/80">
           <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-semibold mb-3">
             <Check className="w-3.5 h-3.5" />
@@ -93,19 +92,15 @@ export const P2pRelaySection: React.FC<P2pRelaySectionProps> = ({ lang }) => {
         </div>
       ) : (
         <div className="mt-4 pt-4 border-t border-dark-800/80">
-          <label className="flex items-start gap-2 text-xs text-slate-300 mb-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={(e) => setChecked(e.target.checked)}
-              className="mt-0.5"
-            />
-            <span>{t.p2pAcceptCheckbox}</span>
-          </label>
+          {/* The button is the consent. A checkbox in front of it asked for the
+              same agreement twice — pressing a button that says "I've read the
+              terms and accept the risks" is already the deliberate act, and the
+              native clients ask this once, in a dialog, the same way. */}
+          <p className="text-xs text-slate-300 mb-3">{t.p2pAcceptCheckbox}</p>
           {error && <p className="text-[11px] text-red-400 mb-2">{error}</p>}
           <button
             type="button"
-            disabled={!checked || accepting}
+            disabled={accepting}
             onClick={handleAccept}
             className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-dark-950 font-bold text-xs transition-all"
           >

@@ -88,6 +88,9 @@ const translations = {
     p2pDesc: 'Разрешите приложению ретранслировать зашифрованный трафик других пользователей — за это на ваш аккаунт начисляется трафик: 1 ГБ ретранслировано → 0.5 ГБ на баланс, до 50 ГБ в сутки.',
     p2pTermsLinkText: 'Условия и риски режима ретрансляции',
     p2pAcceptTerms: 'Согласиться и включить',
+    p2pConsentQuestion:
+      'Ваше устройство будет ретранслировать зашифрованный трафик других пользователей. Вы не видите и не можете прочитать этот трафик, а выходом в интернет ваше устройство не становится. Расходуется ваш трафик. Спросим только один раз — выключить режим можно в любой момент без подтверждения.',
+    p2pConsentCancel: 'Отмена',
     p2pGuestNotice: 'Недоступно для гостевого профиля — войдите или зарегистрируйтесь.',
     p2pModeOff: 'Выключено',
     p2pMode1h: 'На 1 час',
@@ -187,6 +190,9 @@ const translations = {
     p2pDesc: 'Let this app relay other users’ encrypted VPN traffic — in return, your account earns traffic: 1 GB relayed → 0.5 GB credited, up to 50 GB per day.',
     p2pTermsLinkText: 'Relay mode terms and risks',
     p2pAcceptTerms: 'Agree and enable',
+    p2pConsentQuestion:
+      'Your device will relay other users’ encrypted traffic. You can’t see or read that traffic, and your device never becomes the exit to the internet. It does use your data. We’ll ask only once — you can turn the mode off at any time without confirming.',
+    p2pConsentCancel: 'Cancel',
     p2pGuestNotice: 'Not available for a guest profile — sign in or register.',
     p2pModeOff: 'Off',
     p2pMode1h: 'For 1 hour',

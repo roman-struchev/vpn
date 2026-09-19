@@ -42,11 +42,23 @@ public class TokenStore {
     private static final String KEY_P2P_NODE_TOKEN = "p2p_node_token";
     private static final String KEY_P2P_RELAY_MODE = "p2p_relay_mode";
     private static final String KEY_P2P_RELAY_EXPIRES_AT = "p2p_relay_expires_at_epoch_ms";
+    // Which timed option produced the current window (1h vs 8h). The expiry
+    // alone cannot answer that — an 8h window with 40 minutes left looks
+    // exactly like a 1h one — so the settings screen used to re-select the
+    // wrong option late in a long window. The desktop client persists the
+    // same thing for the same reason (TokenStore#p2pRelayDurationMs).
+    private static final String KEY_P2P_RELAY_DURATION_MS = "p2p_relay_duration_ms";
     // The relay NODE's own declared location — geo-IP auto-detected once by
     // P2pRelayAgent#start on first-ever registration (see GeoLocale#detectNodeRegion),
     // then cached here and reused on every later start. Unrelated to any VPN
     // egress region preference the app keeps elsewhere.
     private static final String KEY_P2P_RELAY_REGION = "p2p_relay_region";
+    // Whether this account already accepted the P2P terms, as last reported by
+    // GET /p2p/status (or as just accepted from this device). Consent is a
+    // one-time, server-side fact; caching it locally is what lets the settings
+    // screen know it *before* the status call returns, instead of rendering an
+    // unaccepted state that flips a moment later.
+    private static final String KEY_P2P_TERMS_ACCEPTED = "p2p_terms_accepted";
     public static final String P2P_RELAY_OFF = "OFF";
     public static final String P2P_RELAY_TIMED = "TIMED";
     public static final String P2P_RELAY_ALWAYS = "ALWAYS";
@@ -254,12 +266,30 @@ public class TokenStore {
         return prefs.getLong(KEY_P2P_RELAY_EXPIRES_AT, 0L);
     }
 
+    /** How long the current timed window was chosen to last, or 0 if unknown — see {@link #KEY_P2P_RELAY_DURATION_MS}. */
+    public long getP2pRelayDurationMs() {
+        return prefs.getLong(KEY_P2P_RELAY_DURATION_MS, 0L);
+    }
+
+    public void saveP2pRelayDurationMs(long durationMs) {
+        prefs.edit().putLong(KEY_P2P_RELAY_DURATION_MS, durationMs).apply();
+    }
+
     public String getP2pRelayRegion() {
         return prefs.getString(KEY_P2P_RELAY_REGION, null);
     }
 
     public void saveP2pRelayRegion(String region) {
         prefs.edit().putString(KEY_P2P_RELAY_REGION, region).apply();
+    }
+
+    /** Cached copy of the server's "terms accepted" flag — see {@link #KEY_P2P_TERMS_ACCEPTED}. */
+    public boolean isP2pTermsAccepted() {
+        return prefs.getBoolean(KEY_P2P_TERMS_ACCEPTED, false);
+    }
+
+    public void saveP2pTermsAccepted(boolean accepted) {
+        prefs.edit().putBoolean(KEY_P2P_TERMS_ACCEPTED, accepted).apply();
     }
 
     public Set<String> getDisallowedApps() {

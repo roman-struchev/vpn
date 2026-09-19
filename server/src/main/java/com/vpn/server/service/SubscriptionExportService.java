@@ -150,19 +150,23 @@ public class SubscriptionExportService {
         // Node#isOwnRelayDeviceOf) — without that filter, turning P2P mode on
         // made your own laptop show up as a connection region in your own app.
         //
-        // Neither is anybody else's: a p2p node is reached over WebRTC
-        // signaling, not by dialing its publicIp, and no client implements the
-        // connecting half of that yet (only the relaying half exists — see
-        // desktop's relayAgent / Android's P2pRelayAgent), which is why
-        // findAccessibleOnlineNodesForVless never hands one out either.
-        // Listing such a region produced a row that could never be selected:
-        // `accessible` below requires a non-p2p node, so a p2p-only region
-        // came back locked no matter what plan the caller was on, and the
-        // clients render every locked row as "requires a paid plan" — telling
-        // a Pro subscriber to upgrade for a region no tariff can unlock.
+        // Neither is anybody else's — and this stays true now that clients do
+        // implement the connecting half (XrayVpnService#tryRelayedConnection,
+        // desktop's relay client). A relay is a *path* to a node, not an exit:
+        // the client names the node it wants in its own offer and the tunnel is
+        // still negotiated end-to-end with that node, so a relay has no region
+        // of its own to sell. Clients get them from P2pRelayDirectory
+        // (GET /p2p/relays) and use them as a last-resort path when the network
+        // blocks dialing a node directly — never as something a user picks
+        // here, which is also why findAccessibleOnlineNodesForVless hands out
+        // no p2p node.
         //
-        // When the connecting half lands (docs §8.1 phase 2/3), this filter is
-        // what has to change, together with findAccessibleOnlineNodesForVless.
+        // Keeping them out matters for what the user sees, too: `accessible`
+        // below requires a non-p2p node, so a p2p-only region came back locked
+        // no matter what plan the caller was on, and the clients render every
+        // locked row as "requires a paid plan" — telling a Pro subscriber to
+        // upgrade for a region no tariff can unlock. A relayed connection
+        // instead shows up as the real node's region labelled "via peer".
         List<Node> activeNodes = nodeRepository.findByStatus("ONLINE").stream()
                 .filter(n -> !n.isOwnRelayDeviceOf(userId))
                 .filter(n -> !n.isP2p())

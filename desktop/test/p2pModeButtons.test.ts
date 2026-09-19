@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isModeButtonActive, type ModeButton } from '../src/renderer/src/components/p2pModeButtons';
+import { isModeButtonActive, needsP2pConsent, type ModeButton } from '../src/renderer/src/components/p2pModeButtons';
 
 const offBtn: ModeButton = { label: 'Off', mode: 'OFF' };
 const oneHourBtn: ModeButton = { label: '1h', mode: 'TIMED', durationMs: 3_600_000 };
@@ -41,5 +41,24 @@ describe('isModeButtonActive', () => {
   it('handles a null/undefined current mode (not yet loaded) without matching anything', () => {
     expect(isModeButtonActive(null, offBtn)).toBe(false);
     expect(isModeButtonActive(undefined, oneHourBtn)).toBe(false);
+  });
+});
+
+describe('needsP2pConsent', () => {
+  it('asks before relaying starts if the user never accepted', () => {
+    expect(needsP2pConsent('TIMED', false)).toBe(true);
+    expect(needsP2pConsent('ALWAYS', false)).toBe(true);
+  });
+
+  it('asks only once', () => {
+    expect(needsP2pConsent('TIMED', true)).toBe(false);
+    expect(needsP2pConsent('ALWAYS', true)).toBe(false);
+  });
+
+  it('never asks to stop relaying', () => {
+    // Turning the feature off can't require agreeing to it — the Android
+    // client had the same inversion (see P2pConsentTest).
+    expect(needsP2pConsent('OFF', false)).toBe(false);
+    expect(needsP2pConsent('OFF', true)).toBe(false);
   });
 });

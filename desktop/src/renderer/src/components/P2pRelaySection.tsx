@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { t } from '../i18n';
-import { isModeButtonActive, type RelayMode } from './p2pModeButtons';
+import { isModeButtonActive, needsP2pConsent, type RelayMode } from './p2pModeButtons';
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -25,6 +25,9 @@ export default function P2pRelaySection() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The mode the user just picked but has not yet consented to — the one-time
+  // question, asked where it matters instead of gating the whole section.
+  const [pending, setPending] = useState<{ mode: RelayMode; durationMs?: number } | null>(null);
   // Computed from the server's own origin (web/src/App.tsx's #p2p-terms
   // hash route, phase 5) rather than hardcoded — see ApiClient#getWebOrigin.
   const [termsUrl, setTermsUrl] = useState<string | null>(null);
@@ -57,31 +60,30 @@ export default function P2pRelaySection() {
     ) : null;
   }
 
-  const acceptTerms = async () => {
+  const applyMode = async (next: RelayMode, durationMs?: number, acceptFirst = false) => {
     setBusy(true);
     setError(null);
     try {
-      await window.vpnApi.acceptP2pTerms();
-      reload();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const changeMode = async (next: RelayMode, durationMs?: number) => {
-    setBusy(true);
-    setError(null);
-    try {
+      if (acceptFirst) {
+        await window.vpnApi.acceptP2pTerms();
+      }
       const expiresAtEpochMs = durationMs ? Date.now() + durationMs : null;
       await window.vpnApi.setP2pRelayMode(next, expiresAtEpochMs, durationMs);
+      setPending(null);
       reload();
     } catch (e) {
       setError(t.p2pError + (e instanceof Error ? `: ${e.message}` : ''));
     } finally {
       setBusy(false);
     }
+  };
+
+  const changeMode = (next: RelayMode, durationMs?: number) => {
+    if (needsP2pConsent(next, status.termsAccepted)) {
+      setPending({ mode: next, durationMs });
+      return;
+    }
+    void applyMode(next, durationMs);
   };
 
   const modeButtons: { label: string; mode: RelayMode; durationMs?: number }[] = [
@@ -108,35 +110,50 @@ export default function P2pRelaySection() {
         {t.p2pTermsLinkText}
       </a>
 
-      {!status.termsAccepted ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void acceptTerms()}
-          className="mt-3 w-full rounded-xl bg-brand-600 py-2 text-xs font-semibold text-white hover:bg-brand-700 disabled:opacity-40 transition-colors"
-        >
-          {t.p2pAcceptTerms}
-        </button>
-      ) : (
-        <>
-          <div className="mt-3 grid grid-cols-4 gap-1.5">
-            {modeButtons.map((btn) => (
-              <button
-                key={btn.label}
-                type="button"
-                disabled={busy}
-                onClick={() => void changeMode(btn.mode, btn.durationMs)}
-                className={`rounded-lg py-1.5 text-[10px] font-medium transition-colors disabled:opacity-40 ${
-                  isActive(btn)
-                    ? 'bg-brand-600 text-white'
-                    : 'bg-dark-800 text-white/70 hover:bg-dark-750 border border-dark-750'
-                }`}
-              >
-                {btn.label}
-              </button>
-            ))}
-          </div>
+      <div className="mt-3 grid grid-cols-4 gap-1.5">
+        {modeButtons.map((btn) => (
+          <button
+            key={btn.label}
+            type="button"
+            disabled={busy}
+            onClick={() => changeMode(btn.mode, btn.durationMs)}
+            className={`rounded-lg py-1.5 text-[10px] font-medium transition-colors disabled:opacity-40 ${
+              isActive(btn)
+                ? 'bg-brand-600 text-white'
+                : 'bg-dark-800 text-white/70 hover:bg-dark-750 border border-dark-750'
+            }`}
+          >
+            {btn.label}
+          </button>
+        ))}
+      </div>
 
+      {pending && (
+        <div className="mt-2.5 rounded-xl border border-dark-750/50 bg-dark-800/80 px-3 py-2.5">
+          <p className="text-[11px] leading-relaxed text-white/60">{t.p2pConsentQuestion}</p>
+          <div className="mt-2 flex gap-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void applyMode(pending.mode, pending.durationMs, true)}
+              className="flex-1 rounded-lg bg-brand-600 py-1.5 text-[10px] font-semibold text-white hover:bg-brand-700 disabled:opacity-40 transition-colors"
+            >
+              {t.p2pAcceptTerms}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setPending(null)}
+              className="rounded-lg border border-dark-750 bg-dark-800 px-3 py-1.5 text-[10px] font-medium text-white/70 hover:bg-dark-750 disabled:opacity-40 transition-colors"
+            >
+              {t.p2pConsentCancel}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {status.termsAccepted && (
+        <>
           {mode?.mode === 'TIMED' && mode.expiresAtEpochMs && (
             <p className="mt-2 text-[10px] text-white/40">
               {t.p2pExpiresAt}: {new Date(mode.expiresAtEpochMs).toLocaleString()}

@@ -27,6 +27,21 @@ export interface CurrentRelayMode {
  * see TokenStore#p2pRelayDurationMs) is what actually answers that; a bare
  * mode-only check for TIMED buttons is the bug, not a variant of the fix.
  */
+/**
+ * Whether switching to `next` still has to ask the user to accept the terms.
+ *
+ * Consent is one-time and only ever about *starting* to relay. It used to be
+ * a gate in front of the whole section: the mode buttons did not exist until
+ * you pressed "Agree and enable" — a button that, despite its label, enabled
+ * nothing and left you on an all-OFF selector. Asking at the moment a mode is
+ * actually picked makes the button's promise true, and switching relaying
+ * back off never needs agreeing to anything (the Android client asks the same
+ * question the same way — see P2pRelaySettingsActivity#needsConsent).
+ */
+export function needsP2pConsent(next: RelayMode, alreadyAccepted: boolean): boolean {
+  return next !== 'OFF' && !alreadyAccepted;
+}
+
 export function isModeButtonActive(current: CurrentRelayMode | null | undefined, btn: ModeButton): boolean {
   if (current?.mode !== btn.mode) return false;
   if (btn.mode !== 'TIMED') return true;

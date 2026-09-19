@@ -136,8 +136,11 @@
     <string name="p2p_relay_title">P2P-режим</string>
     <string name="p2p_relay_explanation" formatted="false">Разрешите приложению ретранслировать зашифрованный трафик других пользователей через ваше устройство и получайте за это дополнительный трафик на баланс — работает даже на бесплатном тарифе. Ваше устройство не видит и не может прочитать чужой трафик, а само никогда не выступает конечной точкой выхода в интернет.</string>
     <string name="p2p_relay_terms_link">Условия и риски P2P-режима</string>
-    <string name="p2p_relay_accept_checkbox">Я прочитал(а) условия и согласен(на) с рисками</string>
+    <string name="p2p_relay_consent_title">Включить P2P-режим?</string>
+    <string name="p2p_relay_consent_message">Ваше устройство будет ретранслировать зашифрованный трафик других пользователей. Вы не видите и не можете прочитать этот трафик, а выходом в интернет ваше устройство не становится. Расходуется ваш трафик и заряд батареи. Спросим только один раз — выключить режим можно в любой момент без подтверждения.</string>
+    <string name="p2p_relay_consent_accept">Согласен, включить</string>
     <string name="p2p_relay_region_format">Местоположение узла: %1$s</string>
+    <string name="p2p_relay_expires_at_format">Действует до %1$s</string>
     <string name="p2p_relay_mode_label">Режим</string>
     <string name="p2p_relay_mode_off">Выключено</string>
     <string name="p2p_relay_mode_1h">Включить на 1 час</string>
@@ -148,7 +151,6 @@
     <string name="p2p_relay_status_format">Начислено сегодня: %1$s ГБ из %2$s ГБ (лимит в сутки)</string>
     <string name="p2p_relay_status_error">Не удалось загрузить статус</string>
     <string name="p2p_relay_guest_blocked">Недоступно для гостевого профиля — войдите с почтой, Telegram или Google.</string>
-    <string name="p2p_relay_must_accept">Сначала примите условия использования</string>
     <string name="p2p_relay_accept_failed">Не удалось принять условия. Проверьте подключение.</string>
     <string name="p2p_relay_applied">Настройки P2P-режима применены</string>
     <string name="p2p_relay_notification_title">P2P-режим активен</string>

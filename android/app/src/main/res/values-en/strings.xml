@@ -136,8 +136,11 @@
     <string name="p2p_relay_title">P2P mode</string>
     <string name="p2p_relay_explanation" formatted="false">Allow the app to relay other users\' encrypted traffic through your device and earn extra traffic for your balance — works even on the free plan. Your device can\'t see or read anyone else\'s traffic, and it never acts as the exit point to the internet.</string>
     <string name="p2p_relay_terms_link">P2P mode terms and risks</string>
-    <string name="p2p_relay_accept_checkbox">I have read the terms and accept the risks</string>
+    <string name="p2p_relay_consent_title">Turn P2P mode on?</string>
+    <string name="p2p_relay_consent_message">Your device will relay other users\' encrypted traffic. You can\'t see or read that traffic, and your device never becomes the exit to the internet. It does use your data and battery. We\'ll ask only once — you can turn the mode off at any time without confirming.</string>
+    <string name="p2p_relay_consent_accept">Accept and turn on</string>
     <string name="p2p_relay_region_format">Node location: %1$s</string>
+    <string name="p2p_relay_expires_at_format">Active until %1$s</string>
     <string name="p2p_relay_mode_label">Mode</string>
     <string name="p2p_relay_mode_off">Off</string>
     <string name="p2p_relay_mode_1h">On for 1 hour</string>
@@ -148,7 +151,6 @@
     <string name="p2p_relay_status_format">Credited today: %1$s GB of %2$s GB (daily limit)</string>
     <string name="p2p_relay_status_error">Couldn\'t load status</string>
     <string name="p2p_relay_guest_blocked">Not available for a guest profile — sign in with email, Telegram or Google.</string>
-    <string name="p2p_relay_must_accept">Accept the terms first</string>
     <string name="p2p_relay_accept_failed">Couldn\'t accept the terms. Check your connection.</string>
     <string name="p2p_relay_applied">P2P mode settings applied</string>
     <string name="p2p_relay_notification_title">P2P mode is active</string>

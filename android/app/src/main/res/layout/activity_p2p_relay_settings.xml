@@ -32,12 +32,12 @@
             android:textAppearance="?attr/textAppearanceBodyMedium"
             android:layout_marginBottom="16dp" />
 
-        <com.google.android.material.checkbox.MaterialCheckBox
-            android:id="@+id/p2pAcceptCheckbox"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/p2p_relay_accept_checkbox"
-            android:layout_marginBottom="16dp" />
+        <!-- Consent is NOT a control on this screen: it is a one-time
+             question asked in a dialog the first time relaying is actually
+             switched on (P2pRelaySettingsActivity#applySelection). A
+             persistent checkbox had to be re-ticked on every visit, appeared
+             to blink as the status call overwrote whatever the user had just
+             ticked, and — worst — was demanded even to switch relaying OFF. -->
 
         <!-- The relay NODE's own physical location — geo-IP auto-detected once
              by P2pRelayAgent#start on first-ever registration (the repo owner's
@@ -93,6 +93,18 @@
                 android:text="@string/p2p_relay_mode_always" />
 
         </RadioGroup>
+
+        <!-- When a timed window ends. Visible only while one is running (see
+             P2pRelaySettingsActivity#restoreCurrentSelection) — the desktop
+             client has always shown this; Android left the user guessing how
+             much of their 1/8-hour window was left. -->
+        <TextView
+            android:id="@+id/p2pExpiresText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/p2pApplyButton"
