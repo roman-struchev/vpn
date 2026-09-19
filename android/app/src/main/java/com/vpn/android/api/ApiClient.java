@@ -23,7 +23,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import com.vpn.android.vpn.xray.VlessUri;
@@ -306,34 +305,56 @@ public class ApiClient {
     }
 
     /**
-     * Measures TCP connect latency across subscription node endpoints.
-     * Returns a map of region/remark to latency in milliseconds.
+     * Latency to the one region the user actually picked, or -1 if it cannot
+     * be measured (no selection, no link, unreachable).
+     *
+     * This used to measure every region on every Connect-screen load. A "ping"
+     * here is a real TCP connection to a node's live Xray inbound, so pinging
+     * the whole list cost one connection per region per screen open — on
+     * Android that meant a fresh round on every bottom-nav switch — and those
+     * connections land in the same activeConnections the load indicator is
+     * computed from, i.e. measuring load also nudged it. The repo owner's
+     * call: measure only the chosen region, where a number is actually acted
+     * on, and let the list compare regions by load and node count instead.
      */
-    public Map<String, Integer> pingRegions() {
-        Map<String, Integer> results = new ConcurrentHashMap<>();
+    public int pingSelectedRegion(String region) {
+        if (region == null || region.isBlank()) {
+            return -1;
+        }
         try {
-            SubscriptionLinksResponse resp = getSubscriptionLinks();
-            if (resp != null && resp.links != null) {
-                for (String link : resp.links) {
-                    try {
-                        VlessUri uri = VlessUri.parse(link);
-                        // Keyed by the region label the UI looks these up by (ConnectFragment's
-                        // regionPings.get(region)) — the raw remark also carries the node
-                        // hostname, so nothing ever matched and no ping was ever shown.
-                        String key = !uri.getRegionLabel().isBlank() ? uri.getRegionLabel() : uri.getHost();
-                        if (!results.containsKey(key)) {
-                            int latency = measureTcpLatency(uri.getHost(), uri.getPort(), 2000);
-                            if (latency >= 0) {
-                                results.put(key, latency);
-                            }
-                        }
-                    } catch (Exception ignored) {
-                    }
-                }
+            SubscriptionLinksResponse resp = getSubscriptionLinks(region);
+            VlessUri node = firstLinkForRegion(resp == null ? null : resp.links, region);
+            if (node != null) {
+                return measureTcpLatency(node.getHost(), node.getPort(), 2000);
             }
         } catch (Exception ignored) {
         }
-        return results;
+        return -1;
+    }
+
+    /**
+     * The first link that actually belongs to {@code region}, or null if none
+     * does. The server falls back to any online node when the asked-for region
+     * has none ({@code requestedRegionAvailable: false}), so taking whatever
+     * came back would report a node in another country as this region's
+     * latency. Malformed links are skipped, not thrown on — one bad entry
+     * should not cost the measurement.
+     */
+    static VlessUri firstLinkForRegion(List<String> links, String region) {
+        if (links == null) {
+            return null;
+        }
+        for (String link : links) {
+            try {
+                VlessUri uri = VlessUri.parse(link);
+                if (region.equals(uri.getRegionLabel())) {
+                    return uri;
+                }
+            } catch (Exception ignored) {
+                // skip a malformed link
+            }
+        }
+        return null;
     }
 
     public static int measureTcpLatency(String host, int port, int timeoutMs) {

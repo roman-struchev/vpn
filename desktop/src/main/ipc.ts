@@ -59,7 +59,7 @@ export function registerIpcHandlers(
   ipcMain.handle('profile:get', () => apiClient.getProfile().catch(rethrowTagged));
 
   ipcMain.handle('regions:list', () => apiClient.getRegions());
-  ipcMain.handle('regions:ping', () => apiClient.pingRegions());
+  ipcMain.handle('regions:ping', () => apiClient.pingSelectedRegion(apiClient.getSelectedRegion()));
   ipcMain.handle('region:get', () => apiClient.getSelectedRegion());
   // Reconnects when a tunnel is already up: the pinned region only affects
   // which nodes connect() asks the server for, so without this the user saw

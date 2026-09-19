@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseVlessUri, vlessParam } from '../src/shared/vlessUri';
+import { firstLinkForRegion, parseVlessUri, vlessParam } from '../src/shared/vlessUri';
 
 // Byte-for-byte what SubscriptionExportService#buildVlessUrl produces on the server.
 const SAMPLE =
@@ -35,5 +35,38 @@ describe('parseVlessUri', () => {
 
   it('rejects a link without a uuid or host', () => {
     expect(() => parseVlessUri('vless://@:443?foo=bar')).toThrow();
+  });
+});
+
+describe('firstLinkForRegion', () => {
+  const link = (host: string, remark: string) =>
+    `vless://d3434d41-81de-4494-ad46-af99fada2968@${host}:443` +
+    '?encryption=none&security=reality&type=xhttp&sni=dl.google.com&pbk=k&sid=s#' +
+    encodeURIComponent(remark);
+
+  it('picks a node that is actually in the requested region', () => {
+    const found = firstLinkForRegion(
+      [link('203.0.113.10', 'Germany, Berlin · node-a'), link('203.0.113.11', 'Finland, Helsinki · node-b')],
+      'Finland, Helsinki'
+    );
+    expect(found?.host).toBe('203.0.113.11');
+  });
+
+  it('reports nothing when the server fell back to another region', () => {
+    // requestedRegionAvailable: false — calling that node's latency "Finland"
+    // would be a plain lie, so there is simply no number.
+    expect(firstLinkForRegion([link('203.0.113.10', 'Germany, Berlin · node-a')], 'Finland, Helsinki')).toBeNull();
+  });
+
+  it('skips a malformed link instead of losing the measurement', () => {
+    const found = firstLinkForRegion(
+      ['not-a-vless-link', link('203.0.113.11', 'Finland, Helsinki · node-b')],
+      'Finland, Helsinki'
+    );
+    expect(found?.host).toBe('203.0.113.11');
+  });
+
+  it('survives an empty link list', () => {
+    expect(firstLinkForRegion([], 'Finland, Helsinki')).toBeNull();
   });
 });

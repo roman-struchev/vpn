@@ -22,7 +22,7 @@ const vpnApi = {
   getProfile: () => ipcRenderer.invoke('profile:get'),
 
   getRegions: () => ipcRenderer.invoke('regions:list'),
-  pingRegions: (): Promise<Record<string, number>> => ipcRenderer.invoke('regions:ping'),
+  pingSelectedRegion: (): Promise<number | null> => ipcRenderer.invoke('regions:ping'),
   getSelectedRegion: (): Promise<string | null> => ipcRenderer.invoke('region:get'),
   setSelectedRegion: (region: string | null) => ipcRenderer.invoke('region:set', region),
 

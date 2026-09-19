@@ -74,9 +74,14 @@ export default function ConnectPage({
     window.vpnApi.getConnectionState().then(setState);
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
     window.vpnApi.getRegions().then(setRegions).catch(() => undefined);
-    window.vpnApi.getSelectedRegion().then(setSelectedRegionState).catch(() => undefined);
+    window.vpnApi
+      .getSelectedRegion()
+      .then((picked) => {
+        setSelectedRegionState(picked);
+        refreshSelectedPing(picked);
+      })
+      .catch(() => undefined);
     window.vpnApi.getRussianRoutingMode().then(setRussianMode).catch(() => undefined);
-    window.vpnApi.pingRegions().then(setPings).catch(() => undefined);
     // Skip the network round-trip entirely when locale already settles it.
     if (!isRussianLocale) {
       window.vpnApi.getOriginalIpIsRussia().then(setOriginalIpIsRussia).catch(() => undefined);
@@ -100,10 +105,31 @@ export default function ConnectPage({
     };
   }, []);
 
+  /**
+   * Latency for the picked region only — never the whole list. Each
+   * measurement opens a real TCP connection to a node's live inbound, so
+   * measuring every region on every mount put a connection per region on the
+   * fleet each time (and fed the same activeConnections the load indicator is
+   * derived from). The list compares by load and node count; a latency number
+   * is only acted on for the region actually in use.
+   */
+  const refreshSelectedPing = (picked: string | null) => {
+    if (!picked) {
+      setPings({}); // "Auto" — the server picks the node, so there is nothing stable to measure
+      return;
+    }
+    window.vpnApi
+      .pingSelectedRegion()
+      .then((ms) => setPings(ms === null ? {} : { [picked]: ms }))
+      .catch(() => undefined);
+  };
+
   const onRegionPicked = (value: string) => {
     const next = value === '' ? null : value;
     setSelectedRegionState(next);
-    void window.vpnApi.setSelectedRegion(next);
+    // Persisted first: the main process reads the stored selection back when
+    // it measures, so pinging before this resolves would measure the old one.
+    void window.vpnApi.setSelectedRegion(next).then(() => refreshSelectedPing(next));
   };
 
   const isActive = state === 'CONNECTED' || state === 'CONNECTING' || state === 'RECONNECTING';

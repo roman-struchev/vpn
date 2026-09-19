@@ -1,6 +1,6 @@
 import { app } from 'electron';
 import { ApiHostRotation } from '../../shared/apiHostRotation';
-import { regionLabel, parseVlessUri } from '../../shared/vlessUri';
+import { firstLinkForRegion } from '../../shared/vlessUri';
 import { pingTcp } from '../vpn/pingUtil';
 import type { TokenStore } from './tokenStore';
 
@@ -247,36 +247,34 @@ export class ApiClient {
     return resp.regions ?? [];
   }
 
-  /** Measures round-trip latency to each available region's primary node. */
-  async pingRegions(): Promise<Record<string, number>> {
+  /**
+   * Latency to the one region the user actually picked, or null when it
+   * cannot be measured (no selection, no link for it, unreachable).
+   *
+   * This used to measure every region whenever the Connect page mounted. A
+   * "ping" here is a real TCP connection to a node's live Xray inbound, so
+   * pinging the whole list cost one connection per region per mount across
+   * the fleet, and those connections feed the same activeConnections the
+   * region load indicator is computed from — measuring load nudged it. The
+   * repo owner's call: measure only the chosen region, where the number is
+   * acted on, and let the list compare by load and node count instead. The
+   * Android client does the same (ApiClient#pingSelectedRegion).
+   */
+  async pingSelectedRegion(region: string | null): Promise<number | null> {
+    if (!region) return null;
     try {
-      const resp = await this.getSubscriptionLinks();
-      const results: Record<string, number> = {};
-      const links = resp.links || [];
-      await Promise.all(
-        links.map(async (link) => {
-          try {
-            const parsed = parseVlessUri(link);
-            // Keyed by the region label the UI looks these up by (see ConnectPage's
-            // `pings[r.region]`) — the raw remark also carries the node hostname, so
-            // nothing ever matched and the ping indicator never appeared.
-            const key = parsed.remark ? regionLabel(parsed.remark) : parsed.host;
-            if (results[key] === undefined) {
-              const latency = await pingTcp(parsed.host, parsed.port, 2000);
-              if (latency !== null) {
-                results[key] = latency;
-              }
-            }
-          } catch {
-            // ignore malformed link
-          }
-        })
-      );
-      return results;
+      const resp = await this.getSubscriptionLinks(region);
+      // Only a node genuinely in this region: the server falls back to any
+      // online node when the asked-for one has none, and reporting that node's
+      // latency as this region's would be a plain lie (see firstLinkForRegion).
+      const node = firstLinkForRegion(resp.links || [], region);
+      if (node) {
+        return await pingTcp(node.host, node.port, 2000);
+      }
     } catch (e) {
-      console.warn('Failed to ping regions:', e);
-      return {};
+      console.warn('Failed to ping the selected region:', e);
     }
+    return null;
   }
 
   /** Persisted per-install region preference (null = "auto"/best-available, today's implicit behavior). */

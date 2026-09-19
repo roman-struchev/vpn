@@ -158,7 +158,7 @@ public class ConnectFragment extends Fragment {
                 regions -> {
                     availableRegions = regions;
                     renderSelectedRegion();
-                    loadRegionPings();
+                    loadSelectedRegionPing();
                     updateRussianRoutingWarning();
                 },
                 error -> { /* keep whatever the last "Auto" default shows; not fatal to the connect flow */ });
@@ -231,12 +231,25 @@ public class ConnectFragment extends Fragment {
                 isOnlyRu && !hasAccessibleRussianRegion ? View.VISIBLE : View.GONE);
     }
 
-    private void loadRegionPings() {
+    /**
+     * Measures latency to the selected region only — never to the whole list.
+     *
+     * Each measurement is a real TCP connection to a node's live inbound, so
+     * pinging every region on every screen load put one connection per region
+     * on the fleet each time (and fed the very activeConnections the load
+     * indicator is derived from). The list compares regions by load and node
+     * count; a latency number is only acted on for the region in use.
+     */
+    private void loadSelectedRegionPing() {
+        String selected = tokenStore.getSelectedRegion();
+        if (selected == null || selected.isBlank()) {
+            return; // "Auto" — the node is whatever the server hands out, so there is nothing stable to measure
+        }
         Async.run(
-                () -> apiClient.pingRegions(),
-                pings -> {
-                    if (pings != null) {
-                        regionPings.putAll(pings);
+                () -> apiClient.pingSelectedRegion(selected),
+                ping -> {
+                    if (ping != null && ping > 0) {
+                        regionPings.put(selected, ping);
                         renderSelectedRegion();
                     }
                 },
@@ -311,6 +324,7 @@ public class ConnectFragment extends Fragment {
                     }
                     tokenStore.saveSelectedRegion(values.get(which));
                     renderSelectedRegion();
+                    loadSelectedRegionPing(); // the number on the row belongs to the newly picked region now
                     reconnectIfActive();
                     dialog.dismiss();
                 })
