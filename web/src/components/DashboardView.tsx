@@ -80,6 +80,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Top-up modal states
   const [invoice, setInvoice] = useState<CryptoInvoice | null>(null);
   const [invoiceAmount, setInvoiceAmount] = useState('5');
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
   const [depositChain, setDepositChain] = useState<'TRON' | 'BASE' | 'ARBITRUM' | 'POLYGON' | 'ETHEREUM'>('TRON');
   const [claimTxHash, setClaimTxHash] = useState('');
   const [claimAmount, setClaimAmount] = useState('5');
@@ -183,13 +184,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const handleRevokeDevice = async (id: number) => {
-    if (!confirm('Are you sure you want to revoke this device?')) return;
+    if (!confirm(t.confirmRevokeDevice)) return;
     try {
       await api.deleteDevice(id);
       loadData();
       onRefreshUser();
     } catch (err: any) {
-      alert(err.message || 'Error revoking device');
+      alert(err.message || t.revokeDeviceError);
     }
   };
 
@@ -248,13 +249,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     { stars: 1000, usd: 20 },
   ];
 
+  // Guarded against a second click while the first request is still out: each
+  // call mints a real invoice server-side, so an impatient double-click used to
+  // leave the user with two addresses and no hint which one to pay.
   const handleCreateInvoice = async () => {
+    if (creatingInvoice) return;
+    setCreatingInvoice(true);
     try {
       const amountMicro = Math.round(parseFloat(invoiceAmount) * 1_000_000);
       const inv = await api.createCryptoInvoice(depositChain, amountMicro);
       setInvoice(inv);
     } catch (err: any) {
-      alert(err.message || 'Error generating invoice');
+      alert(err.message || t.depositError);
+    } finally {
+      setCreatingInvoice(false);
     }
   };
 
@@ -884,7 +892,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <>
                 {/* Invoice Generator */}
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Network</label>
+                  <label className="block text-xs text-slate-400 mb-1">{t.depositNetworkLabel}</label>
                   <div className="flex flex-wrap gap-2 mb-3">
                     {(
                       [
@@ -911,7 +919,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </button>
                     ))}
                   </div>
-                  <label className="block text-xs text-slate-400 mb-1">Select Amount (USDT)</label>
+                  <label className="block text-xs text-slate-400 mb-1">{t.depositAmountLabel}</label>
                   <div className="flex gap-2 mb-3">
                     {['1', '5', '10', '20'].map((amt) => (
                       <button
@@ -929,9 +937,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </div>
                   <button
                     onClick={handleCreateInvoice}
-                    className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs"
+                    disabled={creatingInvoice}
+                    className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-40 disabled:cursor-not-allowed text-dark-950 font-bold text-xs"
                   >
-                    Get Deposit Address
+                    {creatingInvoice ? t.depositGenerating : t.depositGetAddress}
                   </button>
                 </div>
 
@@ -976,7 +985,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="Transaction Hash (TxID)"
+                    placeholder={t.claimTxHashPlaceholder}
                     value={claimTxHash}
                     onChange={(e) => setClaimTxHash(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
@@ -986,7 +995,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       type="number"
                       step="0.01"
                       required
-                      placeholder="Amount in USDT"
+                      placeholder={t.claimAmountPlaceholder}
                       value={claimAmount}
                       onChange={(e) => setClaimAmount(e.target.value)}
                       className="w-32 px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"

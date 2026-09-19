@@ -26,6 +26,9 @@ export default function LoginPage({
   const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
+    // The button is disabled while a request is out, but Enter in the password
+    // field is not — without this, holding Enter fired repeated registrations.
+    if (loading) return;
     if (!email.trim() || !password.trim()) {
       setError(t.fieldRequired);
       return;

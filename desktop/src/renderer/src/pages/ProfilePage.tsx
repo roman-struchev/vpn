@@ -26,9 +26,19 @@ export default function ProfilePage({
       .catch((e) => setDeviceError(e instanceof Error ? e.message : String(e)));
   };
 
-  useEffect(() => {
+  const reload = () => {
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
     reloadDevices();
+  };
+
+  useEffect(() => {
+    reload();
+    // "Manage billing" hands off to the web dashboard in the system browser, so
+    // a plan bought there is only visible here once this page asks again.
+    // Refocusing the app window is the moment the user comes back — without
+    // this they returned from a successful purchase to their old plan.
+    window.addEventListener('focus', reload);
+    return () => window.removeEventListener('focus', reload);
   }, [isGuest]);
 
   const logout = async () => {

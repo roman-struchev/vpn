@@ -61,6 +61,16 @@ public class ProfileFragment extends Fragment {
         binding.changePlanButton.setOnClickListener(v -> openPlansPage());
         binding.p2pRelayButton.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
+        // The first load comes from onResume, which always follows this.
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // "Change plan"/"Manage billing" hand off to the web dashboard in an
+        // external browser, so a plan bought there is only visible here once
+        // this screen asks again — without this, a user came back from a
+        // successful purchase to a card still showing their old plan.
         loadProfile();
     }
 
@@ -82,6 +92,9 @@ public class ProfileFragment extends Fragment {
                     return new ProfileWithPlan(profile, PlanSummary.of(profile, tariffs));
                 },
                 loaded -> {
+                    if (binding == null) {
+                        return; // the screen was left while this was in flight
+                    }
                     UserProfile profile = loaded.profile;
                     renderPlan(loaded.plan);
                     binding.emailText.setText(profile.email);
