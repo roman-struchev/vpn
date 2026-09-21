@@ -13,6 +13,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.vpn.android.BuildConfig;
 import com.vpn.android.R;
@@ -20,6 +21,7 @@ import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
 import com.vpn.android.databinding.FragmentProfileBinding;
 import com.vpn.android.p2p.P2pRelaySettingsActivity;
+import com.vpn.android.ui.devices.DeviceAdapter;
 import com.vpn.android.ui.login.LoginActivity;
 import com.vpn.android.util.Async;
 import com.vpn.android.util.WebHandoffLauncher;
@@ -40,6 +42,12 @@ public class ProfileFragment extends Fragment {
     private ApiClient apiClient;
     private TokenStore tokenStore;
     private String referralLink = "";
+    /** Whether anything has come back yet — the loading bar is for the first answer only. */
+    private boolean loadedOnce;
+    private DeviceAdapter deviceAdapter;
+    private Integer knownDeviceCount;
+    /** The plan's device allowance, from the same profile load that fills the plan card. */
+    private Integer knownMaxDevices;
 
     @Nullable
     @Override
@@ -55,13 +63,16 @@ public class ProfileFragment extends Fragment {
         super.onViewCreated(view, savedInstanceState);
         binding.logoutButton.setOnClickListener(v -> logout());
         binding.signInExistingButton.setOnClickListener(v -> signInWithExistingAccount());
-        binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
         binding.changePlanButton.setOnClickListener(v -> openPlansPage());
         binding.settingsButton.setOnClickListener(v ->
                 startActivity(com.vpn.android.ui.settings.SettingsActivity.intent(requireContext())));
         binding.p2pRelayButton.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
+
+        deviceAdapter = new DeviceAdapter(this::confirmRevoke);
+        binding.devicesList.setLayoutManager(new LinearLayoutManager(requireContext()));
+        binding.devicesList.setAdapter(deviceAdapter);
         // The first load comes from onResume, which always follows this.
     }
 
@@ -73,9 +84,78 @@ public class ProfileFragment extends Fragment {
         // this screen asks again — without this, a user came back from a
         // successful purchase to a card still showing their old plan.
         loadProfile();
+        loadDevices();
+    }
+
+    /**
+     * The device list, which used to be a bottom-nav tab with an "add device"
+     * button on it. There is nothing to add by hand: a client registers
+     * itself the first time it connects (XrayVpnService#registerOrTouchDevice,
+     * and the same on desktop), so what is left is seeing what is registered
+     * and removing one.
+     */
+    private void loadDevices() {
+        Async.run(
+                this,
+                () -> apiClient.getDevices(),
+                devices -> {
+                    if (binding == null) return;
+                    knownDeviceCount = devices.size();
+                    deviceAdapter.submitList(devices);
+                    binding.devicesEmptyText.setText(R.string.devices_empty);
+                    binding.devicesEmptyText.setVisibility(devices.isEmpty() ? View.VISIBLE : View.GONE);
+                    renderDeviceCount();
+                },
+                error -> {
+                    if (binding == null) return;
+                    // Said in place of the list, not only in a toast that is
+                    // gone in seconds: a failed load and an empty account
+                    // looked identical before, and the failure was the one
+                    // that needed explaining.
+                    binding.devicesEmptyText.setText(getString(R.string.devices_load_failed, messageOf(error)));
+                    binding.devicesEmptyText.setVisibility(View.VISIBLE);
+                });
+    }
+
+    private void renderDeviceCount() {
+        if (binding == null || knownDeviceCount == null) return;
+        binding.devicesUsageText.setText(knownMaxDevices != null
+                ? getString(R.string.profile_devices_count, knownDeviceCount, knownMaxDevices)
+                : getString(R.string.profile_devices_count_unknown, knownDeviceCount));
+    }
+
+    private void confirmRevoke(com.vpn.android.api.model.DeviceDto device) {
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle(R.string.revoke_device_confirm_title)
+                .setMessage(getString(R.string.confirm_revoke_device, device.deviceName))
+                .setPositiveButton(R.string.revoke_device_action, (dialog, which) -> revokeDevice(device))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void revokeDevice(com.vpn.android.api.model.DeviceDto device) {
+        Async.run(
+                this,
+                () -> {
+                    apiClient.deleteDevice(device.id);
+                    return null;
+                },
+                ignored -> loadDevices(),
+                error -> Toast.makeText(requireContext(), messageOf(error), Toast.LENGTH_LONG).show());
+    }
+
+    /** Never null: an exception with no message would otherwise lose the error entirely. */
+    private String messageOf(Throwable error) {
+        String message = error != null ? error.getMessage() : null;
+        return message != null && !message.isBlank()
+                ? message
+                : getString(R.string.devices_load_failed_unknown_reason);
     }
 
     private void loadProfile() {
+        if (!loadedOnce) {
+            binding.profileLoading.setVisibility(View.VISIBLE);
+        }
         Async.run(
                 this,
                 // Both in one background pass: the profile carries the
@@ -97,6 +177,8 @@ public class ProfileFragment extends Fragment {
                     if (binding == null) {
                         return; // the screen was left while this was in flight
                     }
+                    loadedOnce = true;
+                    binding.profileLoading.setVisibility(View.GONE);
                     UserProfile profile = loaded.profile;
                     renderPlan(loaded.plan);
                     binding.emailText.setText(profile.email);
@@ -116,7 +198,13 @@ public class ProfileFragment extends Fragment {
                                     profile.referralCount,
                                     profile.referralEarningsUsdtMicro / 1_000_000.0));
                 },
-                error -> { /* keep placeholders on failure */ });
+                error -> {
+                    // Keep whatever is on screen, but stop claiming to be
+                    // loading — an indicator that never goes away is worse
+                    // than none.
+                    loadedOnce = true;
+                    if (binding != null) binding.profileLoading.setVisibility(View.GONE);
+                });
 
     }
 
@@ -139,6 +227,11 @@ public class ProfileFragment extends Fragment {
      * of a card full of blanks.
      */
     private void renderPlan(PlanSummary plan) {
+        // The allowance comes with the plan, and the device count next to the
+        // list is the only place it is shown now — the devices tab used to
+        // fetch the profile and the tariff catalogue a second time for it.
+        knownMaxDevices = plan.maxDevices();
+        renderDeviceCount();
         if (!plan.hasSubscription()) {
             binding.planNameText.setText(R.string.profile_plan_none);
             binding.planTrafficText.setVisibility(View.GONE);

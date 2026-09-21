@@ -77,17 +77,18 @@
 
     <!-- Navigation -->
     <string name="nav_connect">Подключение</string>
-    <string name="nav_devices">Устройства</string>
     <string name="nav_profile">Профиль</string>
 
     <!-- Devices -->
     <string name="devices_title">Устройства</string>
-    <string name="add_device_hint">Для других ваших устройств — роутера или ссылки в v2rayTun, Hiddify. Этот телефон добавится сам при подключении.</string>
-    <string name="add_device_action">Добавить устройство</string>
+    <string name="profile_row_settings">Настройки ›</string>
+    <string name="profile_row_p2p">P2P-режим ›</string>
+    <string name="profile_devices_count">%1$d из %2$d</string>
+    <string name="profile_devices_count_unknown">%1$d</string>
+    <string name="loading">Загрузка…</string>
     <string name="revoke_device_action">Отозвать</string>
     <string name="revoke_device_confirm_title">Отозвать доступ устройства?</string>
     <string name="confirm_revoke_device">Отозвать доступ для «%1$s»? Чтобы снова пользоваться VPN, устройству нужно будет подключиться заново.</string>
-    <string name="device_name_hint">Название устройства</string>
 
     <!-- Profile -->
     <string name="tariff_trial">Пробный</string>
@@ -107,9 +108,6 @@
     <string name="profile_plan_no_expiry">Без срока действия — ограничение только по трафику</string>
     <string name="profile_change_plan">Сменить тариф</string>
     <string name="profile_change_plan_choose">Выбрать тариф</string>
-    <string name="profile_change_plan_hint">Откроется сайт, вход автоматический</string>
-    <string name="devices_usage">Использовано %1$d из %2$d устройств</string>
-    <string name="devices_usage_unknown">Устройств: %1$d</string>
     <string name="devices_empty">Пока ни одного устройства. Оно добавится само при первом подключении.</string>
     <string name="devices_load_failed">Не удалось загрузить список устройств: %1$s</string>
     <string name="devices_load_failed_unknown_reason">нет связи с сервером</string>
@@ -121,7 +119,6 @@
     <string name="profile_referral_stats">Приглашено друзей: %1$d • Заработано: $%2$.2f USDT</string>
     <string name="profile_referral_code">Код: %1$s</string>
     <string name="profile_referral_desc" formatted="false">Вам 15% с каждого пополнения друга, ему — 10% бонусом на первое</string>
-    <string name="profile_referral_copy">Копировать</string>
     <string name="profile_referral_share">Поделиться</string>
     <string name="profile_referral_copied">Ссылка скопирована</string>
     <string name="profile_referral_share_title">Приглашение в Aura VPN</string>

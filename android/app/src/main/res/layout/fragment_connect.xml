@@ -145,11 +145,15 @@
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
 
+                    <!-- Starts as "Загрузка…" rather than blank: the figure
+                         arrives from the network, and an empty line read as
+                         "there is nothing here" instead of "not yet". -->
                     <TextView
                         android:id="@+id/trafficText"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:text="@string/loading"
                         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                 </LinearLayout>

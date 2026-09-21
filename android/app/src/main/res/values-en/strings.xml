@@ -71,16 +71,17 @@
     <string name="notif_disconnect_action">Disconnect</string>
 
     <string name="nav_connect">Connect</string>
-    <string name="nav_devices">Devices</string>
     <string name="nav_profile">Profile</string>
 
     <string name="devices_title">Devices</string>
-    <string name="add_device_hint">For your other devices — a router, or a link for v2rayTun or Hiddify. This phone adds itself when you connect.</string>
-    <string name="add_device_action">Add device</string>
+    <string name="profile_row_settings">Settings ›</string>
+    <string name="profile_row_p2p">P2P mode ›</string>
+    <string name="profile_devices_count">%1$d of %2$d</string>
+    <string name="profile_devices_count_unknown">%1$d</string>
+    <string name="loading">Loading…</string>
     <string name="revoke_device_action">Revoke</string>
     <string name="revoke_device_confirm_title">Revoke device access?</string>
     <string name="confirm_revoke_device">Revoke access for \"%1$s\"? It will need to reconnect to use the VPN again.</string>
-    <string name="device_name_hint">Device name</string>
 
     <string name="tariff_trial">Trial</string>
     <string name="tariff_basic">Basic</string>
@@ -99,9 +100,6 @@
     <string name="profile_plan_no_expiry">No expiry — only the traffic cap applies</string>
     <string name="profile_change_plan">Change plan</string>
     <string name="profile_change_plan_choose">Choose a plan</string>
-    <string name="profile_change_plan_hint">Opens the website, signed in automatically</string>
-    <string name="devices_usage">%1$d of %2$d devices used</string>
-    <string name="devices_usage_unknown">Devices: %1$d</string>
     <string name="devices_empty">No devices yet. One is added automatically the first time you connect.</string>
     <string name="devices_load_failed">Could not load the device list: %1$s</string>
     <string name="devices_load_failed_unknown_reason">no connection to the server</string>
@@ -112,7 +110,6 @@
     <string name="profile_referral_stats">Referred friends: %1$d • Earned: $%2$.2f USDT</string>
     <string name="profile_referral_code">Code: %1$s</string>
     <string name="profile_referral_desc" formatted="false">You get 15% of every top-up a friend makes, they get 10% on their first</string>
-    <string name="profile_referral_copy">Copy</string>
     <string name="profile_referral_share">Share</string>
     <string name="profile_referral_copied">Link copied</string>
     <string name="profile_referral_share_title">Aura VPN invite</string>

@@ -1,205 +1,253 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Scrollable: on a small phone the P2P relay / sign-in / logout buttons at the
-     bottom used to be cut off below the bottom navigation with no way to reach them. -->
+<!--
+  Profile: who you are, what you have, what is connected, and the few things
+  you can do. Previously seven full-width buttons stacked on top of each
+  other, each carrying the same visual weight whether it was "change plan" or
+  "log out", plus the device list living in a bottom-nav tab of its own.
+
+  The rules this layout follows:
+   - one primary action, in the card it belongs to (the plan's);
+   - secondary destinations are list rows, not buttons — a row reads as
+     "there is more over here", a filled button reads as "do this now";
+   - account actions sit at the bottom, quiet, where you look for them only
+     when you want them.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true">
 
-<LinearLayout
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp">
-
-    <!-- titleMedium, not headlineSmall: a real address is long, and at headline
-         size it wrapped to two oversized lines that pushed everything below it
-         off the first screen. It labels the account; it is not the headline. -->
-    <TextView
-        android:id="@+id/emailText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceTitleMedium"
-        android:maxLines="2"
-        android:ellipsize="middle"
-        android:layout_marginBottom="16dp" />
-
-    <!-- The plan card. Before it, the app showed a raw traffic bar on the
-         connect screen and a balance here, so a user could not see which plan
-         they were on, what it allows, when it renews, or how to change it —
-         and the only way to a different tariff was to find the website
-         unaided. -->
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="0dp"
-        app:cardBackgroundColor="?attr/colorSurfaceVariant">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/profile_plan_title"
-                android:textAppearance="?attr/textAppearanceLabelLarge" />
-
-            <TextView
-                android:id="@+id/planNameText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textAppearance="?attr/textAppearanceHeadlineSmall" />
-
-            <TextView
-                android:id="@+id/planTrafficText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-            <com.google.android.material.progressindicator.LinearProgressIndicator
-                android:id="@+id/planTrafficProgress"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                app:trackCornerRadius="4dp"
-                app:trackStopIndicatorSize="0dp"
-                android:max="100" />
-
-            <TextView
-                android:id="@+id/planExpiryText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-
-            <TextView
-                android:id="@+id/balanceText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textAppearance="?attr/textAppearanceTitleMedium" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/changePlanButton"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="@string/profile_change_plan" />
-
-            <!-- Says where the button leads before it is pressed: plans are
-                 paid for on the website, and being sent to a browser without
-                 warning reads like the app failing. -->
-            <TextView
-                android:id="@+id/changePlanHintText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/profile_change_plan_hint"
-                android:textAppearance="?attr/textAppearanceBodySmall" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/profile_referral"
-        android:textAppearance="?attr/textAppearanceLabelLarge" />
-
-    <TextView
-        android:id="@+id/referralCodeText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textIsSelectable="true"
-        android:layout_marginTop="4dp" />
-
-    <TextView
-        android:id="@+id/referralStatsText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textColor="?attr/colorPrimary"
-        android:textStyle="bold"
-        android:layout_marginTop="6dp" />
-
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/profile_referral_desc"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:layout_marginTop="8dp" />
-
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="12dp"
-        android:layout_marginBottom="32dp">
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <!-- Labels the account; deliberately not the headline (the plan is). -->
+        <TextView
+            android:id="@+id/emailText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?android:attr/textColorSecondary"
+            android:maxLines="2"
+            android:ellipsize="middle" />
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/profileLoading"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:indeterminate="true"
+            android:visibility="gone" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="?attr/colorSurfaceContainer">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/planNameText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceHeadlineSmall" />
+
+                <TextView
+                    android:id="@+id/planTrafficText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <ProgressBar
+                    android:id="@+id/planTrafficProgress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:max="100" />
+
+                <TextView
+                    android:id="@+id/planExpiryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <TextView
+                    android:id="@+id/balanceText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <!-- The one primary action on this screen. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/changePlanButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/profile_change_plan" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Devices, which used to be a bottom-nav tab. There is no "add"
+             here on purpose: a device registers itself the first time it
+             connects, so the only thing to do on this list is remove one. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="24dp"
+            android:baselineAligned="true">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/devices_title"
+                android:textAppearance="?attr/textAppearanceLabelLarge" />
+
+            <TextView
+                android:id="@+id/devicesUsageText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:attr/textColorSecondary" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/devicesList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:nestedScrollingEnabled="false" />
+
+        <TextView
+            android:id="@+id/devicesEmptyText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/devices_empty"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?android:attr/textColorSecondary" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="?attr/colorSurfaceContainer">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/profile_referral"
+                    android:textAppearance="?attr/textAppearanceLabelLarge" />
+
+                <TextView
+                    android:id="@+id/referralStatsText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorPrimary" />
+
+                <TextView
+                    android:id="@+id/referralCodeText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textIsSelectable="true" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/profile_referral_desc"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <!-- One button, not two: the share sheet is where "copy" lives. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/shareReferralButton"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="@string/profile_referral_share" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Destinations, not actions: rows, so they do not compete with the
+             plan button above them. -->
+        <TextView
+            android:id="@+id/settingsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="?attr/selectableItemBackground"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:text="@string/profile_row_settings"
+            android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?attr/colorOutlineVariant" />
+
+        <TextView
+            android:id="@+id/p2pRelayButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:text="@string/profile_row_p2p"
+            android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?attr/colorOutlineVariant" />
+
+        <!-- Account actions: last, and quiet. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/signInExistingButton"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/profile_sign_in_existing" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/copyReferralButton"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_weight="1"
+            android:id="@+id/logoutButton"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:text="@string/profile_referral_copy" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/shareReferralButton"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="0dp"
-            android:layout_weight="1"
-            android:layout_height="wrap_content"
-            android:text="@string/profile_referral_share" />
-
+            android:layout_marginBottom="24dp"
+            android:text="@string/profile_logout" />
     </LinearLayout>
-
-
-    <!-- The only way in for anyone the connect screen's RU-route row is
-         hidden from — without it, moving the controls off that screen would
-         have made auto-connect-on-boot unreachable outside Russia. -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/settingsButton"
-        style="@style/Widget.Material3.Button.TonalButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        android:text="@string/settings_section_title" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/p2pRelayButton"
-        style="@style/Widget.Material3.Button.TonalButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        android:text="@string/profile_p2p_relay" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/signInExistingButton"
-        style="@style/Widget.Material3.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        android:text="@string/profile_sign_in_existing" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/logoutButton"
-        style="@style/Widget.Material3.Button.OutlinedButton"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/profile_logout" />
-
-</LinearLayout>
-
 </ScrollView>

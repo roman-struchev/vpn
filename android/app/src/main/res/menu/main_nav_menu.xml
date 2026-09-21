@@ -5,10 +5,6 @@
         android:icon="@drawable/ic_shield"
         android:title="@string/nav_connect" />
     <item
-        android:id="@+id/nav_devices"
-        android:icon="@drawable/ic_devices"
-        android:title="@string/nav_devices" />
-    <item
         android:id="@+id/nav_profile"
         android:icon="@drawable/ic_profile"
         android:title="@string/nav_profile" />

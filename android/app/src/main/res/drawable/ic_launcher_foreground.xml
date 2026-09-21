@@ -1,18 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon foreground. Two things to keep right if this is ever redrawn:
+
+  1. The glyph lives inside the central 72dp safe zone (18..90 on this 108
+     viewport) — and well inside it, not filling it. Launchers mask this to
+     a circle/squircle and some zoom it for parallax; the previous shield
+     ran 20..86, so it sat right on the edge with nothing to spare.
+
+  2. The tick is stroke-only. It used to carry a fillColor as well, and an
+     open polyline with a fill renders the triangle between its endpoints —
+     so there was a solid dark wedge under the tick, in a colour a shade off
+     the background. That wedge is what made the icon look chewed.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Shield glyph, brand-green, matching web landing's privacy/shield motif. -->
+
+    <!-- Shield, white on the green background — the same motif as the web
+         landing page, just inverted so it reads at launcher size. -->
     <path
-        android:fillColor="#22C55E"
-        android:pathData="M54,20 L78,30 V52 C78,68 68,80 54,86 C40,80 30,68 30,52 V30 Z" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,28 L75,36 L75,56 C75,68.5 66,77 54,81 C42,77 33,68.5 33,56 L33,36 Z" />
+
     <path
-        android:fillColor="#0C0E12"
-        android:pathData="M47,52 L52,58 L64,44"
-        android:strokeColor="#0C0E12"
-        android:strokeWidth="5"
+        android:strokeColor="#16A34A"
+        android:strokeWidth="6.5"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round" />
+        android:strokeLineJoin="round"
+        android:pathData="M45,54.5 L51.5,61 L64,47" />
 </vector>

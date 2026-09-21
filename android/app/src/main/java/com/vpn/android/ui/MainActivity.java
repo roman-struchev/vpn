@@ -15,7 +15,6 @@ import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
 import com.vpn.android.databinding.ActivityMainBinding;
 import com.vpn.android.ui.connect.ConnectFragment;
-import com.vpn.android.ui.devices.DevicesFragment;
 import com.vpn.android.ui.profile.ProfileFragment;
 import com.vpn.android.update.AppUpdateManager;
 import com.vpn.android.util.Async;
@@ -43,9 +42,6 @@ public class MainActivity extends AppCompatActivity {
             int id = item.getItemId();
             if (id == R.id.nav_connect) {
                 showFragment(new ConnectFragment());
-                return true;
-            } else if (id == R.id.nav_devices) {
-                showFragment(new DevicesFragment());
                 return true;
             } else if (id == R.id.nav_profile) {
                 showFragment(new ProfileFragment());
