@@ -18,15 +18,25 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Makes a relay peer usable by xray: a loopback TCP listener where every
- * accepted connection becomes its own relayed session to the node.
+ * Makes a peer usable by xray: a loopback TCP listener where every accepted
+ * connection becomes its own WebRTC session through that person's device.
  *
- * A relay is not an exit and not a region — it is a way to reach a node when
- * dialing it directly does not work. It opens a plain TCP connection to the
- * address we name and pipes opaque bytes; the tunnel itself is still
- * negotiated end-to-end with the node, so pointing xray's outbound at
- * 127.0.0.1:{@link #getLocalPort()} adds a hop without changing anything else
- * about the connection (see XrayConfigFactory's dialThrough).
+ * A peer only ever does one thing — open a plain TCP connection to the
+ * address we name and pipe opaque bytes — and this listener is used in the
+ * two ways that follow from what we name:
+ *
+ * <ul>
+ *   <li><b>Relay</b> (the constructors taking a host and port): every session
+ *       goes to that one node of ours, so the peer is a *path* to it when
+ *       dialing it directly does not work. The tunnel is still negotiated
+ *       end-to-end with the node, so pointing xray's outbound at
+ *       127.0.0.1:{@link #getLocalPort()} adds a hop and changes nothing else
+ *       (see XrayConfigFactory's dialThrough).</li>
+ *   <li><b>Exit</b> ({@link #forExit}): the listener speaks SOCKS5 and each
+ *       session goes wherever that connection asked, so the traffic reaches
+ *       the internet from the peer's own connection, under their IP, with no
+ *       node of ours in the path (see XrayConfigFactory#buildP2pExit).</li>
+ * </ul>
  *
  * Signaling goes through the server's broker, which queues what the relay says
  * so the answer and the ICE candidates that follow it are not lost between
@@ -72,7 +82,13 @@ public class P2pRelayConnector {
 
         void closeSession(String sessionId);
 
-        void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed);
+        /**
+         * @param exit the peer was the exit, not a path to one of our nodes —
+         *             which is what makes these bytes count against this
+         *             account's own quota server-side (nothing else meters an
+         *             exit session).
+         */
+        void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed, boolean exit);
     }
 
     private final Signaling signaling;
@@ -100,6 +116,25 @@ public class P2pRelayConnector {
         this(signaling,
                 (host, port, outgoing) -> new P2pClientSession(peerConnectionFactory, host, port, outgoing),
                 relayNodeId, targetHost, targetPort, NEGOTIATION_TIMEOUT_MS);
+    }
+
+    /**
+     * The same listener, used the other way: as a P2P *exit*, where the peer
+     * carries the traffic all the way out to the internet instead of to a node
+     * of ours (docs §8.9).
+     *
+     * The difference is only where each session goes, and that is no longer
+     * known up front — every connection is to a different site — so the
+     * listener speaks SOCKS5 and takes the destination from each request (see
+     * {@link Socks5Handshake}). Everything after that is identical: one
+     * WebRTC session per connection, the peer dialing what it was named.
+     */
+    public static P2pRelayConnector forExit(Signaling signaling,
+                                            PeerConnectionFactory peerConnectionFactory,
+                                            long relayNodeId) {
+        return new P2pRelayConnector(signaling,
+                (host, port, outgoing) -> new P2pClientSession(peerConnectionFactory, host, port, outgoing),
+                relayNodeId, null, 0, NEGOTIATION_TIMEOUT_MS);
     }
 
     /** Test seam — see {@link SessionFactory}. */
@@ -166,24 +201,48 @@ public class P2pRelayConnector {
     }
 
     private void openSession(Socket socket) {
+        String host = targetHost;
+        int port = targetPort;
+        if (isExit()) {
+            try {
+                Socks5Handshake.Request request = Socks5Handshake.read(socket);
+                host = request.host;
+                port = request.port;
+            } catch (IOException e) {
+                // A local client that cannot speak SOCKS5 to us is our own bug
+                // (we point xray at this port), not something to keep alive.
+                Log.w(TAG, "Local connection did not complete the SOCKS5 handshake", e);
+                closeQuietly(socket);
+                return;
+            }
+        }
+
         String sessionId = UUID.randomUUID().toString();
         ClientSession session = sessionFactory.create(
-                targetHost, targetPort, envelope -> sendSignal(sessionId, envelope));
+                host, port, envelope -> sendSignal(sessionId, envelope));
 
         AtomicBoolean opened = new AtomicBoolean(false);
         P2pTcpBridge bridge = new P2pTcpBridge(socket, session);
         bridges.add(bridge);
         bridge.onClosed(() -> {
             bridges.remove(bridge);
-            signaling.reportTraffic(sessionId, relayNodeId, bridge.getBytesRelayed());
+            signaling.reportTraffic(sessionId, relayNodeId, bridge.getBytesRelayed(), isExit());
             signaling.closeSession(sessionId);
         });
 
         session.setOnOpen(() -> {
             if (!opened.compareAndSet(false, true)) return;
-            // Only now may the local socket be read: the relay does not dial
-            // the node until the channel opens, and anything sent before that
-            // is dropped on its side.
+            if (isExit()) {
+                try {
+                    Socks5Handshake.writeSuccess(socket);
+                } catch (IOException e) {
+                    bridge.close();
+                    return;
+                }
+            }
+            // Only now may the local socket be read: the peer does not dial
+            // the destination until the channel opens, and anything sent
+            // before that is dropped on its side.
             bridge.start();
             executor.submit(() -> reportTrafficPeriodically(sessionId, bridge));
         });
@@ -241,7 +300,20 @@ public class P2pRelayConnector {
         while (running.get() && !bridge.isClosed()) {
             sleep(TRAFFIC_REPORT_INTERVAL_MS);
             if (bridge.isClosed()) return;
-            signaling.reportTraffic(sessionId, relayNodeId, bridge.getBytesRelayed());
+            signaling.reportTraffic(sessionId, relayNodeId, bridge.getBytesRelayed(), isExit());
+        }
+    }
+
+    /** Whether this listener is an exit hop (SOCKS5, destination per connection) rather than a fixed path to one node. */
+    private boolean isExit() {
+        return targetHost == null;
+    }
+
+    private static void closeQuietly(Socket socket) {
+        try {
+            socket.close();
+        } catch (IOException ignored) {
+            // already gone
         }
     }
 

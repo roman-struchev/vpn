@@ -3,6 +3,14 @@ import type { ConnectionState } from '../../../shared/connectionState';
 import type { RegionInfo, UserProfile } from '../types';
 import type { RussianRoutingMode } from '../../../shared/xrayConfigFactory';
 import { t } from '../i18n';
+import { regionKeyFor } from '../../../shared/regionKey';
+
+/**
+ * A row's identity. The server sends it; falling back to the region keeps an
+ * older server working, where no row was ever P2P and the region *was* the
+ * key.
+ */
+const regionKeyOf = (r: RegionInfo): string => r.key ?? regionKeyFor(r.region, Boolean(r.p2p));
 
 const LOAD_LABEL: Record<RegionInfo['loadLevel'], string> = {
   LOW: t.regionLoadLow,
@@ -146,12 +154,19 @@ export default function ConnectPage({
     }
   };
 
-  const selectedRegionInfo = selectedRegion ? regions.find((r) => r.region === selectedRegion) : undefined;
+  // Matched on the key, not the label: a country can be listed twice, once
+  // as our servers and once as P2P exits, and those are different picks.
+  const selectedRegionInfo = selectedRegion
+    ? regions.find((r) => regionKeyOf(r) === selectedRegion)
+    : undefined;
   // 'onlyRu' mode only actually reaches RU-geo-restricted sites through a
   // Russia-located exit node — surfaced here (from data already fetched for
   // the region picker) rather than letting the mode look selected while
   // silently doing nothing useful.
-  const hasAccessibleRussianRegion = regions.some((r) => r.accessible && /russia/i.test(r.region));
+  // P2P rows excluded: this notice is about what the mode will pick on its
+  // own (resolvePreferredRegion, which only ever auto-picks our own servers),
+  // not about what the user could pick by hand.
+  const hasAccessibleRussianRegion = regions.some((r) => r.accessible && !r.p2p && /russia/i.test(r.region));
 
   // There's no purchase/top-up UI in this app at all — billing only exists
   // on the web dashboard. Uses the seamless client->web SSO handoff (see
@@ -181,9 +196,9 @@ export default function ConnectPage({
             <label htmlFor="region-picker" className="text-xs font-semibold text-white/80">
               {t.regionPickerTitle}
             </label>
-            {selectedRegionInfo && pings[selectedRegionInfo.region] !== undefined && (
+            {selectedRegionInfo && pings[regionKeyOf(selectedRegionInfo)] !== undefined && (
               <span className="font-mono text-xs text-state-connected">
-                ⚡ {pings[selectedRegionInfo.region]} {t.pingMs}
+                ⚡ {pings[regionKeyOf(selectedRegionInfo)]} {t.pingMs}
               </span>
             )}
           </div>
@@ -195,18 +210,24 @@ export default function ConnectPage({
           >
             <option value="">{t.regionAuto}</option>
             {regions.map((r) => {
-              const ping = pings[r.region];
+              const key = regionKeyOf(r);
+              const ping = pings[key];
               const pingText = ping !== undefined ? ` · ${ping} ${t.pingMs}` : '';
+              // A P2P row is the same country reached a different way, so it
+              // is labelled rather than left to look like a duplicate: the
+              // exit is a person's device, the count is people not servers.
+              const label = r.p2p ? `${r.region} · ${t.regionP2pBadge}` : r.region;
+              const countSuffix = r.p2p ? t.regionPeerCountSuffix : t.regionNodeCountSuffix;
               // Locked regions stay listed (so a trial user can see what a
               // higher plan unlocks) but aren't selectable — picking one used
               // to silently reconnect elsewhere with a vague "unavailable"
               // message; disabling the option here closes that off at the
               // source instead of explaining it after the fact.
               return (
-                <option key={r.region} value={r.region} disabled={!r.accessible}>
+                <option key={key} value={key} disabled={!r.accessible}>
                   {r.accessible
-                    ? `${r.region} — ${LOAD_LABEL[r.loadLevel]} (${r.nodeCount} ${t.regionNodeCountSuffix})${pingText}`
-                    : `🔒 ${r.region} — ${t.regionLockedSuffix}`}
+                    ? `${label} — ${LOAD_LABEL[r.loadLevel]} (${r.nodeCount} ${countSuffix})${pingText}`
+                    : `🔒 ${label} — ${t.regionLockedSuffix}`}
                 </option>
               );
             })}
@@ -214,8 +235,17 @@ export default function ConnectPage({
           {selectedRegionInfo && (
             <div className="mt-2 flex items-center justify-between text-xs">
               <span className={LOAD_COLOR[selectedRegionInfo.loadLevel]}>{LOAD_LABEL[selectedRegionInfo.loadLevel]}</span>
-              <span className="text-white/40">{selectedRegionInfo.nodeCount} {t.regionNodeCountSuffix}</span>
+              <span className="text-white/40">
+                {selectedRegionInfo.nodeCount}{' '}
+                {selectedRegionInfo.p2p ? t.regionPeerCountSuffix : t.regionNodeCountSuffix}
+              </span>
             </div>
+          )}
+          {/* Said before connecting, not after: this exit is a stranger's
+              phone or laptop, which is the point (a residential IP) and also
+              the catch (their uplink's speed, and they may close it). */}
+          {selectedRegionInfo?.p2p && selectedRegionInfo.accessible && (
+            <p className="mt-2 text-xs text-white/45">{t.regionP2pNotice}</p>
           )}
           {regionFallback && (
             selectedRegionInfo && !selectedRegionInfo.accessible ? (

@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { ApiHostRotation } from '../../shared/apiHostRotation';
 import { firstLinkForRegion } from '../../shared/vlessUri';
+import { isP2pRegionKey } from '../../shared/regionKey';
 import { pingTcp } from '../vpn/pingUtil';
 import type { TokenStore } from './tokenStore';
 
@@ -67,6 +68,19 @@ export interface RegionInfo {
   // client just has to grey those out / block picking them instead of
   // reporting a misleading "temporarily unavailable" after the fact.
   accessible: boolean;
+  /**
+   * What identifies this row, and what gets stored as the user's pick — the
+   * same region can appear twice, once as our servers and once as P2P exits
+   * (see shared/regionKey.ts). Older servers don't send it; the region is
+   * the key there, which is exactly what it used to be.
+   */
+  key?: string;
+  /**
+   * The exit is another user's device: residential IP, their uplink's speed,
+   * and a paid-plan feature (`accessible` is false on a trial). Absent from
+   * older servers, where no row was ever P2P.
+   */
+  p2p?: boolean;
 }
 
 export interface SubscriptionLinksResponse {
@@ -262,6 +276,11 @@ export class ApiClient {
    */
   async pingSelectedRegion(region: string | null): Promise<number | null> {
     if (!region) return null;
+    // A P2P exit has nothing to measure this way: a peer is reached over
+    // WebRTC and the directory deliberately never hands out its address
+    // (P2pRelayDirectory#describe). Null renders as "no figure", which is
+    // honest — unlike a latency borrowed from some server in that country.
+    if (isP2pRegionKey(region)) return null;
     try {
       const resp = await this.getSubscriptionLinks(region);
       // Only a node genuinely in this region: the server falls back to any
@@ -412,6 +431,19 @@ export class ApiClient {
     return resp.relays ?? [];
   }
 
+  /**
+   * Peers this account may use as an *exit* for the given region
+   * (GET /api/v1/user/p2p/exits) — the user picked a P2P row in the region
+   * list, and these are the devices that can carry it. Empty on a trial plan:
+   * P2P exits are a paid-plan feature and the row is shown locked there.
+   */
+  async getP2pExits(region: string): Promise<{ nodeId: number; region: string | null; activeConnections: number }[]> {
+    const resp = await this.get<{ exits: { nodeId: number; region: string | null; activeConnections: number }[] }>(
+      `api/v1/user/p2p/exits?region=${encodeURIComponent(region)}`
+    );
+    return resp.exits ?? [];
+  }
+
   /** One signaling payload on its way to a relay; the relay's own replies come from pollP2pSignals. */
   async sendP2pSignal(nodeId: number, sessionId: string, payloadBase64: string): Promise<void> {
     await this.post<unknown>(`api/v1/user/p2p/nodes/${nodeId}/signal`, { sessionId, payloadBase64 }, true);
@@ -429,11 +461,21 @@ export class ApiClient {
     await this.request<unknown>(`api/v1/user/p2p/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }, true);
   }
 
-  /** The client half of the dual traffic report that pays the relay's owner. */
-  async reportP2pSessionTraffic(sessionId: string, nodeId: number, bytesRelayed: number): Promise<void> {
+  /**
+   * The client half of the dual traffic report that pays the peer's owner.
+   * {@code exit} tells the server these bytes went out to the internet from
+   * the peer rather than to a node of ours, which is what makes them count
+   * against this account's own quota — nothing else meters an exit session.
+   */
+  async reportP2pSessionTraffic(
+    sessionId: string,
+    nodeId: number,
+    bytesRelayed: number,
+    exit = false
+  ): Promise<void> {
     await this.post<unknown>(
       `api/v1/user/p2p/sessions/${encodeURIComponent(sessionId)}/traffic-report`,
-      { nodeId, bytesRelayed },
+      { nodeId, bytesRelayed, exit },
       true
     );
   }

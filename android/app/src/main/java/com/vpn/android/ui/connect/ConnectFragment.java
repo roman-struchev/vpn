@@ -28,6 +28,7 @@ import com.google.android.material.snackbar.Snackbar;
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
 import com.vpn.android.api.TokenStore;
+import com.vpn.android.util.RegionKey;
 import com.vpn.android.api.model.RegionInfo;
 import com.vpn.android.api.model.UserProfile;
 import com.vpn.android.databinding.FragmentConnectBinding;
@@ -225,8 +226,11 @@ public class ConnectFragment extends Fragment {
     private void updateRussianRoutingWarning() {
         if (binding == null) return;
         boolean isOnlyRu = TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(tokenStore.getRussianRoutingMode());
+        // Our own servers only: this warning is about what the mode picks on
+        // its own (XrayVpnService#resolveConnectRegion), not about what the
+        // user could pick by hand.
         boolean hasAccessibleRussianRegion = availableRegions.stream()
-                .anyMatch(r -> r.accessible && r.region != null && r.region.toLowerCase().contains("russia"));
+                .anyMatch(r -> r.accessible && !r.p2p && r.region != null && r.region.toLowerCase().contains("russia"));
         binding.russianRoutingWarningText.setVisibility(
                 isOnlyRu && !hasAccessibleRussianRegion ? View.VISIBLE : View.GONE);
     }
@@ -244,6 +248,9 @@ public class ConnectFragment extends Fragment {
         String selected = tokenStore.getSelectedRegion();
         if (selected == null || selected.isBlank()) {
             return; // "Auto" — the node is whatever the server hands out, so there is nothing stable to measure
+        }
+        if (RegionKey.isP2p(selected)) {
+            return; // A peer has no address to measure — see formatRegionRow.
         }
         Async.run(
                 () -> apiClient.pingSelectedRegion(selected),
@@ -266,21 +273,34 @@ public class ConnectFragment extends Fragment {
         binding.regionSelectedText.setText(match != null ? formatRegionRow(match) : selected);
     }
 
-    private RegionInfo findRegion(String region) {
+    /**
+     * Matched on the key, not the label: a country can be listed twice, once
+     * as our servers and once as P2P exits, and those are different picks.
+     */
+    private RegionInfo findRegion(String key) {
         for (RegionInfo r : availableRegions) {
-            if (r.region.equals(region)) return r;
+            if (r.keyOrRegion().equals(key)) return r;
         }
         return null;
     }
 
     private String formatRegionRow(RegionInfo r) {
-        // Locked (out-of-plan) regions stay listed — not hidden — so a lower
+        // Locked (out-of-plan) rows stay listed — not hidden — so a lower
         // tier can see what upgrading unlocks, but show "requires a paid
         // plan" instead of load stats that don't matter if you can't pick it.
+        // A P2P exit is locked exactly the same way on a trial plan.
         if (!r.accessible) {
-            return getString(R.string.region_row_locked_format, r.region);
+            String label = r.p2p ? getString(R.string.region_p2p_exit, r.region) : r.region;
+            return getString(R.string.region_row_locked_format, label);
         }
-        Integer ping = regionPings.get(r.region);
+        // No ping branch for P2P: a peer is reached over WebRTC and its
+        // address is deliberately never handed out, so there is nothing to
+        // measure — and borrowing a latency from some server in the same
+        // country would be a plain lie.
+        if (r.p2p) {
+            return getString(R.string.region_row_p2p_format, r.region, loadLabel(r.loadLevel), r.nodeCount);
+        }
+        Integer ping = regionPings.get(r.keyOrRegion());
         if (ping != null && ping > 0) {
             return getString(R.string.region_row_with_ping, r.region, ping, loadLabel(r.loadLevel), r.nodeCount);
         }
@@ -303,7 +323,7 @@ public class ConnectFragment extends Fragment {
         accessible.add(true);
         for (RegionInfo r : availableRegions) {
             labels.add(formatRegionRow(r));
-            values.add(r.region);
+            values.add(r.keyOrRegion());
             accessible.add(r.accessible);
         }
         String current = tokenStore.getSelectedRegion();

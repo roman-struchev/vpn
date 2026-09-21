@@ -495,10 +495,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <p className="text-xs text-slate-500 mb-4">{t.regionsHint}</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {regions.map((r) => (
-              <div key={r.region} className="flex items-center justify-between px-4 py-3 rounded-xl bg-dark-900 border border-dark-800">
+              // Keyed on the row's own key, not the region: the same country
+              // appears twice when it has both our servers and P2P exits.
+              <div key={r.key ?? r.region} className="flex items-center justify-between px-4 py-3 rounded-xl bg-dark-900 border border-dark-800">
                 <div>
-                  <p className="text-sm font-semibold">{r.region}</p>
-                  <p className="text-[11px] text-slate-500">{r.nodeCount} {t.regionNodeCountSuffix}</p>
+                  <p className="text-sm font-semibold">
+                    {r.region}
+                    {r.p2p && (
+                      <span className="ml-1.5 align-middle text-[10px] font-semibold text-brand-400">{t.regionP2pBadge}</span>
+                    )}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {r.nodeCount} {r.p2p ? t.regionPeerCountSuffix : t.regionNodeCountSuffix}
+                  </p>
                 </div>
                 <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
                   <span className={`w-2 h-2 rounded-full ${REGION_LOAD_DOT[r.loadLevel]}`} />

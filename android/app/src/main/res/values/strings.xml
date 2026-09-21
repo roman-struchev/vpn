@@ -47,6 +47,8 @@
     <string name="region_picker_title">Регион подключения</string>
     <string name="region_auto">Авто (лучший доступный)</string>
     <string name="region_row_format">%1$s — %2$s (%3$d нод)</string>
+    <!-- A P2P row counts people, not servers, and never carries a ping (a peer has no address to measure). -->
+    <string name="region_row_p2p_format">%1$s · P2P — %2$s (%3$d участников)</string>
     <string name="region_row_with_ping">%1$s — ⚡ %2$d мс • %3$s (%4$d нод)</string>
     <string name="region_load_low">низкая загрузка</string>
     <string name="region_load_medium">средняя загрузка</string>
@@ -97,6 +99,11 @@
     <string name="tariff_basic">Basic</string>
     <string name="tariff_pro">Pro</string>
     <string name="region_via_peer">%1$s (через участника сети)</string>
+    <!-- The exit itself is another member's device, not just a hop to our node — see region_via_peer. -->
+    <string name="region_p2p_exit">%1$s · P2P</string>
+    <string name="region_p2p_badge">P2P</string>
+    <string name="region_peer_count_suffix">участников</string>
+    <string name="region_p2p_notice">Выход через устройство другого участника: домашний IP этой страны, скорость — его канала. Доступно на платных тарифах.</string>
     <string name="profile_plan_title">Ваш тариф</string>
     <string name="profile_plan_none">Тариф не выбран</string>
     <string name="profile_plan_free">%1$s · бесплатно</string>
@@ -134,10 +141,10 @@
 
     <!-- P2P relay (docs/research/P2P_RELAY_FEASIBILITY.md §8) -->
     <string name="p2p_relay_title">P2P-режим</string>
-    <string name="p2p_relay_explanation" formatted="false">Разрешите приложению ретранслировать зашифрованный трафик других пользователей через ваше устройство и получайте за это дополнительный трафик на баланс — работает даже на бесплатном тарифе. Ваше устройство не видит и не может прочитать чужой трафик, а само никогда не выступает конечной точкой выхода в интернет.</string>
+    <string name="p2p_relay_explanation" formatted="false">Разрешите приложению передавать трафик других пользователей через ваше устройство и получайте за это дополнительный трафик на баланс — работает даже на бесплатном тарифе. Содержимое чужого трафика ваше устройство не видит и прочитать не может, но пользователи платных тарифов могут выбрать его как точку выхода в интернет — тогда источником запросов будет ваш IP-адрес.</string>
     <string name="p2p_relay_terms_link">Условия и риски P2P-режима</string>
     <string name="p2p_relay_consent_title">Включить P2P-режим?</string>
-    <string name="p2p_relay_consent_message">Ваше устройство будет ретранслировать зашифрованный трафик других пользователей. Вы не видите и не можете прочитать этот трафик, а выходом в интернет ваше устройство не становится. Расходуется ваш трафик и заряд батареи. Спросим только один раз — выключить режим можно в любой момент без подтверждения.</string>
+    <string name="p2p_relay_consent_message">Ваше устройство будет передавать трафик других пользователей. Содержимое вы не видите и прочитать не можете. Важно: пользователи платных тарифов могут выбрать ваше устройство как точку выхода — тогда сайты, которые они открывают, видят ваш IP-адрес как источник запросов, со всеми последствиями (жалобы провайдеру, капчи на обычных сайтах). Расходуется ваш трафик и заряд батареи. Спросим только один раз — выключить режим можно в любой момент без подтверждения.</string>
     <string name="p2p_relay_consent_accept">Согласен, включить</string>
     <string name="p2p_relay_region_format">Местоположение узла: %1$s</string>
     <string name="p2p_relay_expires_at_format">Действует до %1$s</string>

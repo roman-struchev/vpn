@@ -152,6 +152,86 @@ public final class XrayConfigFactory {
         return root.toString();
     }
 
+    /**
+     * The config for a session whose exit is another user's device rather
+     * than a node of ours (docs/research/P2P_RELAY_FEASIBILITY.md §8.9).
+     *
+     * Same TUN inbound, same DoH, same private-range rule as {@link #build} —
+     * the only difference is where matched traffic goes: a SOCKS5 outbound
+     * into the local P2P bridge (p2p/P2pRelayConnector#forExit), which turns
+     * every connection into its own WebRTC session to the peer, who dials the
+     * site itself. There is no VLESS/Reality outbound here at all, because
+     * there is no node of ours in the path to speak it to; the hop to the
+     * peer is encrypted by WebRTC's own DTLS.
+     *
+     * UDP is blocked outright rather than left to fail late. A peer forwards
+     * a TCP stream and nothing else, and a SOCKS5 outbound with no UDP
+     * ASSOCIATE behind it would let QUIC look available and then black-hole
+     * it — the classic "most sites work, some just hang". DNS is unaffected:
+     * it is answered locally over DoH, which is TCP.
+     */
+    public static String buildP2pExit(int tunFd, int mtu, String xrayAssetDir, String bridgeHost, int bridgePort) {
+        JsonObject root = new JsonObject();
+
+        JsonObject log = new JsonObject();
+        log.addProperty("loglevel", "warning");
+        root.add("log", log);
+
+        JsonObject env = new JsonObject();
+        env.addProperty("xray.tun.fd", String.valueOf(tunFd));
+        if (xrayAssetDir != null) {
+            env.addProperty("XRAY_LOCATION_ASSET", xrayAssetDir);
+        }
+        root.add("env", env);
+
+        JsonObject dns = new JsonObject();
+        JsonArray dnsServers = new JsonArray();
+        dnsServers.add("https://1.1.1.1/dns-query");
+        dnsServers.add("https://1.0.0.1/dns-query");
+        dns.add("servers", dnsServers);
+        dns.addProperty("queryStrategy", "UseIP");
+        root.add("dns", dns);
+
+        JsonArray inbounds = new JsonArray();
+        inbounds.add(buildTunInbound(mtu));
+        root.add("inbounds", inbounds);
+
+        JsonObject proxy = new JsonObject();
+        proxy.addProperty("tag", PROXY_OUTBOUND_TAG);
+        proxy.addProperty("protocol", "socks");
+        JsonObject server = new JsonObject();
+        server.addProperty("address", bridgeHost);
+        server.addProperty("port", bridgePort);
+        JsonArray servers = new JsonArray();
+        servers.add(server);
+        JsonObject proxySettings = new JsonObject();
+        proxySettings.add("servers", servers);
+        proxy.add("settings", proxySettings);
+
+        JsonArray outbounds = new JsonArray();
+        // First outbound is Xray's default match for anything no rule covers.
+        outbounds.add(proxy);
+        outbounds.add(buildDnsOutbound());
+        outbounds.add(buildBlockOutbound());
+        root.add("outbounds", outbounds);
+
+        JsonObject routing = buildRouting();
+        JsonArray rules = routing.getAsJsonArray("rules");
+        JsonObject blockUdp = new JsonObject();
+        blockUdp.addProperty("type", "field");
+        blockUdp.addProperty("network", "udp");
+        // Carved around :53 so DNS still reaches the dns outbound above.
+        blockUdp.addProperty("port", "1-52,54-65535");
+        blockUdp.addProperty("outboundTag", BLOCK_OUTBOUND_TAG);
+        JsonArray withUdpBlocked = new JsonArray();
+        withUdpBlocked.add(blockUdp);
+        rules.forEach(withUdpBlocked::add);
+        routing.add("rules", withUdpBlocked);
+        root.add("routing", routing);
+
+        return root.toString();
+    }
+
     private static JsonObject buildTunInbound(int mtu) {
         JsonObject inbound = new JsonObject();
         inbound.addProperty("tag", TUN_INBOUND_TAG);

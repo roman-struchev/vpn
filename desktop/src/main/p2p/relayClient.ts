@@ -30,14 +30,33 @@ export interface RelaySignalingApi {
   pollP2pSignals(sessionId: string, waitMs: number): Promise<string | null>;
   /** DELETE /api/v1/user/p2p/sessions/{id} — frees the broker's mailbox. */
   closeP2pSession(sessionId: string): Promise<void>;
-  /** POST /api/v1/user/p2p/sessions/{id}/traffic-report — the client half of the dual accounting. */
-  reportP2pSessionTraffic(sessionId: string, nodeId: number, bytesRelayed: number): Promise<void>;
+  /**
+   * POST /api/v1/user/p2p/sessions/{id}/traffic-report — the client half of
+   * the dual accounting. {@code exit} says the peer was used as an exit, which
+   * is what decides whether these bytes are charged to this account's own
+   * quota (nothing else meters them — no node of ours was in the path).
+   */
+  reportP2pSessionTraffic(sessionId: string, nodeId: number, bytesRelayed: number, exit: boolean): Promise<void>;
 }
 
 export interface RelayTarget {
   host: string;
   port: number;
 }
+
+/**
+ * What the far end should be told to connect to, which is the whole difference
+ * between the two ways a peer is used (see P2pRelayDirectory on the server):
+ *
+ * - a {@link RelayTarget} — every session goes to that one address, one of our
+ *   nodes, and the peer is a *path* to it. The tunnel stays end-to-end with
+ *   the node.
+ * - `'socks'` — the bridge speaks SOCKS5 to whatever connects to it and each
+ *   session goes wherever that connection asked, so the peer is the *exit*:
+ *   the traffic reaches the internet from their machine, under their IP, with
+ *   no node of ours involved.
+ */
+export type BridgeMode = RelayTarget | 'socks';
 
 export interface P2pRelayBridgeOptions {
   /** How long a single negotiation may take before the session is abandoned. */
@@ -70,6 +89,8 @@ interface Session {
   pollAbort: { stopped: boolean };
   negotiationTimeout: ReturnType<typeof setTimeout> | undefined;
   closed: boolean;
+  /** Sent once the channel opens, in SOCKS5 mode — see socksReply. */
+  pendingSocksReply: boolean;
 }
 
 export class P2pRelayBridge {
@@ -80,7 +101,7 @@ export class P2pRelayBridge {
   constructor(
     private readonly api: RelaySignalingApi,
     private readonly relayNodeId: number,
-    private readonly target: RelayTarget,
+    private readonly mode: BridgeMode,
     options: P2pRelayBridgeOptions = {}
   ) {
     this.options = {
@@ -128,6 +149,28 @@ export class P2pRelayBridge {
   }
 
   private async openSession(socket: net.Socket): Promise<void> {
+    // Nothing may be read off the local socket until the far end has a TCP
+    // connection to write it to: the peer only dials the target once the
+    // channel opens, and bytes sent before that are dropped on its side.
+    // Pausing first also puts the socket in the paused mode the SOCKS5
+    // handshake reads in, so it can take exactly the handshake bytes and
+    // leave the payload that follows untouched in the buffer.
+    socket.pause();
+
+    let target: RelayTarget;
+    if (this.mode === 'socks') {
+      try {
+        target = await readSocksRequest(socket, this.options.negotiationTimeoutMs);
+      } catch {
+        // A local client that cannot speak SOCKS5 to us is a bug on our own
+        // side (we point xray at this port), not something to keep alive.
+        socket.destroy();
+        return;
+      }
+    } else {
+      target = this.mode;
+    }
+
     const session: Session = {
       id: randomUUID(),
       peer: new PeerConnection(`p2p-client-${Date.now()}`, { iceServers: this.options.iceServers }),
@@ -139,13 +182,10 @@ export class P2pRelayBridge {
       pollAbort: { stopped: false },
       negotiationTimeout: undefined,
       closed: false,
+      pendingSocksReply: this.mode === 'socks',
     };
     this.sessions.add(session);
 
-    // Nothing may be read off the local socket until the far end has a TCP
-    // connection to write it to: the relay only dials the target once the
-    // channel opens, and bytes sent before that are dropped on its side.
-    socket.pause();
     socket.on('error', () => this.closeSession(session));
     socket.on('close', () => this.closeSession(session));
 
@@ -160,7 +200,7 @@ export class P2pRelayBridge {
 
     session.peer.onLocalDescription((sdp, type) => {
       if (type !== 'offer') return;
-      void this.send(session, { kind: 'offer', sdp, targetHost: this.target.host, targetPort: this.target.port });
+      void this.send(session, { kind: 'offer', sdp, targetHost: target.host, targetPort: target.port });
     });
     session.peer.onLocalCandidate((candidate, mid) => {
       void this.send(session, { kind: 'ice', candidate, sdpMid: mid });
@@ -179,6 +219,14 @@ export class P2pRelayBridge {
     channel.onOpen(() => {
       session.opened = true;
       clearTimeout(timeout);
+      // Answered only now, not when the request was parsed: an early success
+      // would have xray believe it has a working connection while the
+      // negotiation is still running (or about to fail), turning every
+      // unreachable peer into a hung request instead of a fast retry.
+      if (session.pendingSocksReply) {
+        session.pendingSocksReply = false;
+        session.socket.write(SOCKS5_SUCCESS_REPLY);
+      }
       this.bridge(session, channel);
     });
     channel.onClosed(() => this.closeSession(session));
@@ -276,7 +324,12 @@ export class P2pRelayBridge {
   private async reportTraffic(session: Session): Promise<void> {
     if (session.bytesRelayed <= 0) return;
     try {
-      await this.api.reportP2pSessionTraffic(session.id, this.relayNodeId, session.bytesRelayed);
+      await this.api.reportP2pSessionTraffic(
+        session.id,
+        this.relayNodeId,
+        session.bytesRelayed,
+        this.mode === 'socks'
+      );
     } catch {
       // Best-effort: the relay's own half of the report is what actually pays
       // its owner, and a missed client report only costs that one credit.
@@ -315,4 +368,116 @@ export class P2pRelayBridge {
       // already closing
     }
   }
+}
+
+/**
+ * SOCKS5, enough of it to be the local end of an exit hop (RFC 1928).
+ *
+ * Only what xray's own socks outbound sends us, and deliberately no more: no
+ * authentication (this listener is on loopback and is reached only by the
+ * xray process we start ourselves), no BIND, no UDP ASSOCIATE — a peer
+ * forwards a TCP stream and nothing else, which is why the exit config routes
+ * DNS over DoH rather than letting UDP:53 reach here (see xrayConfigFactory).
+ */
+const SOCKS5_VERSION = 0x05;
+const SOCKS5_CMD_CONNECT = 0x01;
+const SOCKS5_ATYP_IPV4 = 0x01;
+const SOCKS5_ATYP_DOMAIN = 0x03;
+const SOCKS5_ATYP_IPV6 = 0x04;
+const SOCKS5_NO_AUTH = 0x00;
+
+/**
+ * "Succeeded", with 0.0.0.0:0 as the bound address. The real bound address is
+ * the peer's, and we never learn it — nor should the local client care: it
+ * asked for a stream to a destination and it is getting one.
+ */
+const SOCKS5_SUCCESS_REPLY = Buffer.from([SOCKS5_VERSION, 0x00, 0x00, SOCKS5_ATYP_IPV4, 0, 0, 0, 0, 0, 0]);
+
+/** Reads the greeting and the CONNECT request, answers the greeting, and returns where the caller wants to go. */
+async function readSocksRequest(socket: net.Socket, timeoutMs: number): Promise<RelayTarget> {
+  const deadline = Date.now() + timeoutMs;
+  const read = (n: number) => readExactly(socket, n, Math.max(1, deadline - Date.now()));
+
+  const [version, methodCount] = await read(2);
+  if (version !== SOCKS5_VERSION) {
+    throw new Error(`socks: unsupported version ${version}`);
+  }
+  await read(methodCount); // the offered methods, none of which we need to look at
+  socket.write(Buffer.from([SOCKS5_VERSION, SOCKS5_NO_AUTH]));
+
+  const header = await read(4);
+  if (header[0] !== SOCKS5_VERSION) {
+    throw new Error(`socks: unsupported version ${header[0]} in request`);
+  }
+  if (header[1] !== SOCKS5_CMD_CONNECT) {
+    // 0x07: command not supported. Answered so the local client fails cleanly
+    // instead of waiting on a reply that never comes.
+    socket.write(Buffer.from([SOCKS5_VERSION, 0x07, 0x00, SOCKS5_ATYP_IPV4, 0, 0, 0, 0, 0, 0]));
+    throw new Error(`socks: unsupported command ${header[1]}`);
+  }
+
+  let host: string;
+  switch (header[3]) {
+    case SOCKS5_ATYP_IPV4:
+      host = Array.from(await read(4)).join('.');
+      break;
+    case SOCKS5_ATYP_DOMAIN: {
+      const [length] = await read(1);
+      host = (await read(length)).toString('utf-8');
+      break;
+    }
+    case SOCKS5_ATYP_IPV6: {
+      const raw = await read(16);
+      const groups: string[] = [];
+      for (let i = 0; i < 16; i += 2) {
+        groups.push(raw.readUInt16BE(i).toString(16));
+      }
+      host = groups.join(':');
+      break;
+    }
+    default:
+      socket.write(Buffer.from([SOCKS5_VERSION, 0x08, 0x00, SOCKS5_ATYP_IPV4, 0, 0, 0, 0, 0, 0]));
+      throw new Error(`socks: unsupported address type ${header[3]}`);
+  }
+
+  const port = (await read(2)).readUInt16BE(0);
+  return { host, port };
+}
+
+/**
+ * Exactly {@code n} bytes off a *paused* socket, leaving anything beyond them
+ * in the buffer — which is what keeps the first bytes of the payload from
+ * being swallowed with the handshake.
+ */
+function readExactly(socket: net.Socket, n: number, timeoutMs: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    if (n === 0) {
+      resolve(Buffer.alloc(0));
+      return;
+    }
+
+    const attempt = () => {
+      const chunk = socket.read(n) as Buffer | null;
+      if (chunk) {
+        cleanup();
+        resolve(chunk);
+      }
+    };
+    const fail = () => {
+      cleanup();
+      reject(new Error('socks: handshake did not complete'));
+    };
+    const timer = setTimeout(fail, timeoutMs);
+    const cleanup = () => {
+      clearTimeout(timer);
+      socket.off('readable', attempt);
+      socket.off('end', fail);
+      socket.off('error', fail);
+    };
+
+    socket.on('readable', attempt);
+    socket.on('end', fail);
+    socket.on('error', fail);
+    attempt();
+  });
 }

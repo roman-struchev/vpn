@@ -45,6 +45,36 @@ test.describe('relay discovery', () => {
     const anonymous = await request.get('/api/v1/user/p2p/relays');
     expect(anonymous.status()).toBeGreaterThanOrEqual(400);
   });
+
+  test('a trial account is offered no P2P exits, and a stranger none at all', async ({ request }) => {
+    const token = await registerWithTrial(request, 'exitlist');
+
+    const mine = await request.get('/api/v1/user/p2p/exits?region=Montenegro,%20Podgorica', {
+      headers: authed(token),
+    });
+    // Not an error: the row is shown to a trial account with a padlock, so
+    // asking anyway is answered with "nobody available".
+    expect(mine.status()).toBe(200);
+    expect((await mine.json()).exits, 'P2P exits are a paid-plan feature').toEqual([]);
+
+    const anonymous = await request.get('/api/v1/user/p2p/exits');
+    expect(anonymous.status()).toBeGreaterThanOrEqual(400);
+  });
+
+  test('every region row carries a key, and only a P2P row is prefixed', async ({ request }) => {
+    const token = await registerWithTrial(request, 'regionkeys');
+
+    const res = await request.get('/api/v1/user/regions', { headers: authed(token) });
+    expect(res.status()).toBe(200);
+    const regions = (await res.json()).regions as { region: string; key: string; p2p: boolean }[];
+
+    // The key is what a client stores as the pick — the label cannot be it,
+    // because one country can be listed twice (our servers and peers there).
+    for (const row of regions) {
+      expect(row.key).toBe(row.p2p ? `p2p:${row.region}` : row.region);
+    }
+    expect(new Set(regions.map((r) => r.key)).size, 'keys identify rows, so they must be unique').toBe(regions.length);
+  });
 });
 
 test.describe('signaling broker', () => {

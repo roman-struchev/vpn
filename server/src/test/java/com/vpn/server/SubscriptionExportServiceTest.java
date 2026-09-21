@@ -785,11 +785,12 @@ class SubscriptionExportServiceTest {
         // Reported by the repo owner: turning P2P relay mode on made their own
         // laptop appear as a connection region in their own app.
         //
-        // Somebody else's relay device is gone from this list too, but for a
-        // different reason and by a different rule (see
-        // testARegionWithOnlyAP2pNodeIsNotOfferedAtAll): no client can dial a
-        // p2p node yet at all. This case is specifically about the *owner*,
-        // which must keep holding once that changes.
+        // Somebody else's phone is a perfectly good row now that a peer can be
+        // picked as an exit (testAP2pOnlyRegionIsOfferedAsAnExitRow) — this
+        // case is specifically about the *owner's own* device, which stays out
+        // of the list no matter what: routing yourself through your own phone
+        // changes nothing about your IP and would pay you for your own bytes
+        // (Node#isOwnRelayDeviceOf).
         User owner = new User();
         owner.setId(60L);
         User somebodyElse = new User();
@@ -841,11 +842,14 @@ class SubscriptionExportServiceTest {
         when(nodeRepository.findByStatus("ONLINE"))
                 .thenReturn(List.of(vps, myLaptop, otherPersonsPhone));
 
-        List<String> regions = exportService.getAvailableRegions(60L).stream()
-                .map(SubscriptionExportService.RegionSummary::region)
-                .toList();
+        List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(60L);
 
-        assertEquals(List.of("Finland, Helsinki"), regions);
+        // Berlin is there — that is somebody else's phone, offered as a P2P
+        // exit. Madrid is not, and Madrid is the caller's own laptop.
+        assertEquals(List.of("Finland, Helsinki", "Germany, Berlin"),
+                regions.stream().map(SubscriptionExportService.RegionSummary::region).toList());
+        assertTrue(regions.stream().noneMatch(r -> "Spain, Madrid".equals(r.region())),
+                "the caller's own relay device must never be offered back to them");
     }
 
     @Test
@@ -893,13 +897,17 @@ class SubscriptionExportServiceTest {
     }
 
     @Test
-    void testARegionWithOnlyAP2pNodeIsNotOfferedAtAll() {
-        // Reported live: a Pro subscriber saw "Montenegro, Podgorica — requires
-        // a paid plan" with a padlock. The tariff had nothing to do with it —
-        // `accessible` required a non-p2p node, so a p2p-only region came back
-        // locked on every plan, and the clients label every locked row that
-        // way. No client can connect through a p2p node yet at all, so the row
-        // must not be offered rather than be permanently locked.
+    void testAP2pOnlyRegionIsOfferedAsAnExitRow() {
+        // A region whose only capacity is somebody's phone is a real choice
+        // now: the user picks it and their traffic reaches the internet from
+        // that phone's own connection (docs §8.9). It carries the "p2p:" key
+        // so a client can tell it apart from a VPS row of the same country,
+        // and on a paid plan it is unlocked.
+        //
+        // The history worth keeping: this row used to come back permanently
+        // locked on *every* plan (accessible required a non-p2p node), so a
+        // Pro subscriber was told to upgrade for a region no tariff could
+        // unlock. Whatever else changes here, that must not come back.
         User owner = new User();
         owner.setId(70L);
         User somebodyElse = new User();
@@ -922,8 +930,9 @@ class SubscriptionExportServiceTest {
         vps.setType("vps");
         vps.setAvailableToPaid(true);
 
-        // Somebody else's relay device, with both pools enabled — still not
-        // something a client can dial today.
+        // Somebody else's relay device. Its pool flags are deliberately set
+        // both ways here: for an exit row they are not what decides access —
+        // the caller's tariff is (see the trial case below).
         Node relayDevice = new Node();
         relayDevice.setId(81L);
         relayDevice.setRegion("Montenegro, Podgorica");
@@ -941,16 +950,128 @@ class SubscriptionExportServiceTest {
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(70L);
 
-        assertEquals(List.of("Finland, Helsinki"),
+        assertEquals(List.of("Finland, Helsinki", "Montenegro, Podgorica"),
                 regions.stream().map(SubscriptionExportService.RegionSummary::region).toList());
-        assertTrue(regions.get(0).accessible());
+
+        SubscriptionExportService.RegionSummary helsinki = regions.get(0);
+        assertFalse(helsinki.p2p());
+        assertEquals("Finland, Helsinki", helsinki.key());
+        assertTrue(helsinki.accessible());
+
+        SubscriptionExportService.RegionSummary podgorica = regions.get(1);
+        assertTrue(podgorica.p2p());
+        assertEquals("p2p:Montenegro, Podgorica", podgorica.key());
+        assertTrue(podgorica.accessible(), "a paid plan may pick a P2P exit");
+        assertEquals(1, podgorica.nodeCount());
+        assertNull(podgorica.avgCpuPercent(), "a phone reports no CPU — 0% would read as 'idle and fast'");
+        assertNull(podgorica.avgMemoryPercent());
+    }
+
+    @Test
+    void testATrialPlanSeesTheP2pExitRowLocked() {
+        // The padlock, not a hidden row: a trial user should see that P2P
+        // exits exist and what upgrading buys, exactly as they already do for
+        // paid VPS regions.
+        User user = new User();
+        user.setId(74L);
+        User somebodyElse = new User();
+        somebodyElse.setId(75L);
+
+        Tariff trial = new Tariff();
+        trial.setId("trial");
+        trial.setServerPool("trial");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(trial);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node trialVps = new Node();
+        trialVps.setId(84L);
+        trialVps.setRegion("Finland, Helsinki");
+        trialVps.setStatus("ONLINE");
+        trialVps.setType("vps");
+        trialVps.setAvailableToTrial(true);
+
+        // Both flags on, so nothing about the node itself locks this row.
+        Node somebodysPhone = new Node();
+        somebodysPhone.setId(85L);
+        somebodysPhone.setRegion("Montenegro, Podgorica");
+        somebodysPhone.setStatus("ONLINE");
+        somebodysPhone.setType("p2p");
+        somebodysPhone.setRelayMode("ALWAYS");
+        somebodysPhone.setAvailableToTrial(true);
+        somebodysPhone.setAvailableToPaid(true);
+        somebodysPhone.setOwnerUser(somebodyElse);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(74L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByAvailableToTrialTrueAndStatus("ONLINE")).thenReturn(List.of(trialVps));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(trialVps, somebodysPhone));
+
+        SubscriptionExportService.RegionSummary podgorica = exportService.getAvailableRegions(74L).stream()
+                .filter(SubscriptionExportService.RegionSummary::p2p)
+                .findFirst().orElseThrow();
+
+        assertFalse(podgorica.accessible(), "P2P exits are a paid-plan feature");
+    }
+
+    @Test
+    void testAPeerWhoseRelayWindowHasLapsedIsNotOfferedAsAnExit() {
+        // A TIMED window can run out between heartbeats, leaving the node
+        // ONLINE in the table while it has already stopped offering itself.
+        // Listing it would produce a row that fails the moment it is picked.
+        User user = new User();
+        user.setId(76L);
+        User somebodyElse = new User();
+        somebodyElse.setId(77L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node vps = new Node();
+        vps.setId(86L);
+        vps.setRegion("Finland, Helsinki");
+        vps.setStatus("ONLINE");
+        vps.setType("vps");
+        vps.setAvailableToPaid(true);
+
+        Node lapsedPeer = new Node();
+        lapsedPeer.setId(87L);
+        lapsedPeer.setRegion("Montenegro, Podgorica");
+        lapsedPeer.setStatus("ONLINE");
+        lapsedPeer.setType("p2p");
+        lapsedPeer.setRelayMode("TIMED");
+        lapsedPeer.setRelayExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        lapsedPeer.setAvailableToPaid(true);
+        lapsedPeer.setOwnerUser(somebodyElse);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(76L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(vps, lapsedPeer));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(vps, lapsedPeer));
+
+        assertEquals(List.of("Finland, Helsinki"),
+                exportService.getAvailableRegions(76L).stream()
+                        .map(SubscriptionExportService.RegionSummary::region)
+                        .toList());
     }
 
     @Test
     void testARegionIsCountedAndJudgedOnlyOnItsConnectableNodes() {
-        // A relay device sitting in the same region as a real node must not
-        // inflate that region's node count or its load average either: both
-        // exist to help the user pick where to connect.
+        // A peer sitting in the same region as a real node gets its own row
+        // rather than being folded into the VPS one: it must not inflate that
+        // region's node count or skew its load average, because both exist to
+        // help the user pick where to connect — and the two rows are two
+        // genuinely different things to connect to.
         User user = new User();
         user.setId(72L);
 
@@ -988,8 +1109,17 @@ class SubscriptionExportServiceTest {
 
         List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(72L);
 
-        assertEquals(1, regions.size());
-        assertEquals(1, regions.get(0).nodeCount(), "only the node a client can actually use counts");
-        assertEquals(1, regions.get(0).avgActiveConnections(), "the relay's load must not skew the region's");
+        assertEquals(2, regions.size(), "same country, two kinds of capacity, two rows");
+
+        SubscriptionExportService.RegionSummary vpsRow = regions.get(0);
+        assertFalse(vpsRow.p2p());
+        assertEquals(1, vpsRow.nodeCount(), "only the node a client can actually use counts");
+        assertEquals(1, vpsRow.avgActiveConnections(), "the peer's load must not skew the region's");
+
+        SubscriptionExportService.RegionSummary p2pRow = regions.get(1);
+        assertTrue(p2pRow.p2p());
+        assertEquals("Finland, Helsinki", p2pRow.region(), "same label, different key");
+        assertEquals("p2p:Finland, Helsinki", p2pRow.key());
+        assertEquals(999, p2pRow.avgActiveConnections());
     }
 }

@@ -331,8 +331,8 @@ class UserControllerTest {
     @Test
     void testGetRegionsSuccess() {
         when(exportService.getAvailableRegions(10L)).thenReturn(List.of(
-                new SubscriptionExportService.RegionSummary("nl-ams", 2, 35.5, 40L, 5_000_000.0, 41.0, "LOW", true),
-                new SubscriptionExportService.RegionSummary("us-lax", 1, 88.0, 120L, 60_000_000.0, 70.0, "HIGH", false)
+                new SubscriptionExportService.RegionSummary("nl-ams", 2, 35.5, 40L, 5_000_000.0, 41.0, "LOW", true, "nl-ams", false),
+                new SubscriptionExportService.RegionSummary("us-lax", 1, 88.0, 120L, 60_000_000.0, 70.0, "HIGH", false, "us-lax", false)
         ));
 
         ResponseEntity<?> res = userController.getRegions(auth);

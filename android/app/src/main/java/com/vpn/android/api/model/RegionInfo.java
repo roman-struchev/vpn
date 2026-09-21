@@ -22,4 +22,22 @@ public class RegionInfo {
      * instead of silently reassigning elsewhere with a vague message.
      */
     public boolean accessible;
+    /**
+     * What identifies this row and what gets stored as the user's pick. Not
+     * the region: the same country can be listed twice, once as our servers
+     * and once as P2P exits, and those are different things to connect to.
+     * Null on an older server, where the region was the key.
+     */
+    public String key;
+    /**
+     * The exit is another user's device: a residential IP in that country, at
+     * the speed of that person's uplink, and a paid-plan feature (accessible
+     * is false on a trial). Always false on an older server.
+     */
+    public boolean p2p;
+
+    /** This row's identity, falling back to the region for a server that predates keys. */
+    public String keyOrRegion() {
+        return key != null ? key : region;
+    }
 }

@@ -202,7 +202,7 @@ class P2pNodeLifecycleIntegrationTest {
                         .setBytesRelayed(bytesRelayed)
                         .build())
                 .build());
-        p2pRelayAccountingService.recordClientReport(nodeId, sessionId, bytesRelayed);
+        p2pRelayAccountingService.recordClientReport(nodeId, sessionId, bytesRelayed, null, false);
 
         Optional<com.vpn.server.entity.P2pRelayCredit> credit = creditRepository.findBySessionId(sessionId);
         assertTrue(credit.isPresent(), "a real credit row must be persisted once both sides agree");

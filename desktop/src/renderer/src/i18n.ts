@@ -34,6 +34,10 @@ const translations = {
     regionLoadMedium: 'Средняя загрузка',
     regionLoadHigh: 'Высокая загрузка',
     regionNodeCountSuffix: 'нод',
+    regionPeerCountSuffix: 'участников',
+    regionP2pBadge: 'P2P',
+    regionP2pNotice:
+      'Выход через устройство другого участника: домашний IP этой страны, скорость — его канала. Доступно на платных тарифах.',
     regionUnavailableNotice: 'Выбранный регион сейчас недоступен — используется автоматический выбор',
     regionLockedSuffix: 'нужен платный тариф',
     regionRequiresUpgradeNotice: 'Этот регион недоступен на вашем тарифе — используется автоматический выбор',
@@ -85,11 +89,11 @@ const translations = {
     retry: 'Повторить',
 
     p2pTitle: 'Режим ретрансляции (P2P)',
-    p2pDesc: 'Разрешите приложению ретранслировать зашифрованный трафик других пользователей — за это на ваш аккаунт начисляется трафик: 1 ГБ ретранслировано → 0.5 ГБ на баланс, до 50 ГБ в сутки.',
+    p2pDesc: 'Разрешите приложению передавать трафик других пользователей — как путь до наших серверов и как точка выхода в интернет с вашего IP. За это начисляется трафик: 1 ГБ передано → 0.5 ГБ на баланс, до 50 ГБ в сутки.',
     p2pTermsLinkText: 'Условия и риски режима ретрансляции',
     p2pAcceptTerms: 'Согласиться и включить',
     p2pConsentQuestion:
-      'Ваше устройство будет ретранслировать зашифрованный трафик других пользователей. Вы не видите и не можете прочитать этот трафик, а выходом в интернет ваше устройство не становится. Расходуется ваш трафик. Спросим только один раз — выключить режим можно в любой момент без подтверждения.',
+      'Ваше устройство будет передавать трафик других пользователей. Содержимое вы не видите и прочитать не можете. Важно: пользователи платных тарифов могут выбрать ваше устройство как точку выхода — тогда сайты, которые они открывают, видят ваш IP-адрес как источник запросов, со всеми последствиями (жалобы провайдеру, капчи на обычных сайтах). Расходуется ваш трафик. Спросим только один раз — выключить режим можно в любой момент без подтверждения.',
     p2pConsentCancel: 'Отмена',
     p2pGuestNotice: 'Недоступно для гостевого профиля — войдите или зарегистрируйтесь.',
     p2pModeOff: 'Выключено',
@@ -136,6 +140,10 @@ const translations = {
     regionLoadMedium: 'Medium load',
     regionLoadHigh: 'High load',
     regionNodeCountSuffix: 'nodes',
+    regionPeerCountSuffix: 'peers',
+    regionP2pBadge: 'P2P',
+    regionP2pNotice:
+      "Exits through another member's device: a home IP in that country, at the speed of their connection. Paid plans only.",
     regionUnavailableNotice: 'The selected region is unavailable right now — using automatic selection',
     regionLockedSuffix: 'requires a paid plan',
     regionRequiresUpgradeNotice: 'This region isn’t included in your plan — using automatic selection',
@@ -187,11 +195,11 @@ const translations = {
     retry: 'Retry',
 
     p2pTitle: 'Relay mode (P2P)',
-    p2pDesc: 'Let this app relay other users’ encrypted VPN traffic — in return, your account earns traffic: 1 GB relayed → 0.5 GB credited, up to 50 GB per day.',
+    p2pDesc: 'Let this app carry other users’ traffic — both as a path to our servers and as an exit to the internet from your IP. In return, your account earns traffic: 1 GB carried → 0.5 GB credited, up to 50 GB per day.',
     p2pTermsLinkText: 'Relay mode terms and risks',
     p2pAcceptTerms: 'Agree and enable',
     p2pConsentQuestion:
-      'Your device will relay other users’ encrypted traffic. You can’t see or read that traffic, and your device never becomes the exit to the internet. It does use your data. We’ll ask only once — you can turn the mode off at any time without confirming.',
+      'Your device will carry other users’ traffic. You can’t see or read its contents. Note: paid-plan users can pick your device as their exit, and the sites they open then see your IP address as the source of the requests, with everything that follows from that (abuse complaints to your provider, CAPTCHAs on ordinary sites). It does use your data. We’ll ask only once — you can turn the mode off at any time without confirming.',
     p2pConsentCancel: 'Cancel',
     p2pGuestNotice: 'Not available for a guest profile — sign in or register.',
     p2pModeOff: 'Off',

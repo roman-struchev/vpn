@@ -50,8 +50,17 @@ public class P2pRelayAccountingService {
     private final SubscriptionRepository subscriptionRepository;
     private final P2pRelayCreditRepository creditRepository;
 
-    /** One session's two self-reports, merged as they arrive — order-independent (either side can report first). */
-    private record PendingReport(Long nodeId, Long nodeBytes, Long clientBytes) {}
+    /**
+     * One session's two self-reports, merged as they arrive — order-independent
+     * (either side can report first).
+     *
+     * {@code connectingUserId} and {@code exitSession} only ever come from the
+     * client's half (the relay node knows neither: it is handed an opaque
+     * session id and an address, and deliberately never learns whose traffic
+     * it is carrying or whether that address is one of our nodes).
+     */
+    private record PendingReport(Long nodeId, Long nodeBytes, Long clientBytes,
+                                 Long connectingUserId, boolean exitSession) {}
 
     // Deliberately in-memory, not persisted: this is short-lived correlation
     // state for one active session's handshake, not an audit trail (the
@@ -84,15 +93,22 @@ public class P2pRelayAccountingService {
 
     /** Called from AgentStreamServiceImpl when a p2p relay node reports its side of a session. */
     public void recordRelayNodeReport(Long nodeId, String sessionId, long bytesRelayed) {
-        merge(sessionId, nodeId, bytesRelayed, null);
+        merge(sessionId, nodeId, bytesRelayed, null, null, false);
     }
 
-    /** Called from P2pRelayController when the connecting client reports its side of a session. */
-    public void recordClientReport(Long nodeId, String sessionId, long bytesRelayed) {
-        merge(sessionId, nodeId, null, bytesRelayed);
+    /**
+     * Called from P2pRelayController when the connecting client reports its
+     * side of a session. {@code exitSession} is the client saying it used this
+     * peer as an exit rather than as a path to one of our nodes — see
+     * {@link #tryCredit} for what that changes and how far it is trusted.
+     */
+    public void recordClientReport(Long nodeId, String sessionId, long bytesRelayed,
+                                   Long connectingUserId, boolean exitSession) {
+        merge(sessionId, nodeId, null, bytesRelayed, connectingUserId, exitSession);
     }
 
-    private synchronized void merge(String sessionId, Long nodeId, Long nodeBytes, Long clientBytes) {
+    private synchronized void merge(String sessionId, Long nodeId, Long nodeBytes, Long clientBytes,
+                                    Long connectingUserId, boolean exitSession) {
         PendingReport existing = pendingReports.get(sessionId);
         if (existing != null && !existing.nodeId().equals(nodeId)) {
             log.warn("P2P session {} reported with mismatched nodeId ({} vs {}) — discarding, not crediting", sessionId, existing.nodeId(), nodeId);
@@ -102,9 +118,11 @@ public class P2pRelayAccountingService {
 
         Long mergedNodeBytes = nodeBytes != null ? nodeBytes : (existing != null ? existing.nodeBytes() : null);
         Long mergedClientBytes = clientBytes != null ? clientBytes : (existing != null ? existing.clientBytes() : null);
+        Long mergedUserId = connectingUserId != null ? connectingUserId : (existing != null ? existing.connectingUserId() : null);
+        boolean mergedExit = exitSession || (existing != null && existing.exitSession());
 
         if (mergedNodeBytes == null || mergedClientBytes == null) {
-            pendingReports.put(sessionId, new PendingReport(nodeId, mergedNodeBytes, mergedClientBytes));
+            pendingReports.put(sessionId, new PendingReport(nodeId, mergedNodeBytes, mergedClientBytes, mergedUserId, mergedExit));
             return;
         }
 
@@ -114,7 +132,7 @@ public class P2pRelayAccountingService {
         // Spring context) — fall back to a direct call there, since without a
         // container there is no proxy to route through anyway.
         P2pRelayAccountingService target = self != null ? self : this;
-        target.tryCredit(sessionId, nodeId, mergedNodeBytes, mergedClientBytes);
+        target.tryCredit(sessionId, nodeId, mergedNodeBytes, mergedClientBytes, mergedUserId, mergedExit);
     }
 
     // KNOWN LIMITATION, not yet exercised in production: a session_id is
@@ -133,7 +151,8 @@ public class P2pRelayAccountingService {
     // session end, or this dedup needs to become per-(session_id, report
     // sequence) with delta-based credited amounts instead of totals.
     @Transactional
-    void tryCredit(String sessionId, Long nodeId, long nodeBytes, long clientBytes) {
+    void tryCredit(String sessionId, Long nodeId, long nodeBytes, long clientBytes,
+                   Long connectingUserId, boolean exitSession) {
         if (creditRepository.findBySessionId(sessionId).isPresent()) {
             log.debug("P2P session {} already credited — ignoring duplicate report pair", sessionId);
             return;
@@ -193,5 +212,45 @@ public class P2pRelayAccountingService {
 
         log.info("P2P session {} credited: user {} relayed {} bytes -> {} bytes credited (node {})",
                 sessionId, owner.getId(), relayedBytes, finalCreditBytes, nodeId);
+
+        meterExitSession(sessionId, connectingUserId, exitSession, relayedBytes);
+    }
+
+    /**
+     * Charges an *exit* session's bytes to the connecting user's own quota.
+     *
+     * A relay session needs nothing here: it ends at one of our nodes, and
+     * that node already meters the traffic per device the ordinary way
+     * (NodeManagementService#processTrafficStats). An exit session touches no
+     * node of ours at all, so without this a paid user's P2P browsing would
+     * be the one kind of traffic on the platform that costs them nothing —
+     * while the peer carrying it still earns credit for every byte.
+     *
+     * Charged off {@code relayedBytes}, i.e. the *smaller* of the two agreed
+     * reports and the same figure the peer is paid on — so the two halves of
+     * one session can never disagree about how much traffic it was.
+     *
+     * How far this is trusted: {@code exitSession} is the connecting client's
+     * own word (the peer cannot corroborate it — it is handed an address, and
+     * telling us whether that address was one of ours would mean reporting
+     * the user's destinations, which this design deliberately never does). A
+     * patched client could therefore claim "relay" and browse unmetered. That
+     * is the same trust model the credit side already runs on, with the same
+     * backstop: nothing is recorded unless both independent reports agree,
+     * and the daily cap bounds what any single account can extract.
+     */
+    private void meterExitSession(String sessionId, Long connectingUserId, boolean exitSession, long relayedBytes) {
+        if (!exitSession || connectingUserId == null || relayedBytes <= 0) {
+            return;
+        }
+        subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(connectingUserId, "ACTIVE")
+                .ifPresentOrElse(
+                        s -> {
+                            s.setTrafficUsedBytes(s.getTrafficUsedBytes() + relayedBytes);
+                            subscriptionRepository.save(s);
+                            log.info("P2P session {}: charged {} exit bytes to user {}", sessionId, relayedBytes, connectingUserId);
+                        },
+                        () -> log.warn("P2P session {}: user {} used a P2P exit but has no active subscription to charge", sessionId, connectingUserId)
+                );
     }
 }

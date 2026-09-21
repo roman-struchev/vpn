@@ -37,6 +37,15 @@ export interface RegionInfo {
   // false = requires a higher plan than the account currently has — still
   // shown in the picker (not removed) but not selectable, see ConnectPage.
   accessible: boolean;
+  /**
+   * What identifies this row and gets stored as the pick — the same region
+   * can appear twice, once as our servers and once as P2P exits (see
+   * shared/regionKey.ts). Older servers don't send it; there the region is
+   * the key, which is what it always was.
+   */
+  key?: string;
+  /** The exit is another user's device: residential IP, their uplink, paid plans only. */
+  p2p?: boolean;
 }
 
 export interface DeviceDto {

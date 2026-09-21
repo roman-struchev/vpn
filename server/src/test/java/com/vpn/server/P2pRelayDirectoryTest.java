@@ -143,4 +143,115 @@ class P2pRelayDirectoryTest {
 
         assertTrue(directory.availableRelaysFor(CALLER_ID).isEmpty());
     }
+
+    // ---- Exits: the same peers, asked about as something the user picked ----
+
+    @Test
+    void testListsExitsForAPaidPlan() {
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE"))
+                .thenReturn(List.of(relay(1L, 99L, "ALWAYS", true, true)));
+
+        List<Map<String, Object>> exits = directory.availableExitsFor(CALLER_ID, null);
+
+        assertEquals(1, exits.size());
+        assertEquals(1L, exits.get(0).get("nodeId"));
+        assertEquals("Montenegro, Podgorica", exits.get(0).get("region"));
+        assertFalse(exits.get(0).containsKey("hostname"), "a peer's hostname is never handed to another user");
+        assertFalse(exits.get(0).containsKey("publicIp"));
+    }
+
+    @Test
+    void testATrialPlanGetsNoExits() {
+        // The paid/trial split is the whole gate here — deliberately not the
+        // node's own pool flags, which are set both ways on this peer.
+        givenTariffPool("trial");
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE"))
+                .thenReturn(List.of(relay(1L, 99L, "ALWAYS", true, true)));
+
+        assertTrue(directory.availableExitsFor(CALLER_ID, null).isEmpty(),
+                "carrying a whole session on a volunteer's uplink is a paid-plan feature");
+    }
+
+    @Test
+    void testExitsCanBeNarrowedToOneRegion() {
+        Node here = relay(1L, 99L, "ALWAYS", true, true);
+        Node elsewhere = relay(2L, 99L, "ALWAYS", true, true);
+        elsewhere.setRegion("Germany, Berlin");
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE")).thenReturn(List.of(here, elsewhere));
+
+        List<Map<String, Object>> exits = directory.availableExitsFor(CALLER_ID, "germany, berlin");
+
+        assertEquals(1, exits.size(), "matched case-insensitively, like the VPS region scoping");
+        assertEquals(2L, exits.get(0).get("nodeId"));
+    }
+
+    @Test
+    void testExitsExcludeTheCallersOwnDeviceAndLapsedWindows() {
+        Node mine = relay(1L, CALLER_ID, "ALWAYS", true, true);
+        Node lapsed = relay(2L, 99L, "TIMED", true, true);
+        lapsed.setRelayExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        Node usable = relay(3L, 99L, "ALWAYS", true, true);
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE")).thenReturn(List.of(mine, lapsed, usable));
+
+        List<Map<String, Object>> exits = directory.availableExitsFor(CALLER_ID, null);
+
+        assertEquals(1, exits.size());
+        assertEquals(3L, exits.get(0).get("nodeId"));
+    }
+
+    // ---- What the signaling endpoint enforces (the lists above only inform) ----
+
+    @Test
+    void testAPaidPlanMayConnectThroughAnyEligiblePeer() {
+        Node peer = relay(1L, 99L, "ALWAYS", false, false);
+        when(nodeRepository.findById(1L)).thenReturn(Optional.of(peer));
+
+        assertTrue(directory.mayConnectThrough(CALLER_ID, 1L),
+                "an exit is not limited by the node's pool flags — the caller's tariff is the rule");
+    }
+
+    @Test
+    void testATrialPlanMayOnlyConnectThroughPeersOfferedToTrial() {
+        givenTariffPool("trial");
+        Node paidOnly = relay(1L, 99L, "ALWAYS", true, false);
+        Node offeredToTrial = relay(2L, 99L, "ALWAYS", true, true);
+        when(nodeRepository.findById(1L)).thenReturn(Optional.of(paidOnly));
+        when(nodeRepository.findById(2L)).thenReturn(Optional.of(offeredToTrial));
+
+        assertFalse(directory.mayConnectThrough(CALLER_ID, 1L));
+        assertTrue(directory.mayConnectThrough(CALLER_ID, 2L));
+    }
+
+    @Test
+    void testMayNotConnectThroughOwnDeviceALapsedWindowOrAnUnknownNode() {
+        Node mine = relay(1L, CALLER_ID, "ALWAYS", true, true);
+        Node lapsed = relay(2L, 99L, "TIMED", true, true);
+        lapsed.setRelayExpiresAt(Instant.now().minus(1, ChronoUnit.HOURS));
+        Node offline = relay(3L, 99L, "ALWAYS", true, true);
+        offline.setStatus("OFFLINE");
+        when(nodeRepository.findById(1L)).thenReturn(Optional.of(mine));
+        when(nodeRepository.findById(2L)).thenReturn(Optional.of(lapsed));
+        when(nodeRepository.findById(3L)).thenReturn(Optional.of(offline));
+        when(nodeRepository.findById(4L)).thenReturn(Optional.empty());
+
+        assertFalse(directory.mayConnectThrough(CALLER_ID, 1L));
+        assertFalse(directory.mayConnectThrough(CALLER_ID, 2L));
+        assertFalse(directory.mayConnectThrough(CALLER_ID, 3L));
+        assertFalse(directory.mayConnectThrough(CALLER_ID, 4L));
+        assertFalse(directory.mayConnectThrough(CALLER_ID, null));
+    }
+
+    @Test
+    void testExitsComeFreshestFirst() {
+        Node stale = relay(1L, 99L, "ALWAYS", true, true);
+        stale.setLastHeartbeatAt(Instant.now().minus(10, ChronoUnit.MINUTES));
+        Node fresh = relay(2L, 99L, "ALWAYS", true, true);
+        fresh.setLastHeartbeatAt(Instant.now());
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE")).thenReturn(List.of(stale, fresh));
+
+        List<Map<String, Object>> exits = directory.availableExitsFor(CALLER_ID, null);
+
+        assertEquals(List.of(2L, 1L), exits.stream().map(e -> e.get("nodeId")).toList(),
+                "the client works down this list, so the peer most likely to still be there goes first");
+    }
 }

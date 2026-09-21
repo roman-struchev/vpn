@@ -150,6 +150,23 @@ public class P2pRelayController {
     }
 
     /**
+     * Peers this user may use as an *exit* — traffic leaves for the internet
+     * from the peer's own connection, not from a node of ours (docs §8.9).
+     * This is what a client asks for after the user picked a "p2p:"-keyed row
+     * in the region list; {@code region} narrows it to that row's country.
+     *
+     * A trial account gets an empty list, not an error: the row is shown to
+     * them with a padlock (SubscriptionExportService#getAvailableRegions),
+     * and a client that asks anyway should treat "no peers" the same way it
+     * treats a region that just went quiet, rather than surfacing a failure.
+     */
+    @GetMapping("/exits")
+    public ResponseEntity<?> availableExits(Authentication auth, @RequestParam(required = false) String region) {
+        Long userId = (Long) auth.getPrincipal();
+        return ResponseEntity.ok(Map.of("exits", p2pRelayDirectory.availableExitsFor(userId, region)));
+    }
+
+    /**
      * Forwards this connecting client's SDP offer / ICE candidate to a relay
      * node — pure opaque passthrough (docs §8.1), the server never looks
      * inside. Returns as soon as it has been handed to the node's stream; what
@@ -170,6 +187,14 @@ public class P2pRelayController {
         }
         if (ownsRelayNode(auth, nodeId)) {
             return ResponseEntity.status(403).body(Map.of("error", OWN_RELAY_NODE_ERROR));
+        }
+        // The lists a client is shown are not the enforcement — this is. A
+        // caller can name any node id here, so without it, "which peers may I
+        // use" was answered only by a well-behaved client reading
+        // /relays and /exits. See P2pRelayDirectory#mayConnectThrough for what
+        // it does and does not cover.
+        if (!p2pRelayDirectory.mayConnectThrough((Long) auth.getPrincipal(), nodeId)) {
+            return ResponseEntity.status(403).body(Map.of("error", "This peer is not available to your account"));
         }
         if (!p2pSessionRegistry.claim(sessionId, (Long) auth.getPrincipal())) {
             return ResponseEntity.status(403).body(Map.of("error", "This signaling session belongs to another account"));
@@ -243,7 +268,14 @@ public class P2pRelayController {
             return ResponseEntity.status(403).body(Map.of("error", OWN_RELAY_NODE_ERROR));
         }
         long bytesRelayed = Long.parseLong(bytesObj.toString());
-        p2pRelayAccountingService.recordClientReport(nodeId, sessionId, bytesRelayed);
+        // "exit": the client used this peer to reach the internet itself, not
+        // as a path to one of our nodes — which is what decides whether these
+        // bytes are charged to the caller's own quota (see
+        // P2pRelayAccountingService#meterExitSession). Absent means relay, so
+        // clients that predate P2P exits keep their existing behaviour.
+        boolean exitSession = Boolean.parseBoolean(String.valueOf(req.getOrDefault("exit", "false")));
+        p2pRelayAccountingService.recordClientReport(
+                nodeId, sessionId, bytesRelayed, (Long) auth.getPrincipal(), exitSession);
         return ResponseEntity.ok(Map.of("status", "RECEIVED"));
     }
 }

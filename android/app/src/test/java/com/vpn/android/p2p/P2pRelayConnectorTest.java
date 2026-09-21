@@ -38,6 +38,7 @@ public class P2pRelayConnectorTest {
         final List<SignalEnvelope> sent = new CopyOnWriteArrayList<>();
         final ConcurrentLinkedQueue<byte[]> inbound = new ConcurrentLinkedQueue<>();
         final List<Long> trafficReports = new CopyOnWriteArrayList<>();
+        final List<Boolean> trafficReportExitFlags = new CopyOnWriteArrayList<>();
         final List<String> closedSessions = new CopyOnWriteArrayList<>();
         volatile boolean failSend = false;
 
@@ -64,8 +65,9 @@ public class P2pRelayConnectorTest {
         }
 
         @Override
-        public void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed) {
+        public void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed, boolean exit) {
             trafficReports.add(bytesRelayed);
+            trafficReportExitFlags.add(exit);
         }
     }
 
@@ -270,6 +272,126 @@ public class P2pRelayConnectorTest {
 
             assertEquals(0, connector.getActiveSessions());
             assertTrue(session.closed);
+        }
+    }
+
+    // ---- Exit mode: the peer is the exit, not a path to one of our nodes ----
+
+    /** The same harness, as an exit hop: no fixed destination, SOCKS5 per connection. */
+    private static P2pRelayConnector exitConnector(Harness harness, long negotiationTimeoutMs) {
+        return new P2pRelayConnector(
+                harness.signaling,
+                (host, port, outgoing) -> {
+                    FakeSession session = new FakeSession(host, port, outgoing);
+                    harness.sessions.add(session);
+                    return session;
+                },
+                42L, null, 0, negotiationTimeoutMs);
+    }
+
+    /** Greeting + CONNECT for a domain destination, which is what xray's socks outbound sends. */
+    private static void writeSocks5Connect(Socket socket, String host, int port) throws Exception {
+        OutputStream out = socket.getOutputStream();
+        out.write(new byte[]{0x05, 0x01, 0x00});
+        out.flush();
+
+        byte[] greetingReply = new byte[2];
+        readFully(socket.getInputStream(), greetingReply);
+        assertArrayEquals(new byte[]{0x05, 0x00}, greetingReply);
+
+        byte[] hostBytes = host.getBytes();
+        OutputStream req = socket.getOutputStream();
+        req.write(new byte[]{0x05, 0x01, 0x00, 0x03, (byte) hostBytes.length});
+        req.write(hostBytes);
+        req.write(new byte[]{(byte) (port >> 8), (byte) port});
+        req.flush();
+    }
+
+    private static void readFully(InputStream in, byte[] buf) throws Exception {
+        int read = 0;
+        while (read < buf.length) {
+            int n = in.read(buf, read, buf.length - read);
+            if (n < 0) fail("stream ended after " + read + " of " + buf.length + " bytes");
+            read += n;
+        }
+    }
+
+    @Test
+    public void takesTheDestinationFromEachSocks5RequestSoOnePeerServesEverySite() throws Exception {
+        Harness harness = new Harness();
+        connector = exitConnector(harness, 5_000);
+        int port = connector.start();
+
+        try (Socket local = new Socket("127.0.0.1", port)) {
+            writeSocks5Connect(local, "example.com", 443);
+
+            FakeSession session = awaitSession(harness);
+            // The offer names where THIS connection asked to go — not one
+            // address fixed when the listener started, which is the whole
+            // difference between an exit and a relay.
+            SignalEnvelope offer = awaitFirstSent(harness.signaling);
+            assertEquals("offer", offer.kind);
+            assertEquals("example.com", offer.targetHost);
+            assertEquals(443, offer.targetPort);
+
+            session.open();
+
+            // The success reply only comes once the session is open: an
+            // earlier one would have xray believe in a connection that may
+            // still fail, turning an unreachable peer into a hung request.
+            byte[] reply = new byte[10];
+            readFully(local.getInputStream(), reply);
+            assertEquals(0x05, reply[0]);
+            assertEquals("succeeded", 0x00, reply[1]);
+
+            local.getOutputStream().write("GET / HTTP/1.1".getBytes());
+            local.getOutputStream().flush();
+            awaitTrue(() -> !session.sentToRelay.isEmpty(), 3000);
+            assertEquals("GET / HTTP/1.1", new String(session.sentToRelay.get(0)));
+
+            session.deliverFromRelay("HTTP/1.1 200 OK".getBytes());
+            byte[] buf = new byte[64];
+            int n = local.getInputStream().read(buf);
+            assertEquals("HTTP/1.1 200 OK", new String(buf, 0, n));
+        }
+    }
+
+    @Test
+    public void reportsAnExitSessionAsOneSoTheBytesReachTheCallersOwnQuota() throws Exception {
+        Harness harness = new Harness();
+        connector = exitConnector(harness, 5_000);
+        int port = connector.start();
+
+        Socket local = new Socket("127.0.0.1", port);
+        writeSocks5Connect(local, "example.com", 80);
+        FakeSession session = awaitSession(harness);
+        session.open();
+        readFully(local.getInputStream(), new byte[10]);
+        local.getOutputStream().write("0123456789".getBytes());
+        local.getOutputStream().flush();
+        awaitTrue(() -> !session.sentToRelay.isEmpty(), 3000);
+        local.close();
+
+        awaitTrue(() -> !harness.signaling.trafficReportExitFlags.isEmpty(), 5000);
+        assertTrue("nothing else meters an exit session — no node of ours was in the path",
+                harness.signaling.trafficReportExitFlags.get(harness.signaling.trafficReportExitFlags.size() - 1));
+    }
+
+    @Test
+    public void dropsALocalClientThatIsNotSpeakingSocks5() throws Exception {
+        Harness harness = new Harness();
+        connector = exitConnector(harness, 500);
+        int port = connector.start();
+
+        try (Socket local = new Socket("127.0.0.1", port)) {
+            local.getOutputStream().write(new byte[]{0x04, 0x01}); // SOCKS4, which we deliberately do not speak
+            local.getOutputStream().flush();
+
+            // No destination was ever established, so no session and nothing signalled.
+            sleep(300);
+            assertTrue(harness.sessions.isEmpty());
+            assertTrue(harness.signaling.sent.isEmpty());
+            assertEquals(0, connector.getActiveSessions());
         }
     }
 

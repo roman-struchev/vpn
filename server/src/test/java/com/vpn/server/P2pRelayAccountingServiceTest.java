@@ -76,7 +76,7 @@ class P2pRelayAccountingServiceTest {
     @Test
     void credits_whenBothReportsMatchExactly() {
         service.recordRelayNodeReport(5L, "sess-1", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-1", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-1", 1_000_000_000L, null, false);
 
         ArgumentCaptor<P2pRelayCredit> captor = ArgumentCaptor.forClass(P2pRelayCredit.class);
         verify(creditRepository).save(captor.capture());
@@ -88,7 +88,7 @@ class P2pRelayAccountingServiceTest {
     void credits_whenReportsAgreeWithinTolerance() {
         // 3% apart — within the ±5% tolerance.
         service.recordRelayNodeReport(5L, "sess-2", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-2", 1_030_000_000L);
+        service.recordClientReport(5L, "sess-2", 1_030_000_000L, null, false);
 
         verify(creditRepository).save(any(P2pRelayCredit.class));
     }
@@ -97,7 +97,7 @@ class P2pRelayAccountingServiceTest {
     void doesNotCredit_whenReportsDisagreeBeyondTolerance() {
         // 20% apart — well outside tolerance, e.g. one side padding its report.
         service.recordRelayNodeReport(5L, "sess-3", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-3", 1_200_000_000L);
+        service.recordClientReport(5L, "sess-3", 1_200_000_000L, null, false);
 
         verify(creditRepository, never()).save(any(P2pRelayCredit.class));
     }
@@ -107,7 +107,7 @@ class P2pRelayAccountingServiceTest {
         // Even within tolerance, crediting off the larger number would let an
         // over-reporting side inflate its own payout — must use the smaller.
         service.recordRelayNodeReport(5L, "sess-4", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-4", 1_040_000_000L);
+        service.recordClientReport(5L, "sess-4", 1_040_000_000L, null, false);
 
         ArgumentCaptor<P2pRelayCredit> captor = ArgumentCaptor.forClass(P2pRelayCredit.class);
         verify(creditRepository).save(captor.capture());
@@ -119,7 +119,7 @@ class P2pRelayAccountingServiceTest {
         service.recordRelayNodeReport(5L, "sess-5", 1_000_000_000L);
         verify(creditRepository, never()).save(any(P2pRelayCredit.class));
 
-        service.recordClientReport(5L, "sess-5", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-5", 1_000_000_000L, null, false);
         verify(creditRepository).save(any(P2pRelayCredit.class));
     }
 
@@ -128,7 +128,7 @@ class P2pRelayAccountingServiceTest {
         node.setOwnerUser(null);
 
         service.recordRelayNodeReport(5L, "sess-6", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-6", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-6", 1_000_000_000L, null, false);
 
         verify(creditRepository, never()).save(any(P2pRelayCredit.class));
     }
@@ -141,7 +141,7 @@ class P2pRelayAccountingServiceTest {
         when(nodeRepository.findById(9L)).thenReturn(Optional.of(otherNode));
 
         service.recordRelayNodeReport(5L, "sess-7", 1_000_000_000L);
-        service.recordClientReport(9L, "sess-7", 1_000_000_000L);
+        service.recordClientReport(9L, "sess-7", 1_000_000_000L, null, false);
 
         verify(creditRepository, never()).save(any(P2pRelayCredit.class));
     }
@@ -155,7 +155,7 @@ class P2pRelayAccountingServiceTest {
         when(creditRepository.sumBytesCreditedSince(eq(77L), any(Instant.class))).thenReturn(alreadyCredited);
 
         service.recordRelayNodeReport(5L, "sess-8", 1_000_000_000L); // would naturally credit 500,000,000
-        service.recordClientReport(5L, "sess-8", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-8", 1_000_000_000L, null, false);
 
         ArgumentCaptor<P2pRelayCredit> captor = ArgumentCaptor.forClass(P2pRelayCredit.class);
         verify(creditRepository).save(captor.capture());
@@ -168,7 +168,7 @@ class P2pRelayAccountingServiceTest {
                 .thenReturn(P2pRelayAccountingService.DAILY_CAP_BYTES);
 
         service.recordRelayNodeReport(5L, "sess-9", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-9", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-9", 1_000_000_000L, null, false);
 
         verify(creditRepository, never()).save(any(P2pRelayCredit.class));
     }
@@ -178,7 +178,7 @@ class P2pRelayAccountingServiceTest {
         when(creditRepository.findBySessionId("sess-10")).thenReturn(Optional.of(new P2pRelayCredit()));
 
         service.recordRelayNodeReport(5L, "sess-10", 1_000_000_000L);
-        service.recordClientReport(5L, "sess-10", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-10", 1_000_000_000L, null, false);
 
         verify(creditRepository, never()).save(any(P2pRelayCredit.class));
     }
@@ -186,7 +186,7 @@ class P2pRelayAccountingServiceTest {
     @Test
     void bumpsOwnerSubscriptionTrafficLimit_onCredit() {
         service.recordRelayNodeReport(5L, "sess-11", 2_000_000_000L);
-        service.recordClientReport(5L, "sess-11", 2_000_000_000L);
+        service.recordClientReport(5L, "sess-11", 2_000_000_000L, null, false);
 
         ArgumentCaptor<Subscription> captor = ArgumentCaptor.forClass(Subscription.class);
         verify(subscriptionRepository).save(captor.capture());

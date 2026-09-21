@@ -59,6 +59,14 @@ export interface RegionInfo {
   avgCpuPercent: number | null;
   avgActiveConnections: number;
   loadLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  /**
+   * What identifies this row. Not the region: a country can be listed twice,
+   * once as our own servers and once as P2P exits (other members' devices),
+   * which are different things to connect to. Absent on an older server.
+   */
+  key?: string;
+  /** The exit is another member's device — a residential IP, on a paid plan only. */
+  p2p?: boolean;
 }
 
 export interface Device {

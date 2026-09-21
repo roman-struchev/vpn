@@ -47,6 +47,7 @@ import libXray.DialerController;
 import com.vpn.android.diagnostics.DiagnosticsReporter;
 import com.vpn.android.p2p.P2pRelayConnector;
 import com.vpn.android.api.model.RelayInfo;
+import com.vpn.android.util.RegionKey;
 
 /**
  * Owns the whole VPN session lifecycle: fetching the node/policy list, building the
@@ -75,9 +76,24 @@ public class XrayVpnService extends VpnService implements DialerController {
      */
     private static final int MAX_RELAY_ATTEMPTS = 3;
 
+    /**
+     * How long to wait before looking for P2P exit peers again once every one
+     * of them has failed. Long enough not to hammer the directory, short
+     * enough that a peer coming back is picked up while the user still waits.
+     */
+    private static final long P2P_EXIT_RETRY_DELAY_MS = 15_000L;
+
     // The P2P hop, when one is in use, and the WebRTC factory behind it.
     private volatile P2pRelayConnector relayConnector;
     private org.webrtc.PeerConnectionFactory webRtcFactory;
+    /**
+     * Set for as long as the session is a P2P exit, and the flag the failure
+     * path keys off: in that mode there is no node list to walk and no
+     * transport to fall back through, only other peers in the same region.
+     */
+    private volatile String p2pExitRegion;
+    /** The pending "look for a peer again" callback, kept so disconnect can cancel it. */
+    private volatile Runnable p2pExitRetry;
 
     public static final String ACTION_CONNECT = "com.vpn.android.vpn.action.CONNECT";
     public static final String ACTION_DISCONNECT = "com.vpn.android.vpn.action.DISCONNECT";
@@ -191,10 +207,30 @@ public class XrayVpnService extends VpnService implements DialerController {
             // registerOrTouchDevice() here ran it only AFTER this whole method returned, so the
             // links request always saw zero devices and failed with "No subscription links".
             registerOrTouchDeviceBlocking();
+
+            // A P2P exit is its own kind of session, not a region of ours: no
+            // subscription links, no node list, no transport ladder — just
+            // peers in that region, tried in turn.
+            String selection = tokenStore.getSelectedRegion();
+            if (RegionKey.isP2p(selection)) {
+                String region = RegionKey.regionOf(selection);
+                if (connectThroughP2pExit(region)) {
+                    VpnStatusBus.regionFallback.postValue(false);
+                    return;
+                }
+                // Nobody there could carry it. Falling through to our own
+                // servers keeps the user connected, which is what they asked
+                // for first — and regionFallback is how the UI says the pick
+                // was not honoured, rather than leaving them to wonder why
+                // the exit IP is suddenly a datacenter's.
+                Log.w(TAG, "No P2P peer in \"" + region + "\" could carry the connection; falling back to our own nodes");
+            }
+
             RoutingConfigResponse policy = apiClient.getRoutingConfig(null, null);
             String preferredRegion = resolveConnectRegion();
             SubscriptionLinksResponse linksResp = apiClient.getSubscriptionLinks(preferredRegion);
-            boolean regionFellBack = preferredRegion != null && Boolean.FALSE.equals(linksResp.requestedRegionAvailable);
+            boolean regionFellBack = RegionKey.isP2p(selection)
+                    || (preferredRegion != null && Boolean.FALSE.equals(linksResp.requestedRegionAvailable));
             if (regionFellBack) {
                 // Sane fallback per the region-picker spec: the server already
                 // substituted the full node list, so the connect flow proceeds
@@ -262,11 +298,19 @@ public class XrayVpnService extends VpnService implements DialerController {
      */
     private String resolveConnectRegion() {
         String manual = tokenStore.getSelectedRegion();
+        // A P2P pick never reaches here (loadProfileAndConnect handles it and
+        // returns), so anything stored at this point is a region of ours —
+        // except after a P2P attempt that found nobody, where the fallback is
+        // deliberately "any region" rather than that country's servers.
+        if (RegionKey.isP2p(manual)) return null;
         if (manual != null) return manual;
         if (!TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(tokenStore.getRussianRoutingMode())) return null;
         try {
             for (com.vpn.android.api.model.RegionInfo r : apiClient.getRegions()) {
-                if (r.accessible && r.region != null && r.region.toLowerCase(java.util.Locale.ROOT).contains("russia")) {
+                // Our own servers only: this is the mode's automatic pick, and
+                // a P2P exit is something the user chooses deliberately.
+                if (r.accessible && !r.p2p && r.region != null
+                        && r.region.toLowerCase(java.util.Locale.ROOT).contains("russia")) {
                     return r.region;
                 }
             }
@@ -320,6 +364,117 @@ public class XrayVpnService extends VpnService implements DialerController {
                     + " (transport=" + transportFallbackPolicy.getCurrentTransport() + ")", e);
             handleFailure();
         }
+    }
+
+    /**
+     * Connects with another member's device as the *exit* — the session the
+     * user asked for by picking a P2P row in the region list (docs §8.9).
+     *
+     * Nothing of ours is in the path: xray's outbound is a SOCKS5 hop into
+     * the local bridge, every connection becomes its own WebRTC session, and
+     * the peer opens the TCP connection to the site itself. So the exit IP is
+     * that person's, which is the point — and also why the peers are tried in
+     * turn rather than one being trusted: they are phones and laptops, and
+     * one going offline mid-attempt is ordinary.
+     */
+    private boolean connectThroughP2pExit(String region) {
+        if (stopping) return false;
+
+        List<RelayInfo> exits;
+        try {
+            exits = apiClient.getP2pExits(region);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not look up P2P exit peers", e);
+            DiagnosticsReporter.warn("p2p-exit", "EXIT_LOOKUP_FAILED", "Could not look up P2P exit peers");
+            return false;
+        }
+        if (exits.isEmpty()) {
+            // Also what a trial account gets: the row is shown locked, and
+            // asking anyway is answered with an empty list, not an error.
+            Log.i(TAG, "No P2P exit peer is available in \"" + region + "\" right now");
+            return false;
+        }
+
+        int attempts = 0;
+        for (RelayInfo exit : exits) {
+            if (stopping || attempts++ >= MAX_RELAY_ATTEMPTS) break;
+            Log.i(TAG, "Connecting out through peer " + exit.nodeId + " in " + region);
+            stopRelayConnector();
+            try {
+                P2pRelayConnector connector = P2pRelayConnector.forExit(
+                        new ApiClientSignaling(apiClient), peerConnectionFactory(), exit.nodeId);
+                int localPort = connector.start();
+                relayConnector = connector;
+
+                ensureTunEstablished();
+                XrayInvoker.registerDialerController(this);
+                XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
+                XrayInvoker.runXray(XrayConfigFactory.buildP2pExit(
+                        tunInterface.getFd(), TUN_MTU, ensureGeoAssetsExtracted(), "127.0.0.1", localPort));
+
+                p2pExitRegion = region;
+                if (backoffPolicy != null) backoffPolicy.onSuccess();
+                transition(ConnectionEvent.TUNNEL_UP);
+                // Labelled as what it is: the exit is a person's own
+                // connection, so the speed is their uplink and the IP is
+                // residential. Presenting it as an ordinary region would set
+                // the wrong expectation.
+                VpnStatusBus.activeRegion.postValue(getString(R.string.region_p2p_exit, region));
+                updateNotification();
+                mainHandler.postDelayed(healthCheck, 30_000);
+                registerOrTouchDevice();
+                return true;
+            } catch (Exception e) {
+                Log.w(TAG, "P2P exit peer " + exit.nodeId + " did not work out", e);
+                DiagnosticsReporter.warn("p2p-exit", "EXIT_CONNECT_FAILED",
+                        "Could not connect out through P2P exit peer " + exit.nodeId);
+                stopRelayConnector();
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A P2P exit session that dropped. There is no node list to advance and
+     * no transport to fall back through here — only a different peer can
+     * change the outcome, so this tears the session down and starts looking
+     * for one.
+     */
+    private void handleP2pExitFailure() {
+        String region = p2pExitRegion;
+        if (stopping || region == null) return;
+
+        XrayInvoker.stopXray();
+        stopRelayConnector();
+
+        transition(ConnectionEvent.TUNNEL_DOWN);
+        updateNotification();
+        worker.execute(() -> retryP2pExit(region));
+    }
+
+    /**
+     * Works down the peers in that region, and keeps coming back to it for as
+     * long as none of them works — rather than quietly moving the user onto
+     * our own servers mid-session. They chose this exit, and a reconnect is
+     * not the moment to change what their traffic looks like from the
+     * outside; disconnecting is how they change their mind.
+     */
+    private void retryP2pExit(String region) {
+        // Cleared while an attempt is in flight so a failure inside it cannot
+        // re-enter handleP2pExitFailure; set back below if the attempt fails,
+        // so the session still counts as a P2P exit for whatever fails next.
+        p2pExitRegion = null;
+        if (stopping) return;
+        if (connectThroughP2pExit(region)) return;
+
+        p2pExitRegion = region;
+        // The wait goes on the handler, not on `worker`, which is a single
+        // thread: sleeping there would hold up whatever is queued behind it —
+        // including the disconnect the user just asked for.
+        p2pExitRetry = () -> {
+            if (!stopping) worker.execute(() -> retryP2pExit(region));
+        };
+        mainHandler.postDelayed(p2pExitRetry, P2P_EXIT_RETRY_DELAY_MS);
     }
 
     /**
@@ -438,13 +593,20 @@ public class XrayVpnService extends VpnService implements DialerController {
         }
 
         @Override
-        public void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed) {
-            apiClient.reportP2pSessionTraffic(sessionId, relayNodeId, bytesRelayed);
+        public void reportTraffic(String sessionId, long relayNodeId, long bytesRelayed, boolean exit) {
+            apiClient.reportP2pSessionTraffic(sessionId, relayNodeId, bytesRelayed, exit);
         }
     }
 
     private void handleFailure() {
         if (stopping) return;
+        // A P2P exit session has neither of the two things this method works
+        // with (a node list and a transport ladder) — and would read nodes.get(0)
+        // of an empty list on its way to finding that out.
+        if (p2pExitRegion != null) {
+            handleP2pExitFailure();
+            return;
+        }
 
         // Capture which node this failure is actually about before currentNodeIndex
         // potentially advances below — telemetry must be attributed to the node that
@@ -694,7 +856,12 @@ public class XrayVpnService extends VpnService implements DialerController {
 
     private void disconnect() {
         stopping = true;
+        p2pExitRegion = null;
         mainHandler.removeCallbacks(healthCheck);
+        if (p2pExitRetry != null) {
+            mainHandler.removeCallbacks(p2pExitRetry);
+            p2pExitRetry = null;
+        }
         stopRelayConnector();
         worker.execute(() -> {
             try {

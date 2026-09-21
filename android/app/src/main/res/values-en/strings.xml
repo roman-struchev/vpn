@@ -42,6 +42,8 @@
     <string name="region_picker_title">Connection region</string>
     <string name="region_auto">Auto (best available)</string>
     <string name="region_row_format">%1$s — %2$s (%3$d nodes)</string>
+    <!-- A P2P row counts people, not servers, and never carries a ping (a peer has no address to measure). -->
+    <string name="region_row_p2p_format">%1$s · P2P — %2$s (%3$d peers)</string>
     <string name="region_row_with_ping">%1$s — ⚡ %2$d ms • %3$s (%4$d nodes)</string>
     <string name="region_load_low">low load</string>
     <string name="region_load_medium">medium load</string>
@@ -89,6 +91,11 @@
     <string name="tariff_basic">Basic</string>
     <string name="tariff_pro">Pro</string>
     <string name="region_via_peer">%1$s (via peer)</string>
+    <!-- The exit itself is another member's device, not just a hop to our node — see region_via_peer. -->
+    <string name="region_p2p_exit">%1$s · P2P</string>
+    <string name="region_p2p_badge">P2P</string>
+    <string name="region_peer_count_suffix">peers</string>
+    <string name="region_p2p_notice">Exits through another member’s device: a home IP in that country, at the speed of their connection. Paid plans only.</string>
     <string name="profile_plan_title">Your plan</string>
     <string name="profile_plan_none">No plan selected</string>
     <string name="profile_plan_free">%1$s · free</string>
@@ -134,10 +141,10 @@
     <!-- P2P relay (was missing here, so English UI fell back to Russian) -->
     <string name="profile_p2p_relay">P2P mode (earn traffic by relaying)</string>
     <string name="p2p_relay_title">P2P mode</string>
-    <string name="p2p_relay_explanation" formatted="false">Allow the app to relay other users\' encrypted traffic through your device and earn extra traffic for your balance — works even on the free plan. Your device can\'t see or read anyone else\'s traffic, and it never acts as the exit point to the internet.</string>
+    <string name="p2p_relay_explanation" formatted="false">Allow the app to carry other users\' traffic through your device and earn extra traffic for your balance — works even on the free plan. Your device can\'t see or read the contents, but paid-plan users can pick it as their exit to the internet, and your IP address is then the source of those requests.</string>
     <string name="p2p_relay_terms_link">P2P mode terms and risks</string>
     <string name="p2p_relay_consent_title">Turn P2P mode on?</string>
-    <string name="p2p_relay_consent_message">Your device will relay other users\' encrypted traffic. You can\'t see or read that traffic, and your device never becomes the exit to the internet. It does use your data and battery. We\'ll ask only once — you can turn the mode off at any time without confirming.</string>
+    <string name="p2p_relay_consent_message">Your device will carry other users\' traffic. You can\'t see or read its contents. Note: paid-plan users can pick your device as their exit, and the sites they open then see your IP address as the source of the requests, with everything that follows from that (abuse complaints to your provider, CAPTCHAs on ordinary sites). It does use your data and battery. We\'ll ask only once — you can turn the mode off at any time without confirming.</string>
     <string name="p2p_relay_consent_accept">Accept and turn on</string>
     <string name="p2p_relay_region_format">Node location: %1$s</string>
     <string name="p2p_relay_expires_at_format">Active until %1$s</string>

@@ -58,6 +58,21 @@ class P2pRelayControllerTest {
         lenient().when(auth.getPrincipal()).thenReturn(CALLER_ID);
         lenient().when(nodeManagementService.isOwnRelayDevice(OWN_NODE_ID, CALLER_ID)).thenReturn(true);
         lenient().when(nodeManagementService.isOwnRelayDevice(SOMEBODY_ELSES_NODE_ID, CALLER_ID)).thenReturn(false);
+        // Availability is its own rule with its own tests (P2pRelayDirectoryTest);
+        // here it is satisfied so the session-ownership rules stay in view.
+        lenient().when(relayDirectory.mayConnectThrough(anyLong(), anyLong())).thenReturn(true);
+    }
+
+    @Test
+    void testSignalToAPeerOutsideTheCallersPlanIsRefused() {
+        // The lists a client is shown are not the enforcement: a caller can
+        // name any node id, so the check has to live here.
+        when(relayDirectory.mayConnectThrough(CALLER_ID, SOMEBODY_ELSES_NODE_ID)).thenReturn(false);
+
+        ResponseEntity<?> response = controller.sendSignal(SOMEBODY_ELSES_NODE_ID, signalBody(), auth);
+
+        assertEquals(403, response.getStatusCode().value());
+        verify(agentStreamService, never()).sendSignalToNode(anyLong(), anyString(), any());
     }
 
     private static Map<String, String> signalBody() {
@@ -150,7 +165,7 @@ class P2pRelayControllerTest {
                 "s-2", Map.of("nodeId", OWN_NODE_ID, "bytesRelayed", 1024), auth);
 
         assertEquals(403, response.getStatusCode().value());
-        verify(p2pRelayAccountingService, never()).recordClientReport(anyLong(), anyString(), anyLong());
+        verify(p2pRelayAccountingService, never()).recordClientReport(anyLong(), anyString(), anyLong(), any(), anyBoolean());
     }
 
     @Test
@@ -159,6 +174,6 @@ class P2pRelayControllerTest {
                 "s-3", Map.of("nodeId", SOMEBODY_ELSES_NODE_ID, "bytesRelayed", 2048), auth);
 
         assertEquals(200, response.getStatusCode().value());
-        verify(p2pRelayAccountingService).recordClientReport(SOMEBODY_ELSES_NODE_ID, "s-3", 2048L);
+        verify(p2pRelayAccountingService).recordClientReport(SOMEBODY_ELSES_NODE_ID, "s-3", 2048L, CALLER_ID, false);
     }
 }

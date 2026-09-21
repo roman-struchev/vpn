@@ -174,6 +174,64 @@ export function buildXrayConfig(
   };
 }
 
+/**
+ * The config for a connection whose exit is another user's device (docs/
+ * research/P2P_RELAY_FEASIBILITY.md §8.9) rather than a node of ours.
+ *
+ * Same inbounds, same routing, same DNS as {@link buildXrayConfig} — the only
+ * difference is where matched traffic goes: a SOCKS5 outbound pointed at the
+ * local P2P bridge (main/p2p/relayClient.ts), which turns each connection
+ * into its own WebRTC session to the peer, who dials the destination itself.
+ * There is no VLESS/Reality outbound at all here, because there is no node of
+ * ours in the path to speak it to; the hop to the peer is encrypted by
+ * WebRTC's own DTLS.
+ *
+ * UDP is blocked outright rather than left to fail late. A peer forwards a
+ * TCP stream and nothing else (see the relay agents), and a SOCKS5 outbound
+ * with no UDP ASSOCIATE behind it would otherwise let QUIC look available and
+ * then black-hole it — the classic "browser works, some sites just hang".
+ * DNS is unaffected: it is answered locally over DoH, which is TCP.
+ */
+export function buildP2pExitConfig(
+  bridge: { host: string; port: number },
+  options?: XrayConfigOptions
+): object {
+  const base = buildXrayConfig(
+    // A placeholder vless target that is never dialed: the outbound below
+    // replaces the proxy entirely. Kept rather than restructuring
+    // buildXrayConfig so the two configs cannot drift in their inbounds,
+    // DNS, or RU-routing rules, which are what users actually notice.
+    { host: '127.0.0.1', port: 1, uuid: '00000000-0000-0000-0000-000000000000', params: {}, remark: '' } as ParsedVlessUri,
+    'firefox',
+    'XHTTP',
+    undefined,
+    options
+  ) as {
+    outbounds: { tag?: string }[];
+    routing: { rules: object[] };
+  };
+
+  base.outbounds = base.outbounds.map((outbound) =>
+    outbound.tag === PROXY_OUTBOUND_TAG
+      ? {
+          tag: PROXY_OUTBOUND_TAG,
+          protocol: 'socks',
+          settings: { servers: [{ address: bridge.host, port: bridge.port }] },
+        }
+      : outbound
+  );
+
+  base.routing.rules = [
+    // Ahead of everything else, including the DNS rule: that one only catches
+    // UDP:53 from our own inbounds, and what must not happen is any *other*
+    // UDP reaching the socks outbound.
+    { type: 'field', network: 'udp', port: '1-52,54-65535', outboundTag: BLOCK_OUTBOUND_TAG },
+    ...base.routing.rules,
+  ];
+
+  return base;
+}
+
 function buildProxyOutbound(
   vless: ParsedVlessUri,
   fingerprint: Fingerprint,

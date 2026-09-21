@@ -7,6 +7,7 @@ import com.vpn.android.api.model.AuthResponse;
 import com.vpn.android.api.model.DeviceDto;
 import com.vpn.android.api.model.P2pStatusResponse;
 import com.vpn.android.api.model.RegionInfo;
+import com.vpn.android.api.model.ExitsResponse;
 import com.vpn.android.api.model.RelayInfo;
 import com.vpn.android.api.model.RelaysResponse;
 import com.vpn.android.api.model.TariffInfo;
@@ -261,6 +262,22 @@ public class ApiClient {
         return resp != null && resp.relays != null ? resp.relays : List.of();
     }
 
+    /**
+     * Peers this account may use as an *exit* in that region — the traffic
+     * leaves for the internet from their device, under their IP. This is what
+     * the user picked when they chose a P2P row in the region list.
+     *
+     * Empty on a trial plan: P2P exits are a paid-plan feature and the row is
+     * shown locked there, so "nobody available" is the honest answer rather
+     * than an error.
+     */
+    public List<RelayInfo> getP2pExits(String region) throws ApiException, IOException {
+        ExitsResponse resp = get(
+                "api/v1/user/p2p/exits?region=" + java.net.URLEncoder.encode(region, "UTF-8"),
+                ExitsResponse.class);
+        return resp != null && resp.exits != null ? resp.exits : List.of();
+    }
+
     /** Hands one signaling payload to a relay; its replies are collected by pollP2pSignal. */
     public void sendP2pSignal(long relayNodeId, String sessionId, byte[] payload) throws ApiException, IOException {
         JsonObject body = new JsonObject();
@@ -279,10 +296,13 @@ public class ApiClient {
     }
 
     /** The client half of the dual traffic report that pays the relay's owner. */
-    public void reportP2pSessionTraffic(String sessionId, long relayNodeId, long bytesRelayed) {
+    public void reportP2pSessionTraffic(String sessionId, long relayNodeId, long bytesRelayed, boolean exit) {
         JsonObject body = new JsonObject();
         body.addProperty("nodeId", relayNodeId);
         body.addProperty("bytesRelayed", bytesRelayed);
+        // Exit sessions touch no node of ours, so this flag is the only thing
+        // that puts their bytes on this account's quota server-side.
+        body.addProperty("exit", exit);
         try {
             post("api/v1/user/p2p/sessions/" + sessionId + "/traffic-report", body, JsonObject.class, true);
         } catch (Exception ignored) {
@@ -319,6 +339,11 @@ public class ApiClient {
      */
     public int pingSelectedRegion(String region) {
         if (region == null || region.isBlank()) {
+            return -1;
+        }
+        // A P2P exit has nothing to measure this way: a peer is reached over
+        // WebRTC and its address is deliberately never handed out.
+        if (com.vpn.android.util.RegionKey.isP2p(region)) {
             return -1;
         }
         try {

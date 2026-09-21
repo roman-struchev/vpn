@@ -108,8 +108,39 @@ public class SubscriptionExportService {
             // unlocks) — a client greys these out / disables picking them instead of
             // removing them, rather than reporting a misleading "temporarily
             // unavailable" the way silently connecting elsewhere used to.
-            boolean accessible
+            boolean accessible,
+            // Stable identity of this row, and what a client persists as "the
+            // region the user picked" — NOT {@link #region}, which is only a
+            // display label now. A region can appear twice: once as regular VPS
+            // capacity and once as P2P exit capacity (peers happen to live in
+            // countries we also rent servers in), and those are two different
+            // things to connect to. See {@link #keyFor}.
+            String key,
+            // A P2P exit row: the traffic leaves for the internet from another
+            // user's own device, not from our infrastructure (docs/research/
+            // P2P_RELAY_FEASIBILITY.md §8.9). Clients label these distinctly —
+            // the exit IP is residential, the throughput is whatever that
+            // person's uplink is, and it is a paid-plan feature.
+            boolean p2p
     ) {}
+
+    /** Prefix that makes a P2P exit row's {@link RegionSummary#key} distinct from the same region's VPS row. */
+    public static final String P2P_KEY_PREFIX = "p2p:";
+
+    /** The selection key a client stores and sends back — see {@link RegionSummary#key}. */
+    public static String keyFor(String region, boolean p2p) {
+        return p2p ? P2P_KEY_PREFIX + region : region;
+    }
+
+    /** Whether a client-supplied selection key names a P2P exit rather than a region of ours. */
+    public static boolean isP2pKey(String key) {
+        return key != null && key.startsWith(P2P_KEY_PREFIX);
+    }
+
+    /** The bare region inside a selection key, P2P-prefixed or not. */
+    public static String regionFromKey(String key) {
+        return isP2pKey(key) ? key.substring(P2P_KEY_PREFIX.length()) : key;
+    }
 
     /**
      * Lists every region that currently has at least one ONLINE node, regardless
@@ -144,31 +175,20 @@ public class SubscriptionExportService {
         // node via this path yet, so it shouldn't count as real capacity here.
         boolean ownPoolHasCapacity = !findAccessibleOnlineNodesForVless(userId, effectiveTariff).isEmpty();
 
-        // Only nodes a client can actually connect through today.
-        //
-        // The caller's own relay device is not a region they can pick (see
+        // Never the caller's own relay device, whatever else it is (see
         // Node#isOwnRelayDeviceOf) — without that filter, turning P2P mode on
-        // made your own laptop show up as a connection region in your own app.
-        //
-        // Neither is anybody else's — and this stays true now that clients do
-        // implement the connecting half (XrayVpnService#tryRelayedConnection,
-        // desktop's relay client). A relay is a *path* to a node, not an exit:
-        // the client names the node it wants in its own offer and the tunnel is
-        // still negotiated end-to-end with that node, so a relay has no region
-        // of its own to sell. Clients get them from P2pRelayDirectory
-        // (GET /p2p/relays) and use them as a last-resort path when the network
-        // blocks dialing a node directly — never as something a user picks
-        // here, which is also why findAccessibleOnlineNodesForVless hands out
-        // no p2p node.
-        //
-        // Keeping them out matters for what the user sees, too: `accessible`
-        // below requires a non-p2p node, so a p2p-only region came back locked
-        // no matter what plan the caller was on, and the clients render every
-        // locked row as "requires a paid plan" — telling a Pro subscriber to
-        // upgrade for a region no tariff can unlock. A relayed connection
-        // instead shows up as the real node's region labelled "via peer".
-        List<Node> activeNodes = nodeRepository.findByStatus("ONLINE").stream()
+        // made your own laptop show up as a connection point in your own app.
+        List<Node> onlineNodes = nodeRepository.findByStatus("ONLINE").stream()
                 .filter(n -> !n.isOwnRelayDeviceOf(userId))
+                .toList();
+
+        // The VPS rows. P2P nodes are summarised separately below rather than
+        // folded in here: their load figures are meaningless (a phone reports
+        // no CPU/memory), their access rule is the tariff's paid/trial split
+        // rather than per-node pool flags, and — the point of the split — a
+        // region can now carry both kinds at once, which is two different
+        // things to connect to under one label.
+        List<Node> activeNodes = onlineNodes.stream()
                 .filter(n -> !n.isP2p())
                 .toList();
 
@@ -213,9 +233,71 @@ public class SubscriptionExportService {
             summaries.add(new RegionSummary(entry.getKey(), nodes.size(), avgCpu, avgConnections,
                     avgBytesPerSec, avgMemoryPercent,
                     loadLevelFor(avgCpu, avgConnections, avgBytesPerSec, avgMemoryPercent),
-                    accessible));
+                    accessible, keyFor(entry.getKey(), false), false));
         }
-        summaries.sort(Comparator.comparing(RegionSummary::region));
+
+        summaries.addAll(p2pExitSummaries(onlineNodes, effectiveTariff));
+
+        // Region first (so the two kinds of a given country sit together),
+        // then key — which puts the VPS row ahead of the "p2p:"-prefixed one.
+        summaries.sort(Comparator.comparing(RegionSummary::region).thenComparing(RegionSummary::key));
+        return summaries;
+    }
+
+    /**
+     * The P2P exit rows: one per region that currently has at least one peer
+     * willing to carry traffic out to the internet for somebody else
+     * (docs/research/P2P_RELAY_FEASIBILITY.md §8.9).
+     *
+     * A P2P exit is a different product from a VPS region and is summarised
+     * differently on purpose:
+     *
+     * <ul>
+     *   <li><b>Access is the tariff's paid/trial split, not the node's pool
+     *       flags.</b> A peer does not belong to a pool anyone provisioned —
+     *       it is somebody's phone. Trial accounts see the row locked (the
+     *       clients' padlock) rather than hidden, which is the same upsell
+     *       treatment paid VPS regions already get.</li>
+     *   <li><b>No CPU/memory figures.</b> A relay agent reports neither (see
+     *       the admin node table, where a p2p row shows "CPU: 0% / Mem: —"),
+     *       so publishing an averaged 0% here would read as "idle and fast"
+     *       when it actually means "not measured". The load hint is derived
+     *       from how many sessions the peers are already carrying, which is
+     *       the one signal that is real.</li>
+     *   <li><b>Grouped by region, not listed per device.</b> Nobody picks a
+     *       stranger's particular phone; they pick "somewhere in Montenegro,
+     *       through a person rather than a server". The client asks
+     *       {@code GET /p2p/exits?region=...} for the actual peers and works
+     *       down that list, so one peer going offline mid-session is a
+     *       reconnect rather than a dead row in the picker.</li>
+     * </ul>
+     */
+    private List<RegionSummary> p2pExitSummaries(List<Node> onlineNodes, Tariff effectiveTariff) {
+        String pool = (effectiveTariff != null && effectiveTariff.getServerPool() != null)
+                ? effectiveTariff.getServerPool() : "paid";
+        boolean trial = "trial".equalsIgnoreCase(pool);
+
+        Map<String, List<Node>> byRegion = onlineNodes.stream()
+                .filter(Node::isP2p)
+                // A lapsed TIMED window means this peer is not offering itself
+                // any more, even though its last heartbeat left it ONLINE —
+                // same gate P2pRelayDirectory applies before handing one out.
+                .filter(Node::isEligibleForRelay)
+                .filter(n -> n.getRegion() != null && !n.getRegion().isBlank())
+                .collect(Collectors.groupingBy(Node::getRegion, LinkedHashMap::new, Collectors.toList()));
+
+        List<RegionSummary> summaries = new ArrayList<>();
+        for (Map.Entry<String, List<Node>> entry : byRegion.entrySet()) {
+            List<Node> peers = entry.getValue();
+            long avgConnections = Math.round(peers.stream()
+                    .mapToInt(n -> n.getActiveConnections() != null ? n.getActiveConnections() : 0)
+                    .average()
+                    .orElse(0.0));
+            summaries.add(new RegionSummary(
+                    entry.getKey(), peers.size(), null, avgConnections, null, null,
+                    loadLevelFor(null, avgConnections, null, null),
+                    !trial, keyFor(entry.getKey(), true), true));
+        }
         return summaries;
     }
 

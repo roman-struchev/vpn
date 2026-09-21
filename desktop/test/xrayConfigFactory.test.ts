@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseVlessUri } from '../src/shared/vlessUri';
-import { buildXrayConfig, HTTP_PORT, SOCKS_PORT } from '../src/shared/xrayConfigFactory';
+import { buildP2pExitConfig, buildXrayConfig, HTTP_PORT, SOCKS_PORT } from '../src/shared/xrayConfigFactory';
 
 const LINK =
   'vless://d290f1ee-6c54-4b01-90e6-d701748f0851@203.0.113.10:443' +
@@ -118,5 +118,46 @@ describe('dialing a node through a P2P relay', () => {
 
     expect(outbound.settings.vnext[0].address).toBe('node.example.com');
     expect(outbound.settings.vnext[0].port).toBe(443);
+  });
+});
+
+describe('buildP2pExitConfig (another user\'s device as the exit)', () => {
+  it('routes everything into the local P2P bridge over SOCKS5, with no VLESS outbound at all', () => {
+    const config: any = buildP2pExitConfig({ host: '127.0.0.1', port: 34567 });
+
+    // There is no node of ours in this path to speak VLESS/Reality to: the
+    // peer dials the destination itself and the hop to it is DTLS.
+    expect(config.outbounds.some((o: any) => o.protocol === 'vless')).toBe(false);
+
+    const proxy = config.outbounds.find((o: any) => o.tag === 'proxy');
+    expect(proxy.protocol).toBe('socks');
+    expect(proxy.settings.servers[0]).toMatchObject({ address: '127.0.0.1', port: 34567 });
+    // Still the default route (first outbound), same as the VLESS config.
+    expect(config.outbounds[0].tag).toBe('proxy');
+  });
+
+  it('keeps the inbounds and DoH the ordinary config has', () => {
+    const config: any = buildP2pExitConfig({ host: '127.0.0.1', port: 1080 });
+
+    expect(config.inbounds.map((i: any) => i.tag)).toEqual(['socks-in', 'http-in']);
+    expect(config.inbounds[1].port).toBe(HTTP_PORT);
+    expect(config.dns.servers[0]).toContain('dns-query');
+  });
+
+  it('blocks UDP outright, since a peer forwards TCP and nothing else', () => {
+    const config: any = buildP2pExitConfig({ host: '127.0.0.1', port: 1080 });
+    const [first] = config.routing.rules;
+
+    // Ahead of every other rule, and carved around :53 so DNS still reaches
+    // the dns outbound (answered over DoH, which is TCP). Without this, QUIC
+    // would look available and then black-hole.
+    expect(first).toMatchObject({ network: 'udp', outboundTag: 'block' });
+    expect(first.port).toBe('1-52,54-65535');
+  });
+
+  it('still applies the RU routing mode the user chose', () => {
+    const config: any = buildP2pExitConfig({ host: '127.0.0.1', port: 1080 }, { russianRoutingMode: 'bypassRu' });
+
+    expect(config.routing.rules.some((r: any) => r.outboundTag === 'direct' && r.ip?.includes('geoip:ru'))).toBe(true);
   });
 });

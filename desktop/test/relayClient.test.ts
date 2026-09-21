@@ -20,7 +20,7 @@ import { decodeSignal, encodeSignal, type SignalEnvelope } from '../src/main/p2p
 class FakeBroker implements RelaySignalingApi {
   private readonly toClient: string[] = [];
   private readonly toRelay: string[] = [];
-  readonly trafficReports: { sessionId: string; nodeId: number; bytes: number }[] = [];
+  readonly trafficReports: { sessionId: string; nodeId: number; bytes: number; exit: boolean }[] = [];
   closedSessions: string[] = [];
   failSend = false;
 
@@ -43,13 +43,23 @@ class FakeBroker implements RelaySignalingApi {
     this.closedSessions.push(sessionId);
   }
 
-  async reportP2pSessionTraffic(sessionId: string, nodeId: number, bytesRelayed: number): Promise<void> {
-    this.trafficReports.push({ sessionId, nodeId, bytes: bytesRelayed });
+  async reportP2pSessionTraffic(sessionId: string, nodeId: number, bytesRelayed: number, exit: boolean): Promise<void> {
+    this.trafficReports.push({ sessionId, nodeId, bytes: bytesRelayed, exit });
   }
 
   /** The relay side of the broker. */
   pushToClient(envelope: SignalEnvelope): void {
     this.toClient.push(encodeSignal(envelope).toString('base64'));
+  }
+
+  /**
+   * Hands an envelope back unread. Only the harness needs this: a relay's
+   * trickle loop keeps draining the queue, and in SOCKS5 mode the *next*
+   * session's offer lands in that same queue — it belongs to the relay that
+   * has not been created yet, not to the one currently listening.
+   */
+  pushBackFromClient(envelope: SignalEnvelope): void {
+    this.toRelay.unshift(encodeSignal(envelope).toString('base64'));
   }
 
   async takeFromClient(timeoutMs = 3000): Promise<SignalEnvelope | null> {
@@ -109,6 +119,11 @@ class StubRelay {
       for (;;) {
         const envelope = await this.broker.takeFromClient(1500);
         if (!envelope) return;
+        if (envelope.kind === 'offer') {
+          // A new session, which is somebody else's to answer.
+          this.broker.pushBackFromClient(envelope);
+          return;
+        }
         if (envelope.kind === 'ice') {
           try {
             peer.addRemoteCandidate(envelope.candidate, envelope.sdpMid);
@@ -265,4 +280,95 @@ describe('P2pRelayBridge (connecting half of P2P relaying)', () => {
     expect(broker.closedSessions.length).toBeGreaterThan(0);
     client.destroy();
   }, 30000);
+
+  // ---- 'socks' mode: the peer is the exit, not a path to one of our nodes ----
+
+  it('takes the destination from each SOCKS5 request, so one peer serves every site', async () => {
+    const first = await startEchoServer((chunk) => Buffer.from(`first:${chunk}`));
+    const second = await startEchoServer((chunk) => Buffer.from(`second:${chunk}`));
+    cleanups.push(first.close, second.close);
+
+    const broker = new FakeBroker();
+    const bridge = new P2pRelayBridge(broker, 42, 'socks', { pollWaitMs: 500 });
+    cleanups.push(() => void bridge.stop());
+    const localPort = await bridge.start();
+
+    for (const [server, expected] of [
+      [first, 'first:hello'],
+      [second, 'second:hello'],
+    ] as const) {
+      const relay = new StubRelay(broker);
+      cleanups.push(() => relay.close());
+
+      const client = net.createConnection({ host: '127.0.0.1', port: localPort });
+      const chunks: Buffer[] = [];
+      client.on('data', (chunk) => chunks.push(chunk));
+
+      // Greeting, then CONNECT 127.0.0.1:<port> — what xray's socks outbound sends.
+      client.write(Buffer.from([0x05, 0x01, 0x00]));
+      await vi.waitFor(() => expect(chunks.length).toBeGreaterThan(0), { timeout: 5000 });
+      expect(chunks.shift()).toEqual(Buffer.from([0x05, 0x00]));
+
+      const request = Buffer.from([0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 0]);
+      request.writeUInt16BE(server.port, 8);
+      client.write(request);
+
+      await relay.run();
+
+      // The success reply only comes once the channel is open — an earlier one
+      // would have xray believe in a connection that may still fail.
+      await vi.waitFor(() => expect(chunks.length).toBeGreaterThan(0), { timeout: 15000 });
+      expect(chunks.shift()!.subarray(0, 2)).toEqual(Buffer.from([0x05, 0x00]));
+
+      // Each session went where ITS request asked, not to one fixed address.
+      expect(relay.dialedTarget).toEqual({ host: '127.0.0.1', port: server.port });
+
+      client.write('hello');
+      await vi.waitFor(() => expect(Buffer.concat(chunks).toString()).toBe(expected), { timeout: 15000 });
+      client.destroy();
+    }
+  }, 60000);
+
+  it('reports an exit session as one, so the bytes reach the caller\'s own quota', async () => {
+    const echo = await startEchoServer();
+    cleanups.push(echo.close);
+
+    const broker = new FakeBroker();
+    const relay = new StubRelay(broker);
+    cleanups.push(() => relay.close());
+
+    const bridge = new P2pRelayBridge(broker, 77, 'socks', { pollWaitMs: 500 });
+    const localPort = await bridge.start();
+
+    const client = net.createConnection({ host: '127.0.0.1', port: localPort });
+    client.write(Buffer.from([0x05, 0x01, 0x00]));
+    const request = Buffer.from([0x05, 0x01, 0x00, 0x01, 127, 0, 0, 1, 0, 0]);
+    request.writeUInt16BE(echo.port, 8);
+    client.write(request);
+
+    await relay.run();
+    await vi.waitFor(() => expect(relay.dialedTarget).not.toBeNull(), { timeout: 15000 });
+    client.write('0123456789');
+    client.destroy();
+
+    await vi.waitFor(() => expect(broker.trafficReports.length).toBeGreaterThan(0), { timeout: 15000 });
+    expect(broker.trafficReports.at(-1)!.exit).toBe(true);
+    await bridge.stop();
+  }, 30000);
+
+  it('drops a local client that is not speaking SOCKS5 rather than guessing', async () => {
+    const broker = new FakeBroker();
+    const bridge = new P2pRelayBridge(broker, 5, 'socks', { negotiationTimeoutMs: 500, pollWaitMs: 100 });
+    cleanups.push(() => void bridge.stop());
+    const localPort = await bridge.start();
+
+    const client = net.createConnection({ host: '127.0.0.1', port: localPort });
+    const closed = new Promise<void>((resolve) => client.on('close', () => resolve()));
+    client.write(Buffer.from([0x04, 0x01])); // SOCKS4, which we deliberately do not speak
+
+    await closed;
+    expect(bridge.activeSessions).toBe(0);
+    // Nothing was ever signalled: the destination was never established.
+    expect(await broker.takeFromClient(200)).toBeNull();
+  }, 20000);
 });

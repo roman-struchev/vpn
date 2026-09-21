@@ -10,7 +10,14 @@ import { ConnectionStateMachine } from '../../shared/connectionState';
 import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnectBackoffPolicy';
 import { TransportFallbackPolicy, type Transport } from '../../shared/transportFallbackPolicy';
 import { parseVlessUri, regionLabel, type ParsedVlessUri } from '../../shared/vlessUri';
-import { buildXrayConfig, HTTP_PORT, type GrpcFallback, type RussianRoutingMode } from '../../shared/xrayConfigFactory';
+import {
+  buildP2pExitConfig,
+  buildXrayConfig,
+  HTTP_PORT,
+  type GrpcFallback,
+  type RussianRoutingMode,
+} from '../../shared/xrayConfigFactory';
+import { isP2pRegionKey, regionFromKey } from '../../shared/regionKey';
 import { reportError } from '../diagnostics';
 import { P2pRelayBridge } from '../p2p/relayClient';
 
@@ -20,6 +27,13 @@ import { P2pRelayBridge } from '../p2p/relayClient';
  * longer wait for the same answer.
  */
 const MAX_RELAY_ATTEMPTS = 3;
+
+/**
+ * How long to wait before looking for P2P exit peers again once every one of
+ * them has failed. Long enough not to hammer the directory, short enough that
+ * a peer coming back online is picked up while the user is still waiting.
+ */
+const P2P_EXIT_RETRY_DELAY_MS = 15_000;
 
 export interface VpnControllerEvents {
   state: [ConnectionState];
@@ -43,9 +57,15 @@ export class VpnController extends EventEmitter {
   private nodeIndex = 0;
   private backoff: ReconnectBackoffPolicy | null = null;
   private transportFallback: TransportFallbackPolicy | null = null;
-  // The P2P hop, when one is in use: a local TCP bridge that forwards this
-  // connection to the node through somebody else's device.
+  // The P2P hop, when one is in use: a local bridge that carries this
+  // connection over somebody else's device — either to one of our nodes (the
+  // blocked-network fallback) or all the way out to the internet (a P2P exit
+  // the user picked).
   private relayBridge: P2pRelayBridge | null = null;
+  // Set for as long as the session is a P2P exit, and the flag the failure
+  // path keys off: there is no node list to walk and no transport to fall
+  // back through in that mode, only other peers in the same region.
+  private p2pExitRegion: string | null = null;
   private grpcByHost = new Map<string, GrpcFallback>();
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
@@ -113,12 +133,32 @@ export class VpnController extends EventEmitter {
       // fix that only ever got registered *after* a tunnel came up.
       await this.registerOrTouchDevice();
 
+      // A P2P exit is its own kind of session, not a region of ours: no
+      // subscription links, no node list, no transport fallback — just peers
+      // in that region, tried in turn.
+      const selection = this.apiClient.getSelectedRegion();
+      if (isP2pRegionKey(selection)) {
+        const region = regionFromKey(selection as string);
+        if (await this.connectThroughP2pExit(region)) {
+          this.emit('regionFallback', false);
+          return;
+        }
+        // Nobody in that region could carry it. Falling through to our own
+        // servers keeps the user connected, which is what they asked for
+        // first — and regionFallback is how the UI says the pick was not
+        // honoured, rather than leaving them to wonder why the exit IP is
+        // suddenly a datacenter's.
+        console.warn(`No P2P peer in "${region}" could carry the connection; falling back to our own nodes`);
+      }
+
       const preferredRegion = await this.resolvePreferredRegion();
       const [policy, linksResp] = await Promise.all([
         this.apiClient.getRoutingConfig(null, null),
         this.apiClient.getSubscriptionLinks(preferredRegion),
       ]);
-      const regionFellBack = Boolean(preferredRegion) && linksResp.requestedRegionAvailable === false;
+      const regionFellBack =
+        isP2pRegionKey(selection) ||
+        (Boolean(preferredRegion) && linksResp.requestedRegionAvailable === false);
       if (regionFellBack) {
         // Sane fallback (per the region-picker spec): the server already
         // substituted the full node list, so connect() proceeds normally —
@@ -182,13 +222,18 @@ export class VpnController extends EventEmitter {
    * info in the renderer, not silently pretended to work here.
    */
   private async resolvePreferredRegion(): Promise<string | null> {
-    const manualRegion = this.apiClient.getSelectedRegion();
+    // A P2P pick never reaches here (connect() handles it and returns), so
+    // whatever is stored at this point is a plain region of ours — except
+    // after a P2P attempt that found nobody, where the fallback is
+    // deliberately "any region" rather than that region's servers.
+    const stored = this.apiClient.getSelectedRegion();
+    const manualRegion = isP2pRegionKey(stored) ? null : stored;
     if (this.russianRoutingMode !== 'onlyRu' || manualRegion) {
       return manualRegion;
     }
     try {
       const regions = await this.apiClient.getRegions();
-      const ruRegion = regions.find((r) => r.accessible && /russia/i.test(r.region));
+      const ruRegion = regions.find((r) => r.accessible && !r.p2p && /russia/i.test(r.region));
       if (ruRegion) return ruRegion.region;
       console.warn('RU-only routing mode is active but no Russian-region node is currently online; connecting without a region preference.');
     } catch (e) {
@@ -204,6 +249,7 @@ export class VpnController extends EventEmitter {
       this.retryTimer = null;
     }
     this.xrayProcess.stop();
+    this.p2pExitRegion = null;
     await this.teardownRelayBridge();
     try {
       await this.systemProxy.disable();
@@ -255,6 +301,112 @@ export class VpnController extends EventEmitter {
       console.warn(`Tunnel start failed on node ${this.nodeIndex} (transport=${transport})`, e);
       await this.handleFailure();
     }
+  }
+
+  /**
+   * Connects with another user's device as the *exit* — the session the user
+   * asked for by picking a P2P row in the region list (docs/research/
+   * P2P_RELAY_FEASIBILITY.md §8.9).
+   *
+   * Nothing of ours is in the path: xray's outbound is a SOCKS5 hop into the
+   * local bridge, each connection becomes its own WebRTC session, and the
+   * peer opens the TCP connection to the site itself. So the exit IP is that
+   * person's, which is the entire point — and also why the peers are tried in
+   * turn rather than a single one being trusted: they are phones and laptops,
+   * and one going offline mid-attempt is ordinary.
+   */
+  private async connectThroughP2pExit(region: string): Promise<boolean> {
+    let exits: { nodeId: number; region: string | null }[];
+    try {
+      exits = await this.apiClient.getP2pExits(region);
+    } catch (e) {
+      reportError('p2p-exit', 'EXIT_LOOKUP_FAILED', 'Could not look up P2P exit peers', e);
+      console.warn('Could not look up P2P exit peers', e);
+      return false;
+    }
+    if (!exits.length) {
+      // Also what a trial account gets: the row is shown locked, and asking
+      // anyway is answered with an empty list rather than an error.
+      console.log(`No P2P exit peer is available in "${region}" right now`);
+      return false;
+    }
+
+    for (const exit of exits.slice(0, MAX_RELAY_ATTEMPTS)) {
+      if (this.stopping) return false;
+      console.log(`Connecting out through peer ${exit.nodeId} in ${exit.region ?? region}`);
+      await this.teardownRelayBridge();
+
+      const bridge = new P2pRelayBridge(this.apiClient, exit.nodeId, 'socks');
+      try {
+        const localPort = await bridge.start();
+        this.relayBridge = bridge;
+
+        this.xrayProcess.start(
+          buildP2pExitConfig({ host: '127.0.0.1', port: localPort }, { russianRoutingMode: this.russianRoutingMode }),
+          (code, signal) => this.onXrayExit(code, signal)
+        );
+
+        const ready = await waitForPortOpen(HTTP_PORT);
+        if (!ready) {
+          this.xrayProcess.stop();
+          throw new Error('xray did not start listening in time on the P2P exit');
+        }
+        await this.systemProxy.enable();
+
+        this.p2pExitRegion = region;
+        this.transition('TUNNEL_UP');
+        // Labelled as what it is: the exit is a person's own connection, so
+        // the speed is their uplink and the IP is residential. Presenting it
+        // as an ordinary region would set the wrong expectation.
+        this.emit('region', `${region} (P2P)`);
+        void this.registerOrTouchDevice();
+        return true;
+      } catch (e) {
+        console.warn(`P2P exit peer ${exit.nodeId} did not work out`, e);
+        reportError('p2p-exit', 'EXIT_CONNECT_FAILED', 'Could not connect out through a P2P exit peer', e, {
+          exitNodeId: String(exit.nodeId),
+        });
+        await this.teardownRelayBridge();
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A P2P exit session that dropped. There is no node list to advance and no
+   * transport to fall back through here — the only thing that can change the
+   * outcome is a different peer, so this tears the session down and starts
+   * looking for one.
+   */
+  private async handleP2pExitFailure(): Promise<void> {
+    const region = this.p2pExitRegion;
+    if (this.stopping || !region) return;
+
+    this.xrayProcess.stop();
+    await this.teardownRelayBridge();
+    this.transition('TUNNEL_DOWN');
+    await this.retryP2pExit(region);
+  }
+
+  /**
+   * Works down the peers in that region, and keeps coming back to it on a
+   * timer for as long as none of them works — rather than silently moving
+   * the user onto our own servers mid-session. They chose this exit, and a
+   * reconnect is not the moment to quietly change what their traffic looks
+   * like from the outside; disconnecting is how they change their mind.
+   */
+  private async retryP2pExit(region: string): Promise<void> {
+    // Cleared while an attempt is in flight so a failure inside it cannot
+    // re-enter handleP2pExitFailure; set back below if the attempt fails, so
+    // this session still counts as a P2P exit for whatever fails next.
+    this.p2pExitRegion = null;
+    if (this.stopping) return;
+    if (await this.connectThroughP2pExit(region)) return;
+
+    this.p2pExitRegion = region;
+    this.retryTimer = setTimeout(() => {
+      if (!this.stopping) void this.retryP2pExit(region);
+    }, P2P_EXIT_RETRY_DELAY_MS);
   }
 
   /**
@@ -343,9 +495,14 @@ export class VpnController extends EventEmitter {
     }
   }
 
-  /** Whether this connection currently runs through another user's device. */
+  /** Whether this connection currently runs through another user's device, as a path or as the exit. */
   isRelayed(): boolean {
     return this.relayBridge !== null;
+  }
+
+  /** Whether another user's device is the exit for this connection (not merely a hop to one of our nodes). */
+  isP2pExit(): boolean {
+    return this.p2pExitRegion !== null;
   }
 
   private onXrayExit(code: number | null, signal: NodeJS.Signals | null): void {
@@ -358,7 +515,15 @@ export class VpnController extends EventEmitter {
   }
 
   private async handleFailure(): Promise<void> {
-    if (this.stopping || !this.backoff || !this.transportFallback) return;
+    if (this.stopping) return;
+    // A P2P exit session has neither of the two things this method works
+    // with (a node list and a transport ladder) — and would read
+    // this.nodes[0] of an empty array on its way to finding that out.
+    if (this.p2pExitRegion) {
+      await this.handleP2pExitFailure();
+      return;
+    }
+    if (!this.backoff || !this.transportFallback) return;
 
     // Capture which node this failure is actually about before nodeIndex
     // potentially advances below — telemetry must be attributed to the node
