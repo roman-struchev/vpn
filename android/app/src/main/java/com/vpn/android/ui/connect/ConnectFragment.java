@@ -54,9 +54,10 @@ public class ConnectFragment extends Fragment {
     private final Map<String, Integer> regionPings = new ConcurrentHashMap<>();
     private boolean isGuest = false;
     private final android.os.Handler trafficRefreshHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    // Silent 60s background poll while this screen is visible, on top of the
-    // manual refreshUsageButton — traffic usage otherwise only ever loaded
-    // once on fragment creation, same fix as the desktop client's.
+    // Silent 60s background poll while this screen is visible — traffic usage
+    // is otherwise only ever loaded once on fragment creation. This is also
+    // why there is no "refresh" button next to the figure any more: it did
+    // what this already does, a minute sooner at most.
     private final Runnable trafficRefreshRunnable = new Runnable() {
         @Override
         public void run() {
@@ -118,14 +119,6 @@ public class ConnectFragment extends Fragment {
         });
 
         VpnStatusBus.state.observe(getViewLifecycleOwner(), this::renderState);
-        VpnStatusBus.activeRegion.observe(getViewLifecycleOwner(), region -> {
-            if (region != null && !region.isEmpty()) {
-                binding.regionText.setVisibility(View.VISIBLE);
-                binding.regionText.setText(getString(R.string.current_node_region, region));
-            } else {
-                binding.regionText.setVisibility(View.GONE);
-            }
-        });
         VpnStatusBus.regionFallback.observe(getViewLifecycleOwner(), fellBack -> {
             if (!Boolean.TRUE.equals(fellBack)) {
                 binding.regionFallbackNotice.setVisibility(View.GONE);
@@ -145,7 +138,6 @@ public class ConnectFragment extends Fragment {
             binding.regionFallbackNotice.setVisibility(View.VISIBLE);
         });
 
-        binding.refreshUsageButton.setOnClickListener(v -> refreshProfileManually());
 
         renderSelectedRegion();
         loadProfile();
@@ -219,6 +211,11 @@ public class ConnectFragment extends Fragment {
                 ? R.string.russian_routing_only_ru_desc
                 : R.string.russian_routing_off_desc;
         binding.russianRoutingDescText.setText(descRes);
+        // Nothing to explain about the default: "every site goes through the
+        // VPN" is what a VPN does. The line is for the two modes that change
+        // that, so it only appears once one of them is picked.
+        binding.russianRoutingDescText.setVisibility(
+                TokenStore.RUSSIAN_ROUTING_OFF.equals(mode) ? View.GONE : View.VISIBLE);
         updateRussianRoutingWarning();
     }
 
@@ -342,9 +339,18 @@ public class ConnectFragment extends Fragment {
                         Toast.makeText(requireContext(), R.string.region_locked_toast, Toast.LENGTH_SHORT).show();
                         return;
                     }
-                    tokenStore.saveSelectedRegion(values.get(which));
+                    String picked = values.get(which);
+                    tokenStore.saveSelectedRegion(picked);
                     renderSelectedRegion();
                     loadSelectedRegionPing(); // the number on the row belongs to the newly picked region now
+                    // Picking a P2P row means browsing out through a
+                    // stranger's phone: a home IP, at the speed of their
+                    // uplink. The person lending the device gets a whole
+                    // consent dialog; the person choosing one was told
+                    // nothing but the letters "P2P" on the row.
+                    if (RegionKey.isP2p(picked)) {
+                        Toast.makeText(requireContext(), R.string.region_p2p_notice, Toast.LENGTH_LONG).show();
+                    }
                     reconnectIfActive();
                     dialog.dismiss();
                 })
@@ -360,31 +366,6 @@ public class ConnectFragment extends Fragment {
 
     private void loadProfile() {
         loadProfile(null);
-    }
-
-    // Minimum time the spinner stays visible: the profile call is often fast enough that the
-    // button would otherwise just flicker, which reads as "the tap did nothing".
-    private static final long MANUAL_REFRESH_MIN_SPINNER_MS = 600;
-
-    /** Refresh button: spinner in place of the button while loading, plus explicit success/failure feedback. */
-    private void refreshProfileManually() {
-        if (binding == null || binding.refreshUsageProgress.getVisibility() == View.VISIBLE) return;
-        binding.refreshUsageButton.setVisibility(View.INVISIBLE);
-        binding.refreshUsageButton.setEnabled(false);
-        binding.refreshUsageProgress.setVisibility(View.VISIBLE);
-        long startedAt = android.os.SystemClock.elapsedRealtime();
-        loadProfile(success -> {
-            long remaining = MANUAL_REFRESH_MIN_SPINNER_MS - (android.os.SystemClock.elapsedRealtime() - startedAt);
-            trafficRefreshHandler.postDelayed(() -> {
-                if (binding == null) return;
-                binding.refreshUsageProgress.setVisibility(View.GONE);
-                binding.refreshUsageButton.setVisibility(View.VISIBLE);
-                binding.refreshUsageButton.setEnabled(true);
-                Toast.makeText(requireContext(),
-                        success ? R.string.refresh_usage_done : R.string.refresh_usage_failed,
-                        Toast.LENGTH_SHORT).show();
-            }, Math.max(0, remaining));
-        });
     }
 
     private void loadProfile(@androidx.annotation.Nullable java.util.function.Consumer<Boolean> onDone) {

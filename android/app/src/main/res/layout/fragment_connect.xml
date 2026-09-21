@@ -20,14 +20,6 @@
             android:textAppearance="?attr/textAppearanceHeadlineSmall"
             android:text="@string/state_disconnected" />
 
-        <TextView
-            android:id="@+id/regionText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textAppearance="?attr/textAppearanceBodyMedium"
-            android:visibility="gone" />
-
         <androidx.cardview.widget.CardView
             android:id="@+id/regionCard"
             android:layout_width="match_parent"
@@ -144,34 +136,6 @@
                         android:layout_weight="1"
                         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
-                    <!-- Traffic usage otherwise only ever loaded once on fragment
-                         creation (see loadProfile()/refreshTrafficPeriodically()
-                         in ConnectFragment) — a manual nudge for "I want it now",
-                         same fix as the desktop client's refresh button. -->
-                    <FrameLayout
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/refreshUsageButton"
-                            style="@style/Widget.Material3.Button.TextButton"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:minWidth="0dp"
-                            android:text="@string/refresh_usage_action" />
-
-                        <!-- Shown over the (then invisible, still space-holding) refreshUsageButton
-                             while a manual refresh is in flight, so the card doesn't jump. -->
-                        <com.google.android.material.progressindicator.CircularProgressIndicator
-                            android:id="@+id/refreshUsageProgress"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_gravity="center"
-                            android:indeterminate="true"
-                            android:visibility="gone"
-                            app:indicatorSize="24dp"
-                            app:trackThickness="3dp" />
-                    </FrameLayout>
                 </LinearLayout>
 
                 <ProgressBar
@@ -298,13 +262,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/auto_boot_title" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/auto_boot_desc"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textAppearance="?attr/textAppearanceBodySmall" />
 
             </LinearLayout>
         </androidx.cardview.widget.CardView>

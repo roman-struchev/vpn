@@ -32,7 +32,6 @@
 
     <string name="connect_action">Connect</string>
     <string name="disconnect_action">Disconnect</string>
-    <string name="current_node_region">Node region: %1$s</string>
     <string name="traffic_used">Traffic: %1$.2f / %2$.0f GB</string>
     <string name="expires_at">Valid until: %1$s</string>
 
@@ -49,9 +48,6 @@
     <string name="region_load_medium">medium load</string>
     <string name="region_load_high">high load</string>
     <string name="region_unavailable_notice">The selected region is unavailable right now — using automatic selection</string>
-    <string name="refresh_usage_action">Refresh</string>
-    <string name="refresh_usage_done">Updated</string>
-    <string name="refresh_usage_failed">Couldn’t refresh — check your connection</string>
     <string name="expires_never">No expiry</string>
     <string name="region_requires_upgrade_notice">The selected region requires a higher plan — using automatic selection</string>
     <string name="region_row_locked_format">🔒 %1$s — requires a paid plan</string>
@@ -62,14 +58,11 @@
     <string name="russian_routing_off">Normal</string>
     <string name="russian_routing_bypass">RU direct</string>
     <string name="russian_routing_only_ru">RU only</string>
-    <string name="russian_routing_off_desc">No special routing — every site goes through the VPN the same way</string>
-    <string name="russian_routing_bypass_desc">Russian banks, state portals and other RU sites connect directly, no VPN. Everything else goes through the VPN</string>
-    <string name="russian_routing_only_ru_desc">Only RU sites go through the VPN (needs a Russian server). Everything else connects directly, no VPN</string>
+    <string name="russian_routing_off_desc">Every site goes through the VPN</string>
+    <string name="russian_routing_bypass_desc">RU sites (banks, state portals) go direct, everything else through the VPN</string>
+    <string name="russian_routing_only_ru_desc">Only RU sites go through the VPN, everything else goes direct</string>
     <string name="russian_routing_no_ru_node_warning">No Russian server is online right now — this mode won\'t work for RU-restricted sites until one is available</string>
-    <string name="bypass_ru_title">Bypass Russian services</string>
-    <string name="bypass_ru_desc">Banks, Gosuslugi and RU apps bypass VPN directly</string>
     <string name="auto_boot_title">Connect on boot</string>
-    <string name="auto_boot_desc">Automatically start VPN when device turns on</string>
 
 
     <string name="notif_channel_name">VPN status</string>
@@ -80,7 +73,7 @@
     <string name="nav_profile">Profile</string>
 
     <string name="devices_title">Devices</string>
-    <string name="device_auto_added_hint">This device is added automatically once you connect. \"Add device\" is only for naming other devices (like a router or a link in v2rayTun, Hiddify), not this phone.</string>
+    <string name="add_device_hint">For your other devices — a router, or a link for v2rayTun or Hiddify. This phone adds itself when you connect.</string>
     <string name="add_device_action">Add device</string>
     <string name="revoke_device_action">Revoke</string>
     <string name="revoke_device_confirm_title">Revoke device access?</string>
@@ -93,8 +86,6 @@
     <string name="region_via_peer">%1$s (via peer)</string>
     <!-- The exit itself is another member's device, not just a hop to our node — see region_via_peer. -->
     <string name="region_p2p_exit">%1$s · P2P</string>
-    <string name="region_p2p_badge">P2P</string>
-    <string name="region_peer_count_suffix">peers</string>
     <string name="region_p2p_notice">Exits through another member’s device: a home IP in that country, at the speed of their connection. Paid plans only.</string>
     <string name="profile_plan_title">Your plan</string>
     <string name="profile_plan_none">No plan selected</string>

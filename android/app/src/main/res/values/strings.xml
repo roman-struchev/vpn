@@ -37,7 +37,6 @@
 
     <string name="connect_action">Подключить</string>
     <string name="disconnect_action">Отключить</string>
-    <string name="current_node_region">Регион ноды: %1$s</string>
     <string name="traffic_used">Трафик: %1$.2f / %2$.0f ГБ</string>
     <string name="expires_at">Действует до: %1$s</string>
 
@@ -54,9 +53,6 @@
     <string name="region_load_medium">средняя загрузка</string>
     <string name="region_load_high">высокая загрузка</string>
     <string name="region_unavailable_notice">Выбранный регион сейчас недоступен — используется автоматический выбор</string>
-    <string name="refresh_usage_action">Обновить</string>
-    <string name="refresh_usage_done">Данные обновлены</string>
-    <string name="refresh_usage_failed">Не удалось обновить — проверьте соединение</string>
     <string name="expires_never">Бессрочно</string>
     <string name="region_requires_upgrade_notice">Выбранный регион требует более высокого тарифа — используется автоматический выбор</string>
     <string name="region_row_locked_format">🔒 %1$s — нужен платный тариф</string>
@@ -67,14 +63,11 @@
     <string name="russian_routing_off">Обычный</string>
     <string name="russian_routing_bypass">РФ напрямую</string>
     <string name="russian_routing_only_ru">Только РФ</string>
-    <string name="russian_routing_off_desc">Особый маршрут выключен — все сайты идут через VPN одинаково</string>
-    <string name="russian_routing_bypass_desc">Банки, Госуслуги и другие сайты РФ — напрямую, без VPN. Всё остальное — через VPN</string>
-    <string name="russian_routing_only_ru_desc">Через VPN — только сайты РФ (нужен российский сервер). Всё остальное — напрямую, без VPN</string>
+    <string name="russian_routing_off_desc">Все сайты — через VPN</string>
+    <string name="russian_routing_bypass_desc">Сайты РФ (банки, Госуслуги) — напрямую, остальное — через VPN</string>
+    <string name="russian_routing_only_ru_desc">Через VPN только сайты РФ, остальное — напрямую</string>
     <string name="russian_routing_no_ru_node_warning">Сейчас нет доступной ноды в России — этот режим временно не сработает для сайтов с гео-ограничением по РФ</string>
-    <string name="bypass_ru_title">Обход сервисов РФ</string>
-    <string name="bypass_ru_desc">Банки, Госуслуги и российские сервисы работают напрямую без VPN</string>
     <string name="auto_boot_title">Автоподключение при включении</string>
-    <string name="auto_boot_desc">Автоматически запускать VPN при загрузке устройства</string>
 
 
     <string name="notif_channel_name">Статус VPN</string>
@@ -87,7 +80,7 @@
 
     <!-- Devices -->
     <string name="devices_title">Устройства</string>
-    <string name="device_auto_added_hint">Это устройство добавится сюда само, как только вы подключитесь. Кнопка «Добавить устройство» — для других ваших устройств (например, роутера или ссылки в v2rayTun, Hiddify), а не для этого телефона.</string>
+    <string name="add_device_hint">Для других ваших устройств — роутера или ссылки в v2rayTun, Hiddify. Этот телефон добавится сам при подключении.</string>
     <string name="add_device_action">Добавить устройство</string>
     <string name="revoke_device_action">Отозвать</string>
     <string name="revoke_device_confirm_title">Отозвать доступ устройства?</string>
@@ -101,8 +94,6 @@
     <string name="region_via_peer">%1$s (через участника сети)</string>
     <!-- The exit itself is another member's device, not just a hop to our node — see region_via_peer. -->
     <string name="region_p2p_exit">%1$s · P2P</string>
-    <string name="region_p2p_badge">P2P</string>
-    <string name="region_peer_count_suffix">участников</string>
     <string name="region_p2p_notice">Выход через устройство другого участника: домашний IP этой страны, скорость — его канала. Доступно на платных тарифах.</string>
     <string name="profile_plan_title">Ваш тариф</string>
     <string name="profile_plan_none">Тариф не выбран</string>

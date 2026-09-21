@@ -122,6 +122,11 @@ public class DevicesFragment extends Fragment {
 
         new AlertDialog.Builder(requireContext())
                 .setTitle(R.string.add_device_action)
+                // Said here rather than as a permanent paragraph on the
+                // screen: it only matters at the moment someone taps "add",
+                // and the other half of it ("this phone adds itself") is
+                // already the empty state's job.
+                .setMessage(R.string.add_device_hint)
                 .setView(input)
                 .setPositiveButton(R.string.add_device_action, (dialog, which) -> {
                     String name = input.getText().toString().trim();

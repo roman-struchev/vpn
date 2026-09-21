@@ -12,15 +12,6 @@
         android:textAppearance="?attr/textAppearanceHeadlineSmall"
         android:layout_marginBottom="12dp" />
 
-    <TextView
-        android:id="@+id/deviceAutoAddedHint"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/device_auto_added_hint"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?android:attr/textColorSecondary"
-        android:layout_marginBottom="12dp" />
-
     <!-- "Add device" 400s once the plan's allowance is used up, and nothing in
          the app said what that allowance was or how much of it was left. -->
     <TextView
