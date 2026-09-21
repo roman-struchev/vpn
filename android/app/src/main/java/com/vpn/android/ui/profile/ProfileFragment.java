@@ -57,8 +57,9 @@ public class ProfileFragment extends Fragment {
         binding.signInExistingButton.setOnClickListener(v -> signInWithExistingAccount());
         binding.copyReferralButton.setOnClickListener(v -> copyReferralLink());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
-        binding.manageBillingButton.setOnClickListener(v -> openBillingPage());
         binding.changePlanButton.setOnClickListener(v -> openPlansPage());
+        binding.settingsButton.setOnClickListener(v ->
+                startActivity(com.vpn.android.ui.settings.SettingsActivity.intent(requireContext())));
         binding.p2pRelayButton.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
         // The first load comes from onResume, which always follows this.
@@ -76,6 +77,7 @@ public class ProfileFragment extends Fragment {
 
     private void loadProfile() {
         Async.run(
+                this,
                 // Both in one background pass: the profile carries the
                 // subscription, the catalogue turns its bare tariffId into a
                 // name, a price and a device allowance. The catalogue is
@@ -100,11 +102,12 @@ public class ProfileFragment extends Fragment {
                     binding.emailText.setText(profile.email);
                     binding.balanceText.setText(getString(R.string.profile_balance,
                             String.format(Locale.US, "%.2f", profile.balanceUsdt())));
-                    // Show the full shareable https link, not just the bare code — a
-                    // friend on any platform can open it directly (the code stays
-                    // visible underneath for anyone who wants to type it in manually).
+                    // Kept, but no longer printed on the screen: the copy
+                    // and share buttons are what anyone actually does with a
+                    // link, and a full https URL on its own line was the
+                    // widest thing on this tab. The code below it is the part
+                    // people read out loud.
                     referralLink = profile.shareableReferralLink(BuildConfig.WEB_BASE_URL);
-                    binding.referralText.setText(referralLink);
                     binding.referralCodeText.setText(
                             getString(R.string.profile_referral_code,
                                     profile.referralCode == null ? "" : profile.referralCode));
@@ -141,7 +144,6 @@ public class ProfileFragment extends Fragment {
             binding.planTrafficText.setVisibility(View.GONE);
             binding.planTrafficProgress.setVisibility(View.GONE);
             binding.planExpiryText.setVisibility(View.GONE);
-            binding.planDevicesText.setVisibility(View.GONE);
             binding.changePlanButton.setText(R.string.profile_change_plan_choose);
             return;
         }
@@ -172,12 +174,8 @@ public class ProfileFragment extends Fragment {
             binding.planExpiryText.setText(getString(R.string.profile_plan_expiry, formatDate(expiresAt)));
         }
 
-        if (plan.maxDevices() != null) {
-            binding.planDevicesText.setVisibility(View.VISIBLE);
-            binding.planDevicesText.setText(getString(R.string.profile_plan_devices, plan.maxDevices()));
-        } else {
-            binding.planDevicesText.setVisibility(View.GONE);
-        }
+        // The device allowance is deliberately not repeated here: the devices
+        // tab shows "2 из 5" where devices are actually added or revoked.
     }
 
     /**
@@ -232,19 +230,12 @@ public class ProfileFragment extends Fragment {
         startActivity(Intent.createChooser(share, getString(R.string.profile_referral_share_title)));
     }
 
-    // Persistent entry point into the web dashboard's billing/top-up UI
-    // (UX_REVIEW §B) — not just the dead-end "no subscription" state on the
-    // connect screen. Opens already signed in via the same SSO handoff as
-    // ConnectFragment's "Get a plan" action; "/" is used as the landing
-    // destination because the web app has no dedicated /billing route yet.
-    private void openBillingPage() {
-        WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/");
-    }
-
     /**
-     * Same signed-in handoff, but landing on the plans themselves
-     * (DashboardView scrolls to #tariffs) rather than the top of the
-     * dashboard — the user pressed "change plan", not "open the website".
+     * The one way into the web dashboard's billing from here, landing on the
+     * plans themselves (DashboardView scrolls to #tariffs) rather than the
+     * top of the page. There used to be a second button, "Пополнить баланс",
+     * which opened "/" — the same dashboard, one anchor higher. Two buttons
+     * for one destination read as two different things you could do.
      */
     private void openPlansPage() {
         WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/#tariffs");
@@ -258,6 +249,7 @@ public class ProfileFragment extends Fragment {
         // thread. It never throws (the revoke failure is swallowed internally),
         // but goToLogin() runs from both callbacks regardless, to be safe.
         Async.run(
+                this,
                 () -> {
                     apiClient.logout();
                     return null;

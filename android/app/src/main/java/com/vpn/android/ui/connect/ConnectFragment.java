@@ -39,6 +39,8 @@ import com.vpn.android.vpn.VpnStatusBus;
 import com.vpn.android.vpn.XrayVpnService;
 import com.vpn.android.ui.MainActivity;
 import com.vpn.android.ui.login.LoginActivity;
+import com.vpn.android.ui.settings.SettingsActivity;
+import com.vpn.android.vpn.VpnStarter;
 import com.vpn.android.vpn.state.ConnectionState;
 
 public class ConnectFragment extends Fragment {
@@ -53,6 +55,10 @@ public class ConnectFragment extends Fragment {
     private List<RegionInfo> availableRegions = new ArrayList<>();
     private final Map<String, Integer> regionPings = new ConcurrentHashMap<>();
     private boolean isGuest = false;
+    /** What the tunnel actually connected to, as the service reports it — not necessarily what was picked. */
+    private String activeRegionLabel;
+    /** Whether the server had to substitute a region for the picked one. */
+    private boolean regionFellBack;
     private final android.os.Handler trafficRefreshHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     // Silent 60s background poll while this screen is visible — traffic usage
     // is otherwise only ever loaded once on fragment creation. This is also
@@ -111,16 +117,17 @@ public class ConnectFragment extends Fragment {
         });
         renderGuestCard();
 
-        setUpRussianRoutingControl();
-
-        binding.autoBootSwitch.setChecked(tokenStore.isAutoConnectOnBoot());
-        binding.autoBootSwitch.setOnCheckedChangeListener((btn, isChecked) -> {
-            tokenStore.setAutoConnectOnBoot(isChecked);
-        });
+        setUpSettingsSummaryRow();
 
         VpnStatusBus.state.observe(getViewLifecycleOwner(), this::renderState);
+        VpnStatusBus.activeRegion.observe(getViewLifecycleOwner(), region -> {
+            activeRegionLabel = (region == null || region.isEmpty()) ? null : region;
+            renderSelectedRegion();
+        });
         VpnStatusBus.regionFallback.observe(getViewLifecycleOwner(), fellBack -> {
-            if (!Boolean.TRUE.equals(fellBack)) {
+            regionFellBack = Boolean.TRUE.equals(fellBack);
+            renderSelectedRegion();
+            if (!regionFellBack) {
                 binding.regionFallbackNotice.setVisibility(View.GONE);
                 return;
             }
@@ -147,89 +154,62 @@ public class ConnectFragment extends Fragment {
 
     private void loadRegions() {
         Async.run(
+                this,
                 () -> apiClient.getRegions(),
                 regions -> {
+                    // Every callback here has to re-check the view: switching
+                    // tabs mid-load destroys it while the request is still out.
+                    if (binding == null) return;
                     availableRegions = regions;
                     renderSelectedRegion();
                     loadSelectedRegionPing();
-                    updateRussianRoutingWarning();
                 },
                 error -> { /* keep whatever the last "Auto" default shows; not fatal to the connect flow */ });
     }
 
     /**
-     * Shown only to a user actually in Russia, or a Russian-speaking user
-     * abroad (see GeoLocale) — everyone else has no use for RU-specific
-     * routing and the control would just be confusing clutter.
+     * The one line this screen keeps of what used to be a settings card with
+     * two controls and four lines of explanation (SettingsActivity has them
+     * now). Shown only to a user actually in Russia, or a Russian-speaking
+     * user abroad (see GeoLocale) — everyone else has no use for RU-specific
+     * routing, and the row would be clutter naming a setting they will never
+     * open.
      */
-    private void setUpRussianRoutingControl() {
+    private void setUpSettingsSummaryRow() {
+        binding.settingsSummaryRow.setOnClickListener(
+                v -> startActivity(SettingsActivity.intent(requireContext())));
+
         if (GeoLocale.isDeviceLocaleRussian()) {
-            showRussianRoutingControl();
+            showSettingsSummaryRow();
             return;
         }
         Boolean originalIpIsRussia = tokenStore.getOriginalIpIsRussia();
         if (originalIpIsRussia != null) {
-            if (originalIpIsRussia) showRussianRoutingControl();
+            if (originalIpIsRussia) showSettingsSummaryRow();
             return;
         }
         GeoLocale.lookupOriginalIpIsRussiaAsync(tokenStore, isRussia -> {
-            if (isRussia && binding != null) showRussianRoutingControl();
+            if (isRussia && binding != null) showSettingsSummaryRow();
         });
     }
 
-    private void showRussianRoutingControl() {
+    private void showSettingsSummaryRow() {
         if (binding == null) return;
-        binding.russianRoutingContainer.setVisibility(View.VISIBLE);
+        binding.settingsSummaryRow.setVisibility(View.VISIBLE);
+        renderSettingsSummaryRow();
+    }
 
+    /** Re-read on every resume: the mode may have just been changed on the screen this row opens. */
+    private void renderSettingsSummaryRow() {
+        if (binding == null || binding.settingsSummaryRow.getVisibility() != View.VISIBLE) return;
         String mode = tokenStore.getRussianRoutingMode();
-        setRussianRoutingModeUi(mode);
-
-        binding.russianRoutingToggleGroup.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-            if (!isChecked) return;
-            String newMode = checkedId == binding.russianRoutingBypassButton.getId()
-                    ? TokenStore.RUSSIAN_ROUTING_BYPASS
-                    : checkedId == binding.russianRoutingOnlyRuButton.getId()
-                    ? TokenStore.RUSSIAN_ROUTING_ONLY_RU
-                    : TokenStore.RUSSIAN_ROUTING_OFF;
-            tokenStore.setRussianRoutingMode(newMode);
-            setRussianRoutingModeUi(newMode);
-            reconnectIfActive();
-        });
-    }
-
-    private void setRussianRoutingModeUi(String mode) {
-        int buttonId = TokenStore.RUSSIAN_ROUTING_BYPASS.equals(mode)
-                ? binding.russianRoutingBypassButton.getId()
+        int modeRes = TokenStore.RUSSIAN_ROUTING_BYPASS.equals(mode)
+                ? R.string.russian_routing_bypass
                 : TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(mode)
-                ? binding.russianRoutingOnlyRuButton.getId()
-                : binding.russianRoutingOffButton.getId();
-        binding.russianRoutingToggleGroup.check(buttonId);
-
-        int descRes = TokenStore.RUSSIAN_ROUTING_BYPASS.equals(mode)
-                ? R.string.russian_routing_bypass_desc
-                : TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(mode)
-                ? R.string.russian_routing_only_ru_desc
-                : R.string.russian_routing_off_desc;
-        binding.russianRoutingDescText.setText(descRes);
-        // Nothing to explain about the default: "every site goes through the
-        // VPN" is what a VPN does. The line is for the two modes that change
-        // that, so it only appears once one of them is picked.
-        binding.russianRoutingDescText.setVisibility(
-                TokenStore.RUSSIAN_ROUTING_OFF.equals(mode) ? View.GONE : View.VISIBLE);
-        updateRussianRoutingWarning();
-    }
-
-    /** Only RU-only mode needs an actual Russia-located node to do anything useful. */
-    private void updateRussianRoutingWarning() {
-        if (binding == null) return;
-        boolean isOnlyRu = TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(tokenStore.getRussianRoutingMode());
-        // Our own servers only: this warning is about what the mode picks on
-        // its own (XrayVpnService#resolveConnectRegion), not about what the
-        // user could pick by hand.
-        boolean hasAccessibleRussianRegion = availableRegions.stream()
-                .anyMatch(r -> r.accessible && !r.p2p && r.region != null && r.region.toLowerCase().contains("russia"));
-        binding.russianRoutingWarningText.setVisibility(
-                isOnlyRu && !hasAccessibleRussianRegion ? View.VISIBLE : View.GONE);
+                ? R.string.russian_routing_only_ru
+                : R.string.russian_routing_off;
+        binding.settingsSummaryRow.setText(
+                getString(R.string.settings_summary_row, getString(modeRes)));
     }
 
     /**
@@ -250,6 +230,7 @@ public class ConnectFragment extends Fragment {
             return; // A peer has no address to measure — see formatRegionRow.
         }
         Async.run(
+                this,
                 () -> apiClient.pingSelectedRegion(selected),
                 ping -> {
                     if (ping != null && ping > 0) {
@@ -261,13 +242,26 @@ public class ConnectFragment extends Fragment {
     }
 
     private void renderSelectedRegion() {
+        if (binding == null) return;
         String selected = tokenStore.getSelectedRegion();
         if (selected == null) {
-            binding.regionSelectedText.setText(R.string.region_auto);
+            binding.regionSelectedText.setText(
+                    activeRegionLabel != null ? activeRegionLabel : getString(R.string.region_auto));
             return;
         }
         RegionInfo match = findRegion(selected);
-        binding.regionSelectedText.setText(match != null ? formatRegionRow(match) : selected);
+        String pickedLabel = match != null ? formatRegionRow(match) : selected;
+        // On a fallback this card used to claim the picked region while the
+        // line directly under it said that region was unavailable — the same
+        // card contradicting itself. Lead with where the traffic actually
+        // goes, and keep the pick in brackets so it is clear it was not
+        // forgotten.
+        if (regionFellBack && activeRegionLabel != null) {
+            binding.regionSelectedText.setText(
+                    getString(R.string.region_in_use_instead_of, activeRegionLabel, pickedLabel));
+            return;
+        }
+        binding.regionSelectedText.setText(pickedLabel);
     }
 
     /**
@@ -370,6 +364,7 @@ public class ConnectFragment extends Fragment {
 
     private void loadProfile(@androidx.annotation.Nullable java.util.function.Consumer<Boolean> onDone) {
         Async.run(
+                this,
                 () -> apiClient.getProfile(),
                 profile -> {
                     if (binding == null) return;
@@ -457,15 +452,7 @@ public class ConnectFragment extends Fragment {
      * before this the change silently did nothing until the next manual connect.
      */
     private void reconnectIfActive() {
-        ConnectionState state = VpnStatusBus.state.getValue();
-        if (state != ConnectionState.CONNECTED
-                && state != ConnectionState.CONNECTING
-                && state != ConnectionState.RECONNECTING) {
-            return;
-        }
-        Intent intent = new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_RECONNECT);
-        ContextCompat.startForegroundService(requireContext(), intent);
-        Toast.makeText(requireContext(), R.string.reconnecting_with_new_settings, Toast.LENGTH_SHORT).show();
+        VpnStarter.reconnectIfActive(requireContext());
     }
 
     private void startVpn() {
@@ -529,6 +516,15 @@ public class ConnectFragment extends Fragment {
                 binding.operatorBlockedCard.setVisibility(View.GONE);
                 break;
         }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // The RU route may have just been changed on the screen this row
+        // opens, and coming back to a row still naming the old mode would
+        // read as "my change did not take".
+        renderSettingsSummaryRow();
     }
 
     @Override

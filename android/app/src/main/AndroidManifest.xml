@@ -42,6 +42,11 @@
             android:exported="false"
             android:theme="@style/Theme.VpnApp" />
 
+        <activity
+            android:name=".ui.settings.SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VpnApp" />
+
         <service
             android:name=".vpn.XrayVpnService"
             android:exported="false"

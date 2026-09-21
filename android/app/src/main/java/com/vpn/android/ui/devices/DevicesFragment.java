@@ -28,6 +28,8 @@ public class DevicesFragment extends Fragment {
     private FragmentDevicesBinding binding;
     private ApiClient apiClient;
     private DeviceAdapter adapter;
+    /** The plan's device allowance, fetched once per screen — see loadDevices. */
+    private Integer knownMaxDevices;
 
     @Nullable
     @Override
@@ -54,21 +56,29 @@ public class DevicesFragment extends Fragment {
     private void loadDevices() {
         binding.swipeRefresh.setRefreshing(true);
         Async.run(
+                this,
                 () -> {
                     List<DeviceDto> devices = apiClient.getDevices();
                     // The allowance comes from the plan, so it needs the
-                    // profile's tariffId plus the catalogue. Best-effort: a
-                    // failure here costs the counter, never the device list.
-                    Integer maxDevices = null;
-                    try {
-                        maxDevices = PlanSummary.of(apiClient.getProfile(), apiClient.getTariffs()).maxDevices();
-                    } catch (Exception ignored) {
-                        // counter stays unknown
+                    // profile's tariffId plus the catalogue — two more
+                    // requests, for a number that does not change while this
+                    // screen is open. Fetched once and then reused, so a
+                    // pull-to-refresh costs one request instead of three.
+                    // Best-effort: a failure here costs the counter, never
+                    // the device list.
+                    Integer maxDevices = knownMaxDevices;
+                    if (maxDevices == null) {
+                        try {
+                            maxDevices = PlanSummary.of(apiClient.getProfile(), apiClient.getTariffs()).maxDevices();
+                        } catch (Exception ignored) {
+                            // counter stays unknown; tried again on the next refresh
+                        }
                     }
                     return new DeviceListWithAllowance(devices, maxDevices);
                 },
                 loaded -> {
                     binding.swipeRefresh.setRefreshing(false);
+                    knownMaxDevices = loaded.maxDevices;
                     adapter.submitList(loaded.devices);
                     renderUsage(loaded.devices.size(), loaded.maxDevices);
                 },
@@ -140,6 +150,7 @@ public class DevicesFragment extends Fragment {
 
     private void addDevice(String name) {
         Async.run(
+                this,
                 () -> apiClient.addDevice(name, "ANDROID"),
                 device -> loadDevices(),
                 error -> Snackbar.make(binding.getRoot(), messageOf(error), Snackbar.LENGTH_LONG).show());
@@ -156,6 +167,7 @@ public class DevicesFragment extends Fragment {
 
     private void revokeDevice(DeviceDto device) {
         Async.run(
+                this,
                 () -> {
                     apiClient.deleteDevice(device.id);
                     return null;

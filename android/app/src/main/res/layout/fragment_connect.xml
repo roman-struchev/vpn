@@ -60,6 +60,22 @@
                     android:textColor="@color/state_operator_blocked"
                     android:textAppearance="?attr/textAppearanceBodySmall"
                     android:visibility="gone" />
+
+                <!-- All that is left on this screen of the settings card: one
+                     line naming the current RU route, opening SettingsActivity.
+                     Hidden for everyone the RU route does not concern, exactly
+                     as the full control was. -->
+                <TextView
+                    android:id="@+id/settingsSummaryRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:paddingTop="8dp"
+                    android:paddingBottom="8dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?attr/colorPrimary"
+                    android:visibility="gone" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
@@ -155,116 +171,6 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <androidx.cardview.widget.CardView
-            android:id="@+id/settingsCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:cardBackgroundColor="?attr/colorSurfaceContainer">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/settings_section_title"
-                    android:textAppearance="?attr/textAppearanceLabelMedium" />
-
-                <!--
-                Only relevant to a user actually in Russia, or a Russian-speaking
-                user abroad — ConnectFragment hides this whole block otherwise
-                (see GeoLocale). Short toggle labels alone can't carry the full
-                behavior, so russianRoutingDescText always spells out what the
-                selected mode does, mirroring the desktop client's fix for the
-                same "these labels aren't intuitive" feedback.
-                -->
-                <LinearLayout
-                    android:id="@+id/russianRoutingContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="8dp"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/russian_routing_title"
-                        android:textAppearance="?attr/textAppearanceBodyMedium" />
-
-                    <com.google.android.material.button.MaterialButtonToggleGroup
-                        android:id="@+id/russianRoutingToggleGroup"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        app:singleSelection="true"
-                        app:selectionRequired="true">
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/russianRoutingOffButton"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/russian_routing_off" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/russianRoutingBypassButton"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/russian_routing_bypass" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/russianRoutingOnlyRuButton"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/russian_routing_only_ru" />
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
-
-                    <TextView
-                        android:id="@+id/russianRoutingDescText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:textColor="?android:attr/textColorSecondary"
-                        android:textAppearance="?attr/textAppearanceBodySmall" />
-
-                    <TextView
-                        android:id="@+id/russianRoutingWarningText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="@string/russian_routing_no_ru_node_warning"
-                        android:textColor="@color/state_reconnecting"
-                        android:textAppearance="?attr/textAppearanceBodySmall"
-                        android:visibility="gone" />
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="12dp"
-                    android:layout_marginBottom="8dp"
-                    android:background="?attr/colorOutlineVariant" />
-
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/autoBootSwitch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/auto_boot_title" />
-
-            </LinearLayout>
-        </androidx.cardview.widget.CardView>
 
         <androidx.cardview.widget.CardView
             android:id="@+id/guestCard"

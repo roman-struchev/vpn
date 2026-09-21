@@ -80,12 +80,13 @@
                 android:layout_marginTop="8dp"
                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
+
             <TextView
-                android:id="@+id/planDevicesText"
+                android:id="@+id/balanceText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:textAppearance="?attr/textAppearanceBodyMedium" />
+                android:layout_marginTop="8dp"
+                android:textAppearance="?attr/textAppearanceTitleMedium" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/changePlanButton"
@@ -108,23 +109,10 @@
     </com.google.android.material.card.MaterialCardView>
 
     <TextView
-        android:id="@+id/balanceText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceTitleMedium"
-        android:layout_marginBottom="16dp" />
-
-    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/profile_referral"
         android:textAppearance="?attr/textAppearanceLabelLarge" />
-
-    <TextView
-        android:id="@+id/referralText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textIsSelectable="true" />
 
     <TextView
         android:id="@+id/referralCodeText"
@@ -177,13 +165,17 @@
 
     </LinearLayout>
 
+
+    <!-- The only way in for anyone the connect screen's RU-route row is
+         hidden from — without it, moving the controls off that screen would
+         have made auto-connect-on-boot unreachable outside Russia. -->
     <com.google.android.material.button.MaterialButton
-        android:id="@+id/manageBillingButton"
+        android:id="@+id/settingsButton"
         style="@style/Widget.Material3.Button.TonalButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="12dp"
-        android:text="@string/profile_manage_billing" />
+        android:text="@string/settings_section_title" />
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/p2pRelayButton"

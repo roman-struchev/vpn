@@ -40,6 +40,7 @@
 
     <string name="region_picker_title">Connection region</string>
     <string name="region_auto">Auto (best available)</string>
+    <string name="region_in_use_instead_of">%1$s (instead of %2$s)</string>
     <string name="region_row_format">%1$s — %2$s (%3$d nodes)</string>
     <!-- A P2P row counts people, not servers, and never carries a ping (a peer has no address to measure). -->
     <string name="region_row_p2p_format">%1$s · P2P — %2$s (%3$d peers)</string>
@@ -54,6 +55,7 @@
     <string name="region_locked_toast">This region isn\'t available on your current plan</string>
 
     <string name="settings_section_title">Connection settings</string>
+    <string name="settings_summary_row">Route for RU sites: %1$s ›</string>
     <string name="russian_routing_title">Route for Russian sites</string>
     <string name="russian_routing_off">Normal</string>
     <string name="russian_routing_bypass">RU direct</string>
@@ -95,23 +97,21 @@
     <string name="profile_plan_traffic_unlimited">Traffic: %1$s (unlimited)</string>
     <string name="profile_plan_expiry">Valid until %1$s</string>
     <string name="profile_plan_no_expiry">No expiry — only the traffic cap applies</string>
-    <string name="profile_plan_devices">Devices on this plan: %1$d</string>
     <string name="profile_change_plan">Change plan</string>
     <string name="profile_change_plan_choose">Choose a plan</string>
-    <string name="profile_change_plan_hint">Plans are paid for on the website — it opens in a browser and signs you in automatically.</string>
+    <string name="profile_change_plan_hint">Opens the website, signed in automatically</string>
     <string name="devices_usage">%1$d of %2$d devices used</string>
     <string name="devices_usage_unknown">Devices: %1$d</string>
     <string name="devices_empty">No devices yet. One is added automatically the first time you connect.</string>
     <string name="devices_load_failed">Could not load the device list: %1$s</string>
     <string name="devices_load_failed_unknown_reason">no connection to the server</string>
     <string name="profile_balance">Balance: %1$s USDT</string>
-    <string name="profile_manage_billing">Add funds</string>
     <string name="profile_sign_in_existing">Sign in with an existing account</string>
     <string name="profile_logout">Sign out</string>
     <string name="profile_referral">Your invite link</string>
     <string name="profile_referral_stats">Referred friends: %1$d • Earned: $%2$.2f USDT</string>
     <string name="profile_referral_code">Code: %1$s</string>
-    <string name="profile_referral_desc" formatted="false">You get 15% to your balance on every deposit your invited friend makes; they get a 10% bonus on their first deposit. The link opens in a browser on any platform.</string>
+    <string name="profile_referral_desc" formatted="false">You get 15% of every top-up a friend makes, they get 10% on their first</string>
     <string name="profile_referral_copy">Copy</string>
     <string name="profile_referral_share">Share</string>
     <string name="profile_referral_copied">Link copied</string>
