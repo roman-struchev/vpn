@@ -62,7 +62,6 @@ public class ProfileFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         binding.logoutButton.setOnClickListener(v -> logout());
-        binding.signInExistingButton.setOnClickListener(v -> signInWithExistingAccount());
         binding.shareReferralButton.setOnClickListener(v -> shareReferralLink());
         binding.changePlanButton.setOnClickListener(v -> openPlansPage());
         binding.settingsButton.setOnClickListener(v ->
@@ -85,6 +84,34 @@ public class ProfileFragment extends Fragment {
         // successful purchase to a card still showing their old plan.
         loadProfile();
         loadDevices();
+        renderP2pRow();
+    }
+
+    /**
+     * The P2P row states what the mode is doing, not just that it exists —
+     * the settings screen closes as soon as it is applied, so this row is
+     * where the user sees that anything happened. Read from the local store
+     * rather than the server: the service keeps it, and it is what the
+     * settings screen itself shows.
+     */
+    private void renderP2pRow() {
+        if (binding == null) return;
+        String mode = tokenStore.getP2pRelayMode();
+        String state;
+        if (TokenStore.P2P_RELAY_ALWAYS.equals(mode)) {
+            state = getString(R.string.p2p_state_always);
+        } else if (TokenStore.P2P_RELAY_TIMED.equals(mode)
+                && tokenStore.getP2pRelayExpiresAt() > System.currentTimeMillis()) {
+            state = getString(R.string.p2p_state_until,
+                    android.text.format.DateFormat.getTimeFormat(requireContext())
+                            .format(new Date(tokenStore.getP2pRelayExpiresAt())));
+        } else {
+            // Includes a TIMED window that has already elapsed: the service
+            // turns itself off then, so saying "on until 14:00" at 15:00
+            // would be a stale promise.
+            state = getString(R.string.p2p_state_off);
+        }
+        binding.p2pRelayButton.setText(getString(R.string.profile_row_p2p_state, state));
     }
 
     /**
@@ -178,7 +205,7 @@ public class ProfileFragment extends Fragment {
                         return; // the screen was left while this was in flight
                     }
                     loadedOnce = true;
-                    binding.profileLoading.setVisibility(View.GONE);
+                    binding.profileLoading.setVisibility(View.INVISIBLE);
                     UserProfile profile = loaded.profile;
                     renderPlan(loaded.plan);
                     binding.emailText.setText(profile.email);
@@ -203,7 +230,7 @@ public class ProfileFragment extends Fragment {
                     // loading — an indicator that never goes away is worse
                     // than none.
                     loadedOnce = true;
-                    if (binding != null) binding.profileLoading.setVisibility(View.GONE);
+                    if (binding != null) binding.profileLoading.setVisibility(View.INVISIBLE);
                 });
 
     }
@@ -334,6 +361,13 @@ public class ProfileFragment extends Fragment {
         WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/#tariffs");
     }
 
+    /**
+     * The only way out of an account from here. There used to be a second
+     * button, "Войти в другой аккаунт", which opened the login form without
+     * clearing anything — and since logging out lands on that same form, it
+     * was a shortcut to the same place that happened to leave the old
+     * session behind.
+     */
     private void logout() {
         requireContext().startService(
                 new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT));
@@ -366,14 +400,6 @@ public class ProfileFragment extends Fragment {
      * stored token/device UUID; a successful login/register there simply
      * overwrites the token in place.
      */
-    private void signInWithExistingAccount() {
-        requireContext().startService(
-                new Intent(requireContext(), XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT));
-        Intent intent = LoginActivity.createShowFormIntent(requireContext());
-        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        startActivity(intent);
-    }
-
     @Override
     public void onDestroyView() {
         super.onDestroyView();

@@ -43,13 +43,44 @@
                     android:text="@string/region_picker_title"
                     android:textAppearance="?attr/textAppearanceLabelMedium" />
 
-                <TextView
-                    android:id="@+id/regionSelectedText"
+                <!-- The latency lives in its own column, right-aligned, rather
+                     than inside the region line. It used to be spliced into
+                     the middle of that string once measured ("Германия — ⚡ 42
+                     мс • низкая загрузка"), so everything after it shifted the
+                     moment the measurement landed — the text visibly jumped
+                     under the user's eyes. Here the label never moves. -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="@string/region_auto"
-                    android:textAppearance="?attr/textAppearanceBodyLarge" />
+                    android:orientation="horizontal"
+                    android:baselineAligned="true">
+
+                    <TextView
+                        android:id="@+id/regionSelectedText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="@string/region_auto"
+                        android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+                    <!-- INVISIBLE, not GONE, and with the widest figure it can
+                         hold as its minimum: the column keeps its width from
+                         the first frame, so the label does not reflow when the
+                         number arrives either. -->
+                    <TextView
+                        android:id="@+id/regionPingText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:minWidth="64dp"
+                        android:gravity="end"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="@color/state_connected"
+                        android:visibility="invisible" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/regionFallbackNotice"
@@ -171,6 +202,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
+                    android:text="@string/placeholder_dash"
                     android:textAppearance="?attr/textAppearanceBodySmall" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>

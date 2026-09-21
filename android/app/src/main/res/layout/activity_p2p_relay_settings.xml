@@ -48,6 +48,7 @@
              region preference elsewhere in the app. -->
         <TextView
             android:id="@+id/p2pRegionText"
+            android:text="@string/placeholder_dash"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceBodySmall"
@@ -100,6 +101,7 @@
              much of their 1/8-hour window was left. -->
         <TextView
             android:id="@+id/p2pExpiresText"
+            android:text="@string/placeholder_dash"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceBodySmall"
@@ -128,6 +130,7 @@
 
         <TextView
             android:id="@+id/p2pStatusText"
+            android:text="@string/placeholder_dash"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceBodyMedium" />

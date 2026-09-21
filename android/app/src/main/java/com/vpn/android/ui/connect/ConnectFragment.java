@@ -188,9 +188,12 @@ public class ConnectFragment extends Fragment {
             if (originalIpIsRussia) showSettingsSummaryRow();
             return;
         }
-        GeoLocale.lookupOriginalIpIsRussiaAsync(tokenStore, isRussia -> {
-            if (isRussia && binding != null) showSettingsSummaryRow();
-        });
+        // Deliberately not revealed from this callback: the lookup is a
+        // network round-trip, so the row would appear seconds after the
+        // screen settled and push everything under it down. It is cached, so
+        // the next launch shows it from the first frame — a row that nobody
+        // is looking for yet can wait that long.
+        GeoLocale.lookupOriginalIpIsRussiaAsync(tokenStore, isRussia -> { });
     }
 
     private void showSettingsSummaryRow() {
@@ -241,8 +244,26 @@ public class ConnectFragment extends Fragment {
                 error -> { /* non-fatal */ });
     }
 
+    /**
+     * The latency column. Invisible rather than gone while unknown, so the
+     * region label beside it keeps the same width from the first frame — the
+     * figure appearing must not move anything.
+     */
+    private void renderPing() {
+        if (binding == null) return;
+        String selected = tokenStore.getSelectedRegion();
+        Integer ping = selected == null ? null : regionPings.get(selected);
+        if (ping != null && ping > 0) {
+            binding.regionPingText.setText(getString(R.string.region_ping_value, ping));
+            binding.regionPingText.setVisibility(View.VISIBLE);
+        } else {
+            binding.regionPingText.setVisibility(View.INVISIBLE);
+        }
+    }
+
     private void renderSelectedRegion() {
         if (binding == null) return;
+        renderPing();
         String selected = tokenStore.getSelectedRegion();
         if (selected == null) {
             binding.regionSelectedText.setText(
@@ -250,7 +271,7 @@ public class ConnectFragment extends Fragment {
             return;
         }
         RegionInfo match = findRegion(selected);
-        String pickedLabel = match != null ? formatRegionRow(match) : selected;
+        String pickedLabel = match != null ? formatRegionRow(match, false) : selected;
         // On a fallback this card used to claim the picked region while the
         // line directly under it said that region was unavailable — the same
         // card contradicting itself. Lead with where the traffic actually
@@ -275,7 +296,14 @@ public class ConnectFragment extends Fragment {
         return null;
     }
 
-    private String formatRegionRow(RegionInfo r) {
+    /**
+     * @param withPing the picker's rows carry the latency inline, because that
+     *                 list is a transient dialog. The card on the screen does
+     *                 not: there the figure has a column of its own, so the
+     *                 line does not reflow when it arrives (see
+     *                 fragment_connect.xml and renderPing).
+     */
+    private String formatRegionRow(RegionInfo r, boolean withPing) {
         // Locked (out-of-plan) rows stay listed — not hidden — so a lower
         // tier can see what upgrading unlocks, but show "requires a paid
         // plan" instead of load stats that don't matter if you can't pick it.
@@ -291,7 +319,7 @@ public class ConnectFragment extends Fragment {
         if (r.p2p) {
             return getString(R.string.region_row_p2p_format, r.region, loadLabel(r.loadLevel), r.nodeCount);
         }
-        Integer ping = regionPings.get(r.keyOrRegion());
+        Integer ping = withPing ? regionPings.get(r.keyOrRegion()) : null;
         if (ping != null && ping > 0) {
             return getString(R.string.region_row_with_ping, r.region, ping, loadLabel(r.loadLevel), r.nodeCount);
         }
@@ -313,7 +341,7 @@ public class ConnectFragment extends Fragment {
         values.add(null);
         accessible.add(true);
         for (RegionInfo r : availableRegions) {
-            labels.add(formatRegionRow(r));
+            labels.add(formatRegionRow(r, true));
             values.add(r.keyOrRegion());
             accessible.add(r.accessible);
         }
@@ -369,12 +397,17 @@ public class ConnectFragment extends Fragment {
                 profile -> {
                     if (binding == null) return;
                     latestProfile = profile;
-                    if (profile != null) {
-                        isGuest = profile.isGuest;
-                        renderGuestCard();
-                        if (getActivity() instanceof MainActivity) {
-                            ((MainActivity) getActivity()).setGuestMode(profile.isGuest);
-                        }
+                    if (profile == null) {
+                        // An empty body is not a profile. Everything below
+                        // dereferences it, and the guard above used to stop
+                        // one line short of bindProfile.
+                        if (onDone != null) onDone.accept(false);
+                        return;
+                    }
+                    isGuest = profile.isGuest;
+                    renderGuestCard();
+                    if (getActivity() instanceof MainActivity) {
+                        ((MainActivity) getActivity()).setGuestMode(profile.isGuest);
                     }
                     bindProfile(profile);
                     if (onDone != null) onDone.accept(true);

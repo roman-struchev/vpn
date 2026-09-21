@@ -73,9 +73,10 @@ public class SettingsActivity extends AppCompatActivity {
             if (originalIpIsRussia) showRussianRoutingControl();
             return;
         }
-        GeoLocale.lookupOriginalIpIsRussiaAsync(tokenStore, isRussia -> {
-            if (isRussia && binding != null) showRussianRoutingControl();
-        });
+        // Not revealed from this callback — see ConnectFragment for why: a
+        // block appearing seconds after the screen settled is worse than one
+        // that waits for the next launch, and the answer is cached.
+        GeoLocale.lookupOriginalIpIsRussiaAsync(tokenStore, isRussia -> { });
     }
 
     private void showRussianRoutingControl() {

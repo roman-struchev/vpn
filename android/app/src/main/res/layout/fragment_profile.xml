@@ -27,6 +27,7 @@
         <!-- Labels the account; deliberately not the headline (the plan is). -->
         <TextView
             android:id="@+id/emailText"
+            android:text="@string/placeholder_dash"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceBodyMedium"
@@ -40,7 +41,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:indeterminate="true"
-            android:visibility="gone" />
+            android:visibility="invisible" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -58,12 +59,14 @@
 
                 <TextView
                     android:id="@+id/planNameText"
+                    android:text="@string/placeholder_dash"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textAppearance="?attr/textAppearanceHeadlineSmall" />
 
                 <TextView
                     android:id="@+id/planTrafficText"
+                    android:text="@string/placeholder_dash"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -79,6 +82,7 @@
 
                 <TextView
                     android:id="@+id/planExpiryText"
+                    android:text="@string/placeholder_dash"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
@@ -87,6 +91,7 @@
 
                 <TextView
                     android:id="@+id/balanceText"
+                    android:text="@string/placeholder_dash"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
@@ -166,6 +171,7 @@
 
                 <TextView
                     android:id="@+id/referralStatsText"
+                    android:text="@string/placeholder_dash"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
@@ -174,6 +180,7 @@
 
                 <TextView
                     android:id="@+id/referralCodeText"
+                    android:text="@string/placeholder_dash"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
@@ -234,19 +241,13 @@
             android:background="?attr/colorOutlineVariant" />
 
         <!-- Account actions: last, and quiet. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/signInExistingButton"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="@string/profile_sign_in_existing" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/logoutButton"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
             android:layout_marginBottom="24dp"
             android:text="@string/profile_logout" />
     </LinearLayout>

@@ -253,7 +253,10 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
             ContextCompat.startForegroundService(this, serviceIntent);
         }
         Toast.makeText(this, R.string.p2p_relay_applied, Toast.LENGTH_SHORT).show();
-        loadStatus();
+        // Applying is the whole point of this screen, so it closes — staying
+        // on it left the user to press back and wonder whether anything had
+        // happened. The state is on the profile row they came from.
+        finish();
     }
 
     @Override
