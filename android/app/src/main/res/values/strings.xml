@@ -119,6 +119,8 @@
     <string name="devices_usage">Использовано %1$d из %2$d устройств</string>
     <string name="devices_usage_unknown">Устройств: %1$d</string>
     <string name="devices_empty">Пока ни одного устройства. Оно добавится само при первом подключении.</string>
+    <string name="devices_load_failed">Не удалось загрузить список устройств: %1$s</string>
+    <string name="devices_load_failed_unknown_reason">нет связи с сервером</string>
     <string name="profile_balance">Баланс: %1$s USDT</string>
     <string name="profile_manage_billing">Пополнить баланс</string>
     <string name="profile_p2p_relay">P2P-режим (получать трафик за ретрансляцию)</string>

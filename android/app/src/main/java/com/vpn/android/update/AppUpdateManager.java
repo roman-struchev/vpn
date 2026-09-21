@@ -117,7 +117,19 @@ public final class AppUpdateManager {
         };
         IntentFilter filter = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            appContext.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            // RECEIVER_EXPORTED, not NOT_EXPORTED. This broadcast comes from
+            // the system's DownloadManager — another UID — and NOT_EXPORTED
+            // means "only broadcasts my own app sends", so on Android 13+ it
+            // never arrived: the download finished and the install screen
+            // simply never appeared (reported live).
+            //
+            // What keeps that safe is not the export flag: any app can send
+            // ACTION_DOWNLOAD_COMPLETE, and could before this change too. It
+            // is that nothing here trusts the intent beyond its id — the file
+            // is ours, and its download must be SUCCESSFUL according to
+            // DownloadManager itself (isSuccessful), queried by the id we
+            // enqueued. A spoofed broadcast can at most make us check early.
+            appContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
         } else {
             appContext.registerReceiver(receiver, filter);
         }

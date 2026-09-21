@@ -74,8 +74,24 @@ public class DevicesFragment extends Fragment {
                 },
                 error -> {
                     binding.swipeRefresh.setRefreshing(false);
-                    Snackbar.make(binding.getRoot(), error.getMessage(), Snackbar.LENGTH_LONG).show();
+                    // A failed load used to leave the tab completely blank:
+                    // the explanatory empty text is only ever shown by
+                    // renderUsage, which does not run on this path, and a
+                    // snackbar is gone in seconds. From the outside that is
+                    // indistinguishable from "I have no devices, not even
+                    // this phone" — which is exactly how it was reported.
+                    binding.devicesEmptyText.setText(getString(R.string.devices_load_failed, messageOf(error)));
+                    binding.devicesEmptyText.setVisibility(View.VISIBLE);
+                    Snackbar.make(binding.getRoot(), messageOf(error), Snackbar.LENGTH_LONG).show();
                 });
+    }
+
+    /** Never null: an exception with no message would otherwise blow up inside Snackbar and lose the error entirely. */
+    private String messageOf(Throwable error) {
+        String message = error != null ? error.getMessage() : null;
+        return message != null && !message.isBlank()
+                ? message
+                : getString(R.string.devices_load_failed_unknown_reason);
     }
 
     /** Carries the list together with what the plan allows — see loadDevices. */
@@ -93,6 +109,9 @@ public class DevicesFragment extends Fragment {
         binding.devicesUsageText.setText(maxDevices != null
                 ? getString(R.string.devices_usage, used, maxDevices)
                 : getString(R.string.devices_usage_unknown, used));
+        // Reset the text: a previous failure may have left an error in it,
+        // and this load succeeded.
+        binding.devicesEmptyText.setText(R.string.devices_empty);
         binding.devicesEmptyText.setVisibility(used == 0 ? View.VISIBLE : View.GONE);
     }
 
@@ -118,7 +137,7 @@ public class DevicesFragment extends Fragment {
         Async.run(
                 () -> apiClient.addDevice(name, "ANDROID"),
                 device -> loadDevices(),
-                error -> Snackbar.make(binding.getRoot(), error.getMessage(), Snackbar.LENGTH_LONG).show());
+                error -> Snackbar.make(binding.getRoot(), messageOf(error), Snackbar.LENGTH_LONG).show());
     }
 
     private void confirmRevoke(DeviceDto device) {
@@ -137,7 +156,7 @@ public class DevicesFragment extends Fragment {
                     return null;
                 },
                 ignored -> loadDevices(),
-                error -> Snackbar.make(binding.getRoot(), error.getMessage(), Snackbar.LENGTH_LONG).show());
+                error -> Snackbar.make(binding.getRoot(), messageOf(error), Snackbar.LENGTH_LONG).show());
     }
 
     @Override

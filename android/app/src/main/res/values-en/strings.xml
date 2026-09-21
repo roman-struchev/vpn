@@ -111,6 +111,8 @@
     <string name="devices_usage">%1$d of %2$d devices used</string>
     <string name="devices_usage_unknown">Devices: %1$d</string>
     <string name="devices_empty">No devices yet. One is added automatically the first time you connect.</string>
+    <string name="devices_load_failed">Could not load the device list: %1$s</string>
+    <string name="devices_load_failed_unknown_reason">no connection to the server</string>
     <string name="profile_balance">Balance: %1$s USDT</string>
     <string name="profile_manage_billing">Add funds</string>
     <string name="profile_sign_in_existing">Sign in with an existing account</string>
