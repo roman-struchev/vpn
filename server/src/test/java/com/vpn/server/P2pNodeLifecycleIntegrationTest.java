@@ -20,6 +20,8 @@ import com.vpn.server.repository.TariffRepository;
 import com.vpn.server.repository.UserRepository;
 import com.vpn.server.service.NodeManagementService;
 import com.vpn.server.service.P2pRelayAccountingService;
+import com.vpn.server.service.P2pRelayDirectory;
+import com.vpn.server.service.SubscriptionExportService;
 import com.vpn.server.task.NodeHealthTask;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Test;
@@ -71,6 +73,12 @@ class P2pNodeLifecycleIntegrationTest {
     private P2pRelayAccountingService p2pRelayAccountingService;
 
     @Autowired
+    private P2pRelayDirectory relayDirectory;
+
+    @Autowired
+    private SubscriptionExportService exportService;
+
+    @Autowired
     private NodeHealthTask nodeHealthTask;
 
     @Autowired
@@ -98,7 +106,11 @@ class P2pNodeLifecycleIntegrationTest {
             t.setAnnualPriceUsdtMicro(0L);
             t.setTrafficQuotaBytes(1_000_000_000L);
             t.setMaxDevices(1);
-            t.setServerPool("paid");
+            // Derived from the id rather than always "paid": the trial/paid
+            // split is exactly what the P2P exit rules key off, so a tariff
+            // called "trial" sitting in the paid pool would quietly make
+            // those tests assert the wrong thing.
+            t.setServerPool("trial".equals(id) ? "trial" : "paid");
             return tariffRepository.save(t);
         });
     }
@@ -112,9 +124,13 @@ class P2pNodeLifecycleIntegrationTest {
     }
 
     private Subscription newActiveSubscription(User user, long trafficLimitBytes) {
+        return newActiveSubscription(user, trafficLimitBytes, "trial");
+    }
+
+    private Subscription newActiveSubscription(User user, long trafficLimitBytes, String tariffId) {
         Subscription sub = new Subscription();
         sub.setUser(user);
-        sub.setTariff(tariff("trial"));
+        sub.setTariff(tariff(tariffId));
         sub.setStatus("ACTIVE");
         sub.setCurrentPeriodStart(Instant.now());
         sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
@@ -268,5 +284,68 @@ class P2pNodeLifecycleIntegrationTest {
                 "a p2p node offline for over 24h must actually be gone");
         assertTrue(nodeRepository.findById(vpsResponse.getNodeId()).isPresent(),
                 "a VPS node must never be pruned, no matter how long it's been offline");
+    }
+
+    /**
+     * The P2P *exit* path end to end against real beans and a real DB: a
+     * registered peer shows up as a pickable row for a paid plan and a locked
+     * one for a trial plan, the directory hands it out to the former only,
+     * and an exit session's bytes land on both sides' real subscriptions —
+     * credit for the peer's owner, usage for whoever browsed through them.
+     *
+     * The unit tests around these pieces all mock the repositories, so this
+     * is the pass that would catch a wiring or transaction mistake in the
+     * charge that nothing else meters (docs §8.9).
+     */
+    @Test
+    void p2pExit_isPickableOnAPaidPlanLockedOnTrial_andChargesTheConnectingUser() {
+        User peerOwner = newUser();
+        newActiveSubscription(peerOwner, 5_000_000_000L, "pro");
+
+        NodeBootstrapToken token = nodeManagementService.createP2pBootstrapTokenForUser(peerOwner);
+        RegisterNodeResponse peer = nodeManagementService.registerNode(RegisterNodeRequest.newBuilder()
+                .setBootstrapToken(token.getToken())
+                .setHostname("integration-exit-phone-" + UUID.randomUUID())
+                .setPublicIp("0.0.0.0")
+                .setRegion("Montenegro, Podgorica")
+                .setRelayMode("ALWAYS")
+                .build());
+
+        User paidUser = newUser();
+        Subscription paidSub = newActiveSubscription(paidUser, 100_000_000_000L, "pro");
+        User trialUser = newUser();
+        newActiveSubscription(trialUser, 1_000_000_000L, "trial");
+
+        // The row a client actually renders.
+        SubscriptionExportService.RegionSummary forPaid = exportService.getAvailableRegions(paidUser.getId()).stream()
+                .filter(SubscriptionExportService.RegionSummary::p2p)
+                .findFirst().orElseThrow(() -> new AssertionError("a registered peer must appear as a P2P row"));
+        assertEquals("p2p:Montenegro, Podgorica", forPaid.key());
+        assertTrue(forPaid.accessible(), "a paid plan may pick a P2P exit");
+
+        SubscriptionExportService.RegionSummary forTrial = exportService.getAvailableRegions(trialUser.getId()).stream()
+                .filter(SubscriptionExportService.RegionSummary::p2p)
+                .findFirst().orElseThrow();
+        assertFalse(forTrial.accessible(), "a trial plan sees the same row with a padlock");
+
+        // And what each of them actually gets when they ask for peers.
+        assertEquals(1, relayDirectory.availableExitsFor(paidUser.getId(), "Montenegro, Podgorica").size());
+        assertTrue(relayDirectory.availableExitsFor(trialUser.getId(), null).isEmpty());
+        // The peer's owner is never offered their own device, on any plan.
+        assertTrue(relayDirectory.availableExitsFor(peerOwner.getId(), null).isEmpty());
+
+        // An exit session: both sides report the same figure, the peer's
+        // owner is paid for it, and the user who browsed is charged for it.
+        long nodeId = peer.getNodeId();
+        String sessionId = "integration-exit-" + UUID.randomUUID();
+        long bytesRelayed = 2_000_000_000L;
+        p2pRelayAccountingService.recordRelayNodeReport(nodeId, sessionId, bytesRelayed);
+        p2pRelayAccountingService.recordClientReport(nodeId, sessionId, bytesRelayed, paidUser.getId(), true);
+
+        Subscription chargedSub = subscriptionRepository.findById(paidSub.getId()).orElseThrow();
+        assertEquals(bytesRelayed, chargedSub.getTrafficUsedBytes(),
+                "an exit session touches no node of ours, so this report is the only thing that meters it");
+        assertTrue(creditRepository.findBySessionId(sessionId).isPresent(),
+                "the peer's owner is still credited for carrying it");
     }
 }
