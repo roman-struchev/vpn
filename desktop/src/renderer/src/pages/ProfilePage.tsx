@@ -13,7 +13,10 @@ export default function ProfilePage({
   isGuest?: boolean;
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [devices, setDevices] = useState<DeviceDto[]>([]);
+  // null until the first answer. An empty array is a claim — "you have no
+  // devices" — and making it before asking is how this list came to say
+  // that and then contradict itself a moment later.
+  const [devices, setDevices] = useState<DeviceDto[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
@@ -88,7 +91,7 @@ export default function ProfilePage({
             </div>
             <div>
               <h2 className="text-base font-semibold text-white">{t.guestProfileTitle}</h2>
-              <p className="text-xs text-brand-400 font-medium">Бесплатный период</p>
+              <p className="text-xs text-brand-400 font-medium">{t.guestProfileBadge}</p>
             </div>
           </div>
           <p className="text-xs leading-relaxed text-white/60">{t.guestProfileDesc}</p>
@@ -129,12 +132,12 @@ export default function ProfilePage({
       <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-white/70">{t.devicesTitle}</h2>
-          <span className="text-[11px] text-white/40">{devices.length}</span>
+          <span className="text-[11px] text-white/40">{devices?.length ?? '—'}</span>
         </div>
         <p className="text-[11px] text-white/45 mb-3 leading-relaxed">{t.thisDeviceAutoAdded}</p>
 
         <div className="flex flex-col gap-2">
-          {devices.map((d) => (
+          {(devices ?? []).map((d) => (
             <div key={d.id} className="flex items-center justify-between rounded-xl bg-dark-800/80 border border-dark-750/50 px-3.5 py-2.5">
               <div>
                 <p className="text-xs font-medium text-white/90">{d.deviceName}</p>
@@ -150,9 +153,11 @@ export default function ProfilePage({
               </button>
             </div>
           ))}
-          {devices.length === 0 && (
-            <p className="text-xs text-white/40 py-1">Нет подключенных устройств</p>
-          )}
+          {devices === null ? (
+            <p className="text-xs text-white/40 py-1">{t.devicesLoading}</p>
+          ) : devices.length === 0 ? (
+            <p className="text-xs text-white/40 py-1">{t.noDevicesYet}</p>
+          ) : null}
         </div>
         {deviceError && <p className="mt-2 text-xs text-state-error">{deviceError}</p>}
       </div>
@@ -179,13 +184,13 @@ export default function ProfilePage({
         <p className="mt-1.5 text-[11px] text-white/40">
           {t.referralCodeLabel}: <span className="font-mono text-white/70">{profile?.referralCode ?? '—'}</span>
         </p>
-        {profile?.referralCount !== undefined && (
-          <p className="mt-2.5 rounded-xl bg-dark-800/80 border border-dark-750/50 px-3 py-2 text-xs text-brand-400 font-medium">
-            {t.referralStats
-              .replace('%s', String(profile.referralCount))
-              .replace('%s', ((profile.referralEarningsUsdtMicro ?? 0) / 1_000_000).toFixed(2))}
-          </p>
-        )}
+        {/* Always rendered, with dashes until it is known: appearing only
+            once loaded grew the card and shifted everything below it. */}
+        <p className="mt-2.5 rounded-xl bg-dark-800/80 border border-dark-750/50 px-3 py-2 text-xs text-brand-400 font-medium">
+          {t.referralStats
+            .replace('%s', profile ? String(profile.referralCount ?? 0) : '—')
+            .replace('%s', profile ? ((profile.referralEarningsUsdtMicro ?? 0) / 1_000_000).toFixed(2) : '—')}
+        </p>
         <p className="mt-2 text-[11px] leading-relaxed text-white/45">{t.referralDesc}</p>
       </div>
 

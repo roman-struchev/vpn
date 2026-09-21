@@ -24,6 +24,12 @@ const LOAD_COLOR: Record<RegionInfo['loadLevel'], string> = {
   HIGH: 'text-state-error',
 };
 
+/**
+ * The geolocation answer, remembered for the lifetime of the window rather
+ * than applied to the mount that fetched it — see where it is read.
+ */
+let cachedOriginalIpIsRussia = false;
+
 const STATE_LABEL: Record<ConnectionState, string> = {
   DISCONNECTED: t.stateDisconnected,
   CONNECTING: t.stateConnecting,
@@ -58,25 +64,15 @@ export default function ConnectPage({
   const [billingError, setBillingError] = useState<string | null>(null);
   const [pings, setPings] = useState<Record<string, number>>({});
   const [russianMode, setRussianMode] = useState<RussianRoutingMode>('bypassRu');
-  const [refreshingUsage, setRefreshingUsage] = useState(false);
   // The bypass-RU toggle only makes sense for someone actually in Russia —
   // shown if EITHER the OS/app locale is Russian OR this install's public IP
   // geolocated to Russia the first time it was ever checked, pre-VPN (see
-  // main/geoLocale.ts). Locale is synchronous and known immediately; the IP
-  // check is async and defaults to not-shown until it resolves rather than
-  // flashing the toggle in and then hiding it.
+  // main/geoLocale.ts). Locale is synchronous, so it decides this mount; the
+  // IP answer is only ever read back from the cache on a later launch (see
+  // the effect below).
   const isRussianLocale = navigator.language.toLowerCase().startsWith('ru');
-  const [originalIpIsRussia, setOriginalIpIsRussia] = useState(false);
+  const [originalIpIsRussia] = useState(() => cachedOriginalIpIsRussia);
   const showBypassRuToggle = isRussianLocale || originalIpIsRussia;
-
-  const refreshProfile = () => {
-    setRefreshingUsage(true);
-    window.vpnApi
-      .getProfile()
-      .then(setProfile)
-      .catch(() => undefined)
-      .finally(() => setRefreshingUsage(false));
-  };
 
   useEffect(() => {
     window.vpnApi.getConnectionState().then(setState);
@@ -91,8 +87,18 @@ export default function ConnectPage({
       .catch(() => undefined);
     window.vpnApi.getRussianRoutingMode().then(setRussianMode).catch(() => undefined);
     // Skip the network round-trip entirely when locale already settles it.
+    // Its answer is deliberately not applied to this mount: the lookup takes
+    // a round-trip, so the block would appear seconds after the screen had
+    // settled and push everything under it down. It is cached, so the next
+    // launch shows it from the first frame — same call the Android client
+    // makes, for the same reason.
     if (!isRussianLocale) {
-      window.vpnApi.getOriginalIpIsRussia().then(setOriginalIpIsRussia).catch(() => undefined);
+      window.vpnApi
+        .getOriginalIpIsRussia()
+        .then((isRussia) => {
+          cachedOriginalIpIsRussia = isRussia;
+        })
+        .catch(() => undefined);
     }
 
     const offState = window.vpnApi.onStateChange(setState);
@@ -380,34 +386,29 @@ export default function ConnectPage({
       {/* Bottom Section: Subscription or Guest Sign-in */}
       <div className="w-full flex flex-col gap-2 mt-auto">
         <div className="w-full rounded-2xl bg-dark-900 border border-dark-800/80 p-3.5">
-          {profile?.hasActiveSubscription && sub ? (
+          {/* Until the profile answers, neither branch below is true yet — and
+              falling through to the "no subscription" one told a paying user
+              they had no plan for as long as the request took, then swapped
+              the card out under them. A skeleton of the same shape says
+              "loading" and keeps the height. */}
+          {profile === null ? (
+            <div className="animate-pulse">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="h-3 w-24 rounded bg-dark-800" />
+                <span className="h-3 w-8 rounded bg-dark-800" />
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-dark-800" />
+              <div className="mt-2 h-2.5 w-40 rounded bg-dark-800" />
+            </div>
+          ) : profile.hasActiveSubscription && sub ? (
             <>
               <div className="flex items-center justify-between text-xs text-white/80 mb-1.5">
                 <span className="font-medium">{usedGb.toFixed(2)} / {limitGb.toFixed(0)} GB</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-white/50">{percent.toFixed(0)}%</span>
-                  <button
-                    type="button"
-                    onClick={refreshProfile}
-                    disabled={refreshingUsage}
-                    title={t.refreshUsage}
-                    aria-label={t.refreshUsage}
-                    className="text-white/40 hover:text-white/80 transition-colors disabled:opacity-40"
-                  >
-                    <svg
-                      className={`h-3 w-3 ${refreshingUsage ? 'animate-spin' : ''}`}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-                      <path d="M21 3v6h-6" />
-                    </svg>
-                  </button>
-                </div>
+                {/* No refresh button: this page already re-reads the profile
+                    every 60 seconds while it is open (see usageInterval), so
+                    the button bought at most a minute — the Android client
+                    dropped its own for the same reason. */}
+                <span className="text-white/50">{percent.toFixed(0)}%</span>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-dark-800">
                 <div className="h-full bg-brand-500 rounded-full transition-all duration-300" style={{ width: `${percent}%` }} />

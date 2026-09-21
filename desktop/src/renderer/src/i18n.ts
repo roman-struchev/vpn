@@ -24,7 +24,6 @@ const translations = {
     noSubscription: 'Нет активной подписки',
     getPlan: 'Выбрать тариф',
     expiresAt: 'Действует до',
-    refreshUsage: 'Обновить остаток трафика',
     connect: 'Подключить',
     disconnect: 'Отключить',
     nodeRegion: 'Регион ноды',
@@ -67,6 +66,9 @@ const translations = {
     logout: 'Выйти',
 
     guestProfileTitle: 'Пробный доступ',
+    guestProfileBadge: 'Бесплатный период',
+    noDevicesYet: 'Нет подключённых устройств',
+    devicesLoading: 'Загрузка…',
     guestProfileDesc:
       'Это временный профиль, привязанный только к этому устройству — он не сохранится при переустановке. Войдите или зарегистрируйтесь, чтобы сохранить доступ и увеличить лимиты.',
     signInOrRegister: 'Войти или зарегистрироваться',
@@ -130,7 +132,6 @@ const translations = {
     noSubscription: 'No active subscription',
     getPlan: 'Get a plan',
     expiresAt: 'Expires',
-    refreshUsage: 'Refresh traffic usage',
     connect: 'Connect',
     disconnect: 'Disconnect',
     nodeRegion: 'Node region',
@@ -173,6 +174,9 @@ const translations = {
     logout: 'Sign out',
 
     guestProfileTitle: 'Trial access',
+    guestProfileBadge: 'Free period',
+    noDevicesYet: 'No devices connected yet',
+    devicesLoading: 'Loading…',
     guestProfileDesc:
       "This is a temporary profile tied only to this device — it won't survive a reinstall. Sign in or register to keep your access and raise your limits.",
     signInOrRegister: 'Sign in or register',
