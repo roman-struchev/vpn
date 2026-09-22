@@ -28,6 +28,17 @@ describe('probeThroughHttpProxy', () => {
     expect(seen).toMatch(/^GET http:\/\/1\.1\.1\.1\/cdn-cgi\/trace HTTP\/1\.1/);
   });
 
+  it("passes on Cloudflare's redirect, which is what plain HTTP to 1.1.1.1 really gets", async () => {
+    const proxy = await fakeProxy((socket) =>
+      socket.end(
+        'HTTP/1.1 301 Moved Permanently\r\nServer: cloudflare\r\nLocation: https://1.1.1.1/cdn-cgi/trace\r\n' +
+          'CF-RAY: a3f42da238fc55ad-BEG\r\n\r\n<html></html>'
+      )
+    );
+    server = proxy.server;
+    expect(await probeThroughHttpProxy(proxy.port, 2000)).toBe(true);
+  });
+
   it('fails when the proxy accepts but the tunnel behind it goes nowhere', async () => {
     const proxy = await fakeProxy((socket) => socket.end());
     server = proxy.server;

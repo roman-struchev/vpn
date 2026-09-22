@@ -9,8 +9,14 @@ import net from 'node:net';
  * its key valid, or the plan still active. The app then showed "Protected"
  * with the system proxy pointed at a tunnel that went nowhere, i.e. the
  * whole machine offline. Only an answer that could have come from the far
- * end counts: Cloudflare's trace page, addressed by IP so a broken DNS path
- * cannot fail the probe on its own.
+ * end counts — one from Cloudflare itself, addressed by IP so a broken DNS
+ * path cannot fail the probe on its own.
+ *
+ * Over plain HTTP 1.1.1.1 answers with a 301 to HTTPS rather than the trace
+ * body, so the body cannot be required: Cloudflare's CF-RAY header is what
+ * proves the answer came from the far end. (The first version waited for the
+ * body's "ip=" line and never passed against the real endpoint — caught by
+ * test/realTunnel.integration.test.ts.)
  */
 export const PROBE_HOST = '1.1.1.1';
 const PROBE_PATH = '/cdn-cgi/trace';
@@ -35,11 +41,19 @@ export function probeThroughHttpProxy(proxyPort: number, timeoutMs = 8000, proxy
     });
     socket.on('data', (chunk) => {
       received += chunk.toString('latin1');
-      // The trace body is key=value lines, one of them "ip=<our exit IP>" —
-      // something a local proxy failing on its own would never produce.
-      if (/\nip=/.test(received)) finish(true);
+      if (answeredByFarEnd(received)) finish(true);
       if (received.length > 64 * 1024) finish(false);
     });
-    socket.on('end', () => finish(/\nip=/.test(received)));
+    socket.on('end', () => finish(answeredByFarEnd(received)));
   });
+}
+
+/**
+ * A response only Cloudflare could have produced: its CF-RAY header (on the
+ * redirect and on the trace page alike), or the trace body's "ip=" line. A
+ * local proxy failing on its own produces neither.
+ */
+function answeredByFarEnd(received: string): boolean {
+  if (!received.startsWith('HTTP/1.')) return false;
+  return /\r\ncf-ray:/i.test(received) || /\nip=/.test(received);
 }
