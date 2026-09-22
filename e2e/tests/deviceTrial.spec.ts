@@ -55,7 +55,7 @@ test.describe('No-signup device-trial login', () => {
 
       // No "Активировать бесплатно" click anywhere here — the whole point of
       // this flow is that the trial is already active on first login.
-      await expect(page.getByText('Active · TRIAL', { exact: false })).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByText(/(Активна|Active) · TRIAL/)).toBeVisible({ timeout: 10_000 });
     });
 
     await test.step('the account shows up in the admin Users tab with the "no signup" badge', async () => {

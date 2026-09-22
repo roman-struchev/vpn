@@ -273,11 +273,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     try {
       const amountMicro = Math.round(parseFloat(claimAmount) * 1_000_000);
       const res = await api.claimTx(depositChain, claimTxHash, amountMicro);
-      setClaimStatus(`Successfully credited $${(res.amountMicro / 1_000_000).toFixed(2)} USDT!`);
+      setClaimStatus(t.claimSuccess.replace('{amount}', (res.amountMicro / 1_000_000).toFixed(2)));
       setClaimTxHash('');
       onRefreshUser();
     } catch (err: any) {
-      setClaimError(err.message || 'Failed to claim transaction');
+      setClaimError(err.message || t.claimFailed);
     }
   };
 
@@ -378,13 +378,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {sub && (
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold shrink-0">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{`Active · ${sub.tariffId.toUpperCase()}`}</span>
+                  <span>{`${t.subscriptionActive} · ${sub.tariffId.toUpperCase()}`}</span>
                 </div>
               )}
             </div>
             {sub && (
               <p className="text-xs text-slate-400 mt-1">
-                {t.expiresAt}: {formatExpiresAt(sub.expiresAt)}
+                {t.expiresAt}: {sub.noExpiry ? t.expiresNever : formatExpiresAt(sub.expiresAt)}
               </p>
             )}
           </div>
@@ -959,18 +959,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <QRCodeSVG value={invoice.recipientAddress} size={140} />
                     </div>
                     <div>
-                      <span className="text-[11px] text-slate-400">Exact amount to send:</span>
+                      <span className="text-[11px] text-slate-400">{t.depositExactAmount}</span>
                       <div className="text-base font-bold text-brand-400">
                         {(invoice.expectedAmountUsdtMicro / 1_000_000).toFixed(6)} USDT
                       </div>
                       <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">{t.depositAmountHint}</p>
                       <span className="text-[10px] text-slate-500">
-                        Acceptable window: {(invoice.toleranceMinMicro / 1_000_000).toFixed(6)} - {(invoice.toleranceMaxMicro / 1_000_000).toFixed(6)}
+                        {t.depositAcceptableWindow} {(invoice.toleranceMinMicro / 1_000_000).toFixed(6)} - {(invoice.toleranceMaxMicro / 1_000_000).toFixed(6)}
                       </span>
                     </div>
                     <div>
                       <span className="text-[11px] text-slate-400">
-                        {invoice.chain === 'TRON' ? 'TRC-20 Address:' : (invoice.chain === 'ETHEREUM' ? 'ERC-20 Address:' : `${invoice.chain} (EVM) Address:`)}
+                        {t.depositAddressFor.replace(
+                          '{network}',
+                          invoice.chain === 'TRON' ? 'TRC-20' : invoice.chain === 'ETHEREUM' ? 'ERC-20' : `${invoice.chain} (EVM)`
+                        )}
                       </span>
                       <div className="text-xs font-mono break-all text-slate-200 mt-0.5">
                         {invoice.recipientAddress}

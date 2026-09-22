@@ -6,6 +6,21 @@ export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string) => localStorage.setItem(TOKEN_KEY, token);
 export const removeToken = () => localStorage.removeItem(TOKEN_KEY);
 
+/** Renew the session once the token has less than this left. */
+const RENEW_WHEN_LEFT_SEC = 7 * 24 * 3600;
+
+/** The token's exp (epoch seconds) without verifying it, or null if unreadable. */
+const tokenExpiresAtSec = (token: string): number | null => {
+  try {
+    const part = token.split('.')[1];
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+    const exp = JSON.parse(json).exp;
+    return typeof exp === 'number' ? exp : null;
+  } catch {
+    return null;
+  }
+};
+
 const getAuthHeaders = (): HeadersInit => {
   const token = getToken();
   return {
@@ -85,8 +100,32 @@ export const api = {
     const res = await fetch('/api/v1/user/profile', {
       headers: getAuthHeaders(),
     });
-    if (!res.ok) throw new Error('Unauthorized');
+    // Only a 401 means the session is gone. Anything else (a 5xx, a proxy
+    // hiccup) used to be reported the same way and signed the user out.
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error('Failed to load profile');
     return res.json();
+  },
+
+  /**
+   * Swaps a token close to expiry for a fresh one, so someone who keeps
+   * coming back is never signed out by the clock. Best-effort: on failure
+   * the current token is still good for days.
+   */
+  async renewSessionIfNeeded(): Promise<void> {
+    const token = getToken();
+    if (!token) return;
+    const exp = tokenExpiresAtSec(token);
+    const leftSec = exp === null ? null : exp - Math.floor(Date.now() / 1000);
+    if (leftSec === null || leftSec <= 0 || leftSec > RENEW_WHEN_LEFT_SEC) return;
+    try {
+      const res = await fetch('/api/v1/auth/refresh', { method: 'POST', headers: getAuthHeaders() });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.token) setToken(data.token);
+    } catch {
+      // keep the current token
+    }
   },
 
   async getTariffs(): Promise<Tariff[]> {

@@ -12,28 +12,28 @@ test.describe('Multi-network crypto deposits E2E', () => {
 
     // 1. TRON network (default)
     await page.getByRole('button', { name: '$5', exact: true }).click();
-    await page.getByRole('button', { name: 'Get Deposit Address' }).click();
+    await page.getByRole('button', { name: 'Получить адрес для пополнения' }).click();
 
-    await expect(page.getByText('TRC-20 Address:')).toBeVisible();
+    await expect(page.getByText('Адрес TRC-20:')).toBeVisible();
     await expect(page.getByText('TXxxDefaultDepositAddressTRC20')).toBeVisible();
-    await expect(page.getByText('Exact amount to send:')).toBeVisible();
+    await expect(page.getByText('Отправьте ровно:')).toBeVisible();
 
     // 2. Switch to BASE (EVM)
     await page.getByRole('button', { name: 'Base' }).click();
     await page.getByRole('button', { name: '$10', exact: true }).click();
-    await page.getByRole('button', { name: 'Get Deposit Address' }).click();
+    await page.getByRole('button', { name: 'Получить адрес для пополнения' }).click();
 
-    await expect(page.getByText('BASE (EVM) Address:')).toBeVisible();
+    await expect(page.getByText('Адрес BASE (EVM):')).toBeVisible();
     await expect(page.getByText('0x1111111111111111111111111111111111111111')).toBeVisible();
 
     // 3. Claim transaction using the claim form
     const txHash = `0xclaim_test_${Date.now()}`;
-    await page.getByPlaceholder('Transaction Hash (TxID)').fill(txHash);
-    await page.getByPlaceholder('Amount in USDT').fill('10');
+    await page.getByPlaceholder('Хеш транзакции (TxID)').fill(txHash);
+    await page.getByPlaceholder('Сумма в USDT').fill('10');
     await page.getByRole('button', { name: 'Зачислить на баланс' }).click();
 
     // Verify claim status and updated balance in navbar
-    await expect(page.getByText(/Successfully credited/i)).toBeVisible();
+    await expect(page.getByText(/Зачислено \$10\.00 USDT/)).toBeVisible();
     await expect(page.getByRole('button', { name: /\$10\.00 USDT/ })).toBeVisible();
   });
 });

@@ -51,7 +51,7 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
     await trialCard.getByRole('button', { name: 'Активировать бесплатно' }).click();
 
     await expect(page.getByText('Трафик:', { exact: false })).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Active · TRIAL', { exact: false })).toBeVisible();
+    await expect(page.getByText(/(Активна|Active) · TRIAL/)).toBeVisible();
     // NOT a VLESS copy-link button here: docs/PLAN.md §1 deliberately
     // restricts subscription-link export to paid plans
     // (SubscriptionExportService.exportVlessLinks rejects tariff "trial").
@@ -96,10 +96,10 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
     // TRON is the default network in the selector added alongside ERC-20 support.
 
     await page.getByRole('button', { name: '$10', exact: true }).click();
-    await page.getByRole('button', { name: 'Get Deposit Address' }).click();
+    await page.getByRole('button', { name: 'Получить адрес для пополнения' }).click();
 
-    await expect(page.getByText('TRC-20 Address:')).toBeVisible();
-    await expect(page.getByText('Exact amount to send:')).toBeVisible();
+    await expect(page.getByText('Адрес TRC-20:')).toBeVisible();
+    await expect(page.getByText('Отправьте ровно:')).toBeVisible();
 
     await page.getByRole('button', { name: '✕' }).click();
   });
@@ -128,6 +128,6 @@ test('register -> subscribe -> device -> top-up -> logout -> login', async ({ pa
     await page.locator('form').getByRole('button', { name: 'Войти', exact: true }).click();
 
     // The trial subscription activated earlier in this run is still there.
-    await expect(page.getByText('Active · TRIAL', { exact: false })).toBeVisible();
+    await expect(page.getByText(/(Активна|Active) · TRIAL/)).toBeVisible();
   });
 });

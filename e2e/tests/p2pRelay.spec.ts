@@ -99,10 +99,12 @@ test.describe('signaling broker', () => {
       data: { sessionId: `e2e-missing-${Date.now()}`, payloadBase64: Buffer.from('{}').toString('base64') },
     });
 
-    // 503: the relay is not there. The client's job is then to try another
-    // peer, which it cannot do if this silently waits for an answer.
-    expect(res.status()).toBe(503);
-    expect(await res.text()).toMatch(/relay/i);
+    // Refused at once: the node is not one this account may use (the access
+    // check runs before the "is it online" one, so an unknown id is a 403).
+    // The client's job is then to try another peer, which it cannot do if
+    // this silently waits for an answer.
+    expect([403, 503]).toContain(res.status());
+    expect(await res.text()).toMatch(/relay|peer/i);
   });
 
   test('a malformed signal is rejected without disturbing anything', async ({ request }) => {

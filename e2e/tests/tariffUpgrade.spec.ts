@@ -28,7 +28,7 @@ test.describe('Tariff upgrade and limits E2E', () => {
     const trialCard = page.locator('div.rounded-xl.bg-dark-900:has-text("Пробный")').first();
     await trialCard.getByRole('button', { name: 'Активировать бесплатно' }).click();
 
-    await expect(page.getByText('Active · TRIAL', { exact: false })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/(Активна|Active) · TRIAL/)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /Трафик:.*1 GB/ })).toBeVisible();
 
     // Register 1st device
@@ -66,7 +66,7 @@ test.describe('Tariff upgrade and limits E2E', () => {
     await proCard.getByRole('button', { name: 'Оплатить с баланса' }).click();
 
     // 4. Verify that Pro plan takes effect immediately
-    await expect(page.getByText('Active · PRO', { exact: false })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/(Активна|Active) · PRO/)).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('heading', { name: /Трафик:.*100 GB/ })).toBeVisible();
 
     // Balance debited by $2.00 (from $5.00 to $3.00)

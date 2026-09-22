@@ -179,14 +179,19 @@ export function App() {
 
   const refreshUser = async () => {
     try {
+      await api.renewSessionIfNeeded();
       const profile = await api.getProfile();
       setUser(profile);
       // A stale #admin hash (e.g. bookmarked, or role changed server-side)
       // shouldn't strand a non-admin viewer on a blank/guarded route.
       if (showAdmin && profile.role !== 'ADMIN') closeAdmin();
     } catch (err) {
-      removeToken();
-      setUser(null);
+      // Signed out only when the server says the session is gone — not on a
+      // network blip or a 5xx, which used to log people out as well.
+      if (err instanceof Error && err.message === 'Unauthorized') {
+        removeToken();
+        setUser(null);
+      }
     }
   };
 
