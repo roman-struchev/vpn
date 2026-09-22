@@ -100,11 +100,27 @@ test.describe('cross-account access control', () => {
       ['tampered token', authed(tampered)],
     ] as const) {
       const res = await request.get('/api/v1/user/profile', { headers });
-      expect([401, 403], `${label} must be rejected, got ${res.status()}`).toContain(res.status());
+      // 401 specifically, not 403: that is what tells a client its session is
+      // gone (renew it or sign in again) rather than "not allowed".
+      expect(res.status(), `${label} must be rejected as unauthenticated`).toBe(401);
       const body = await res.text();
       expect(body, `${label} must not leak a stack trace`).not.toContain('java.');
     }
   });
+});
+
+test('a live session can be renewed, a dead one cannot', async ({ request }) => {
+  const user = await register(request, 'refresh');
+  const renewed = await request.post('/api/v1/auth/refresh', { headers: authed(user.token) });
+  expect(renewed.status(), 'refresh with a valid token').toBe(200);
+  const fresh = (await renewed.json()).token as string;
+  expect(fresh).toBeTruthy();
+
+  const profile = await request.get('/api/v1/user/profile', { headers: authed(fresh) });
+  expect(profile.status(), 'the renewed token works').toBe(200);
+
+  const anonymous = await request.post('/api/v1/auth/refresh');
+  expect(anonymous.status(), 'refresh without a token').toBe(401);
 });
 
 test.describe('guest (device-trial) accounts', () => {

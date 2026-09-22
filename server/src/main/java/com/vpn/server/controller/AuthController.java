@@ -71,6 +71,17 @@ public class AuthController {
     }
 
     /**
+     * Sliding session: clients call this while their token is still valid
+     * (well before expiry) and store the new one. Authenticated, like
+     * /upgrade — see SecurityConfig.
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(Authentication auth) {
+        Long userId = (Long) auth.getPrincipal();
+        return ResponseEntity.ok(authService.refresh(userId));
+    }
+
+    /**
      * Best-effort: a merge failure must never turn an otherwise-successful
      * login into a client-visible error. `deviceUuid` is a client-supplied
      * hint (only web omits it today), not something to trust blindly, but

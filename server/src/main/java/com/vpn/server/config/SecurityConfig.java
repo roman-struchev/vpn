@@ -34,6 +34,12 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // Spring re-dispatches every error response (a 403 from
+                        // hasRole, a 503 from a controller) to /error, where the
+                        // JWT filter does not run again. Without this, that
+                        // second pass looked anonymous and the entry point below
+                        // rewrote a real "not allowed" into a 401.
+                        .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ERROR).permitAll()
                         // Carved out ahead of the /api/v1/auth/** permitAll wildcard below:
                         // this is the one endpoint under that prefix that needs a real
                         // session (it mints a web-handoff code for the *calling* user).
@@ -46,6 +52,7 @@ public class SecurityConfig {
                         // AuthController#upgrade) needs the caller's own JWT, unlike
                         // every other /api/v1/auth/** endpoint.
                         .requestMatchers("/api/v1/auth/upgrade").authenticated()
+                        .requestMatchers("/api/v1/auth/refresh").authenticated()
                         .requestMatchers(
                                 "/",
                                 "/index.html",
@@ -63,6 +70,15 @@ public class SecurityConfig {
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
+                // Without an entry point Spring answers a missing/expired token
+                // with 403, which clients cannot tell apart from a real "not
+                // allowed" (P2P, admin). 401 is what lets them renew the
+                // session or send the user back to sign in.
+                .exceptionHandling(e -> e.authenticationEntryPoint((request, response, ex) -> {
+                    response.setStatus(401);
+                    response.setContentType("application/json");
+                    response.getWriter().write("{\"error\":\"Unauthorized\"}");
+                }))
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }

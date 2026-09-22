@@ -142,4 +142,29 @@ class AuthServiceTest {
                 authService.register(new RegisterRequest("fine@example.com", "p".repeat(5000), null)));
         assertTrue(password.getMessage().toLowerCase().contains("password"), password.getMessage());
     }
+
+    @Test
+    void testRefreshIssuesAFreshTokenForAnActiveUser() {
+        User user = new User();
+        user.setId(7L);
+        user.setEmail("a@example.com");
+        user.setRole("USER");
+        user.setStatus("ACTIVE");
+        when(userRepository.findById(7L)).thenReturn(Optional.of(user));
+
+        AuthResponse resp = authService.refresh(7L);
+
+        assertEquals(7L, resp.userId());
+        assertTrue(jwtUtil.validateToken(resp.token()));
+    }
+
+    @Test
+    void testRefreshRejectsABlockedUser() {
+        User user = new User();
+        user.setId(8L);
+        user.setStatus("BLOCKED");
+        when(userRepository.findById(8L)).thenReturn(Optional.of(user));
+
+        assertThrows(IllegalStateException.class, () -> authService.refresh(8L));
+    }
 }

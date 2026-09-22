@@ -94,6 +94,23 @@ public class AuthService {
     }
 
     /**
+     * Swaps a still-valid token for a fresh one, so a client that is in use
+     * never reaches the token's expiry and gets signed out mid-month. Only
+     * reachable with a valid token (SecurityConfig), and re-checks the
+     * account, so a blocked user cannot keep extending a session.
+     */
+    @Transactional(readOnly = true)
+    public AuthResponse refresh(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!"ACTIVE".equals(user.getStatus())) {
+            throw new IllegalStateException("Account is suspended or blocked");
+        }
+        String token = jwtUtil.generateToken(user.getId(), user.getEmail(), user.getRole());
+        return new AuthResponse(token, user.getId(), user.getEmail(), user.getRole(), user.getReferralCode());
+    }
+
+    /**
      * Converts the currently-signed-in guest/device-trial account (see
      * DeviceAuthService) into a real, credentialed one in place — same row,
      * same id, same balance and active trial subscription, just adding an
