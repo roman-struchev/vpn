@@ -9,7 +9,7 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.CoreMatchers.allOf;
-import static org.hamcrest.CoreMatchers.instanceOf;
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -31,7 +31,9 @@ import androidx.test.uiautomator.Until;
 
 import com.vpn.android.api.TokenStore;
 import com.vpn.android.ui.login.LoginActivity;
+import com.vpn.android.vpn.VpnStatusBus;
 import com.vpn.android.vpn.XrayVpnService;
+import com.vpn.android.vpn.state.ConnectionState;
 
 import org.hamcrest.Matcher;
 import org.junit.Before;
@@ -91,6 +93,16 @@ import okhttp3.Response;
  * OkHttp request issued from this test's own thread after CONNECTED is
  * exactly such a real client request — no extra process or shell-out needed.
  *
+ * Beyond "it connects", it covers what a user actually lives through
+ * (docs/AUDIT.md, section 3):
+ *   - a healthy tunnel stays CONNECTED across the periodic HTTPS liveness
+ *     probes (a probe that wrongly fails would flap the connection);
+ *   - the server revoking this device's key — xray keeps running, nothing
+ *     gets through — is noticed, and the app recovers on its own by
+ *     re-registering and fetching fresh links, with real traffic after;
+ *   - disconnecting tears the TUN down, so the device is back online
+ *     directly.
+ *
  * Run: android/scripts/real-tunnel-e2e.sh (which also does the setup above
  * and invokes this class directly via
  * -Pandroid.testInstrumentationRunnerArguments.class). Do not run this
@@ -102,15 +114,23 @@ public class TunnelFlowTest {
 
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
     private static final long DEFAULT_TIMEOUT_MS = 20_000;
-    private static final long TUNNEL_TIMEOUT_MS = 30_000;
+    /** Connect includes an end-to-end check of the tunnel before CONNECTED. */
+    private static final long TUNNEL_TIMEOUT_MS = 60_000;
+    /** Health checks run every 30s; two misses in a row mean dead. */
+    private static final long DEAD_TUNNEL_NOTICED_MS = 110_000;
+    /** Backoff, a retry, then a reload of profile + links + a fresh device. */
+    private static final long RECOVERY_TIMEOUT_MS = 300_000;
 
     @Rule
     public GrantPermissionRule notificationPermissionRule =
             GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS);
 
+    // The explicit form: launched plainly, LoginActivity signs this install
+    // into its own device-trial account on its own, racing the typing below.
     @Rule
     public ActivityScenarioRule<LoginActivity> activityRule =
-            new ActivityScenarioRule<>(LoginActivity.class);
+            new ActivityScenarioRule<>(LoginActivity.createShowFormIntent(
+                    androidx.test.core.app.ApplicationProvider.getApplicationContext()));
 
     private Context targetContext;
 
@@ -121,7 +141,7 @@ public class TunnelFlowTest {
     }
 
     @Test
-    public void connectsThroughARealNodeAndMovesRealTraffic() throws Exception {
+    public void connectsStaysUpSurvivesAKeyRevocationAndDisconnectsCleanly() throws Exception {
         // --- 1. Register through the real Login screen ----------------------
         String email = "e2e-android-tunnel-" + System.currentTimeMillis() + "@example.com";
         String password = "Test-Passw0rd!";
@@ -134,43 +154,15 @@ public class TunnelFlowTest {
         waitFor(withId(R.id.bottomNav), DEFAULT_TIMEOUT_MS);
         waitFor(allOf(withId(R.id.trafficText), withText(R.string.state_no_subscription)), DEFAULT_TIMEOUT_MS);
 
-        // --- 2. Activate the free trial (no billing UI exists — see UiFlowTest) ---
+        // --- 2. Activate the free trial (no billing UI in the app) ----------
         String token = new TokenStore(targetContext).getToken();
         assertNotNull("real UI registration should have persisted a JWT", token);
         activateFreeTrial(BuildConfig.API_BASE_URL, token);
 
-        // Trial subscriptions ARE included in the authenticated
-        // /api/v1/user/subscription/links export (SubscriptionExportService
-        // #exportVlessLinksForOwnApp) — unlike the public/token-based export,
-        // this is a logged-in user fetching their own credentials, exactly
-        // what a trial is for. So the trial account this test just created
-        // is enough to reach the real node; no paid purchase needed here.
-
-        // --- 3. Add a device through the real "Add device" dialog -----------
-        // Required *before* the first connect attempt, not just a nice-to-
-        // have: SubscriptionExportService#exportVlessLinksForOwnApp returns
-        // an EMPTY link list (autoCreatePrimaryDevice=false) when the user
-        // has no devices yet, which XrayVpnService#loadProfileAndConnect
-        // then turns into "No subscription links available for this
-        // account" -> FATAL_ERROR. XrayVpnService's own
-        // registerOrTouchDevice() only runs *after* a tunnel has already
-        // come up, so it cannot bootstrap this account's very first device —
-        // confirmed live: an earlier version of this test that skipped this
-        // step failed with "java.lang.IllegalStateException: No
-        // subscription links available for this account" before ever
-        // dialing the real node.
-        String deviceName = "e2e-android-tunnel-device-" + System.currentTimeMillis();
-        onView(withId(R.id.nav_devices)).perform(click());
-        waitFor(withId(R.id.addDeviceButton), DEFAULT_TIMEOUT_MS);
-        onView(withId(R.id.addDeviceButton)).perform(click());
-        onView(instanceOf(android.widget.EditText.class)).perform(typeText(deviceName), closeSoftKeyboard());
-        onView(withId(android.R.id.button1)).perform(click());
-        waitFor(withText(deviceName), DEFAULT_TIMEOUT_MS);
-
-        // --- 4. Tap the real Connect button and handle the real OS consent dialog ---
-        onView(withId(R.id.nav_connect)).perform(click());
+        // --- 3. Connect through the real button and OS consent dialog -------
+        // No "add device" step: the service registers this device itself
+        // before it asks for links.
         waitFor(allOf(withId(R.id.statusText), withText(R.string.state_disconnected)), DEFAULT_TIMEOUT_MS);
-
         onView(withId(R.id.connectButton)).perform(click());
 
         UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
@@ -180,38 +172,63 @@ public class TunnelFlowTest {
         }
 
         try {
-            // Unlike UiFlowTest, this asserts the specific CONNECTED state —
-            // a real node is actually up and reachable at this point, so
-            // landing anywhere else (ERROR/OPERATOR_BLOCKED) is a real
-            // failure worth surfacing, not something to paper over.
             waitFor(allOf(withId(R.id.statusText), withText(R.string.state_connected)), TUNNEL_TIMEOUT_MS);
 
-            // --- 5. The actual assertion: real traffic through the real tunnel ---
-            // Same reasoning as e2e/tests/tunnel.spec.ts: not a local/loopback
-            // target (the node's own config blocks geoip:private on its
-            // outbound side, and would only prove the tunnel can reach the
-            // node's own LAN, not the open internet), and REALITY's live
-            // handshake against vpn.reality.dest can occasionally flake even
-            // with fully correct config — so retry a few full requests
-            // rather than asserting on a single attempt.
-            String body = fetchThroughTunnelWithRetries("http://example.com/", 4);
-            assertTrue("expected real response body from example.com through the tunnel, got: " + body,
-                    body.contains("Example Domain"));
+            // --- 4. Real traffic through the real tunnel --------------------
+            assertFetchesThroughTunnel();
+
+            // --- 5. A healthy tunnel survives its own liveness checks -------
+            Thread.sleep(70_000);
+            assertEquals("a working tunnel must not be torn down by its own health checks",
+                    ConnectionState.CONNECTED, VpnStatusBus.state.getValue());
+            assertFetchesThroughTunnel();
+
+            // --- 6. The server revokes this device: the node drops its key --
+            // xray keeps running locally and the TUN stays up; only an
+            // end-to-end probe can tell. Before the fix this stayed
+            // "Protected" with no internet indefinitely.
+            // Revoked from outside, the way it happens for real (another
+            // device, the web dashboard): real-tunnel-e2e.sh watches logcat
+            // for this line, signs in as this user and revokes every device.
+            // Nothing in this process could do it anyway: the dev server is
+            // at a private address the tunnel blocks, and a VPN app may not
+            // bind sockets to the underlying network (EPERM). The recovery
+            // below therefore also proves the service's own API client
+            // really bypasses the tunnel (ProtectedSocketFactory) — it has
+            // to reach 10.0.2.2 to re-register this device.
+            android.util.Log.i("TunnelFlowTest", "REVOKE_DEVICES_NOW " + email + " " + password);
+            waitForState(s -> s != ConnectionState.CONNECTED, DEAD_TUNNEL_NOTICED_MS,
+                    "a tunnel whose key was revoked must not keep showing CONNECTED");
+
+            // ...and comes back by itself: a fresh device, fresh links.
+            waitForState(s -> s == ConnectionState.CONNECTED, RECOVERY_TIMEOUT_MS,
+                    "the app should recover on its own after re-registering this device");
+            assertFetchesThroughTunnel();
         } finally {
             targetContext.startService(
                     new Intent(targetContext, XrayVpnService.class).setAction(XrayVpnService.ACTION_DISCONNECT));
         }
+
+        // --- 7. Disconnect leaves the device online directly ----------------
+        waitForState(s -> s == ConnectionState.DISCONNECTED, DEFAULT_TIMEOUT_MS, "disconnect should complete");
+        String direct = fetchWithRetries("https://example.com/", 3);
+        assertTrue("after disconnecting, the device must be online directly", direct.contains("Example Domain"));
+    }
+
+    private static void assertFetchesThroughTunnel() throws InterruptedException {
+        // Same bar as e2e/tests/tunnel.spec.ts: the open internet, not a LAN
+        // address, with a few retries for REALITY's occasional handshake flake.
+        String body = fetchWithRetries("https://example.com/", 4);
+        assertTrue("expected real response body from example.com through the tunnel, got: " + body,
+                body.contains("Example Domain"));
     }
 
     /**
-     * Issues a real GET straight through the device's default route (no
-     * proxy configured — the OkHttpClient below is as plain as the app's
-     * own networking) so it can only reach example.com by actually
-     * transiting the TUN interface XrayVpnService just established. A
-     * fresh OkHttpClient per attempt avoids reusing a pooled connection
-     * from a failed prior attempt.
+     * A plain GET from this test's own thread. Instrumented tests run in the
+     * app's process and the TUN excludes nothing, so while connected this
+     * can only reach the internet through the tunnel.
      */
-    private static String fetchThroughTunnelWithRetries(String url, int attempts) throws InterruptedException {
+    private static String fetchWithRetries(String url, int attempts) throws InterruptedException {
         IOException lastError = null;
         for (int i = 1; i <= attempts; i++) {
             OkHttpClient http = new OkHttpClient.Builder()
@@ -230,8 +247,18 @@ public class TunnelFlowTest {
             }
             Thread.sleep(2000);
         }
-        fail("All " + attempts + " attempts to fetch " + url + " through the tunnel failed; last error: " + lastError);
+        fail("All " + attempts + " attempts to fetch " + url + " failed; last error: " + lastError);
         return null; // unreachable
+    }
+
+    private static void waitForState(java.util.function.Predicate<ConnectionState> condition, long timeoutMs,
+                                     String message) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMs;
+        while (System.currentTimeMillis() < deadline) {
+            if (condition.test(VpnStatusBus.state.getValue())) return;
+            Thread.sleep(500);
+        }
+        fail(message + " (state after " + timeoutMs + "ms: " + VpnStatusBus.state.getValue() + ")");
     }
 
     private static void waitFor(Matcher<View> matcher, long timeoutMs) throws InterruptedException {

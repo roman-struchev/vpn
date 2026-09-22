@@ -52,6 +52,14 @@ cleanup() {
   # tsx's child xray-core process can outlive a plain SIGTERM to the npx pid.
   pkill -f "$XRAY_CFG" 2>/dev/null || true
 
+  # Take this run's node out of rotation too: the server keeps a node whose
+  # agent just died ONLINE until its heartbeat goes stale, and every run's
+  # node shares 10.0.2.2:8443 — see retire_previous_test_nodes.
+  if [ -n "${NODE_ID:-}" ] && [ -n "${ADMIN_TOKEN:-}" ]; then
+    curl -s -X POST "$API_BASE/api/v1/admin/nodes/$NODE_ID/status?status=OFFLINE" \
+      -H "Authorization: Bearer $ADMIN_TOKEN" >/dev/null || true
+  fi
+
   if [ -s "$POLICY_RESTORE_FILE" ] && [ -n "${ADMIN_TOKEN:-}" ]; then
     log "restoring global TransportPolicy to its previous value"
     curl -s -X POST "$API_BASE/api/v1/admin/policies" \
@@ -106,6 +114,21 @@ ADMIN_TOKEN="$(curl -sf -X POST "$API_BASE/api/v1/auth/login" -H 'Content-Type: 
   -d "{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .token)"
 [ -n "$ADMIN_TOKEN" ] && [ "$ADMIN_TOKEN" != "null" ] || { log "ERROR: failed to obtain admin JWT"; exit 1; }
 
+# --- 1b. Retire nodes left over from earlier runs ------------------------------
+# Every run registers a new node at the same 10.0.2.2:8443, and the server keeps
+# a node whose agent is gone ONLINE until its heartbeat goes stale. Those stale
+# rows come first in the app's link list, carry REALITY keys the process now on
+# :8443 does not know ("REALITY: received real certificate"), and cost the app
+# a full round of failures before it reaches this run's node — long enough to
+# time the test out.
+log "retiring leftover e2e-android nodes"
+curl -sf "$API_BASE/api/v1/admin/nodes" -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | jq -r '.[] | select((.hostname // "") | startswith("e2e-android-tunnel-")) | select(.status=="ONLINE") | .id' \
+  | while read -r stale_id; do
+      curl -s -X POST "$API_BASE/api/v1/admin/nodes/$stale_id/status?status=OFFLINE" \
+        -H "Authorization: Bearer $ADMIN_TOKEN" >/dev/null || true
+    done
+
 # --- 2. Flip the global TransportPolicy to GRPC ------------------------------
 # Without this the Android app starts on XHTTP (server default) against the
 # node's *real* primary-inbound port, which — same as tunnel.spec.ts — this
@@ -115,7 +138,11 @@ ADMIN_TOKEN="$(curl -sf -X POST "$API_BASE/api/v1/auth/login" -H 'Content-Type: 
 # throws (it does not probe reachability), a wrong-port XHTTP attempt would
 # actually settle into a false "CONNECTED" state that never moves real
 # traffic — so this is not just a speed optimization, it's required for the
-# test to mean anything. Save the existing global policy first so it can be
+# test to mean anything. (Since 22.09.2026 the app verifies the tunnel end to
+# end before CONNECTED, so a wrong port no longer fakes success — it only
+# costs the failures and minutes described above.) maxRetriesBeforeNodeSwitch
+# is set to its minimum, 2, so TunnelFlowTest's revoked-key recovery takes one
+# retry instead of two. Save the existing global policy first so it can be
 # restored on exit.
 log "reading current global TransportPolicy"
 CURRENT_POLICY="$(curl -sf "$API_BASE/api/v1/admin/policies" -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -129,7 +156,7 @@ else
 fi
 
 log "setting global TransportPolicy.primaryTransport=GRPC"
-NEW_POLICY="$(echo "$CURRENT_POLICY" | jq 'if . == null then {scope:"global", scopeValue:"*", fallbackTransport:"GRPC", fingerprint:"firefox", backoffInitialSec:15, maxRetriesBeforeNodeSwitch:3, isActive:true} else . end | .primaryTransport = "GRPC"')"
+NEW_POLICY="$(echo "$CURRENT_POLICY" | jq 'if . == null then {scope:"global", scopeValue:"*", fallbackTransport:"GRPC", fingerprint:"firefox", backoffInitialSec:15, maxRetriesBeforeNodeSwitch:3, isActive:true} else . end | .primaryTransport = "GRPC" | .maxRetriesBeforeNodeSwitch = 2')"
 curl -sf -X POST "$API_BASE/api/v1/admin/policies" -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
   -d "$NEW_POLICY" >/dev/null
 
@@ -187,10 +214,35 @@ log "gRPC+Reality fallback inbound is up"
 # --- 4. Run the real instrumented test ---------------------------------------
 log "running :app:connectedDebugAndroidTest (TunnelFlowTest)"
 cd "$REPO_ROOT/android"
+adb logcat -c || true
 set +e
 ./gradlew :app:connectedDebugAndroidTest \
   -PapiBaseUrl=http://10.0.2.2:8080/ \
-  -Pandroid.testInstrumentationRunnerArguments.class=com.vpn.android.TunnelFlowTest
+  -Pandroid.testInstrumentationRunnerArguments.class=com.vpn.android.TunnelFlowTest &
+GRADLE_PID=$!
+
+# TunnelFlowTest asks for its device to be revoked from outside, the way it
+# happens for real (another device, the web dashboard) — see the test. Watch
+# for its request and act on it as that user.
+REVOKED=""
+while kill -0 "$GRADLE_PID" 2>/dev/null; do
+  if [ -z "$REVOKED" ]; then
+    MARKER="$(adb logcat -d -s TunnelFlowTest:I 2>/dev/null | grep -o 'REVOKE_DEVICES_NOW .*' | tail -1 || true)"
+    if [ -n "$MARKER" ]; then
+      read -r _ T_EMAIL T_PASSWORD <<< "$MARKER"
+      log "revoking every device of $T_EMAIL (requested by the test)"
+      T_TOKEN="$(curl -sf -X POST "$API_BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
+        -d "{\"email\":\"$T_EMAIL\",\"password\":\"$T_PASSWORD\"}" | jq -r .token)"
+      for DEVICE_ID in $(curl -sf "$API_BASE/api/v1/user/devices" -H "Authorization: Bearer $T_TOKEN" | jq -r '.[].id'); do
+        curl -sf -X DELETE "$API_BASE/api/v1/user/devices/$DEVICE_ID" -H "Authorization: Bearer $T_TOKEN" >/dev/null \
+          && log "revoked device $DEVICE_ID"
+      done
+      REVOKED=1
+    fi
+  fi
+  sleep 2
+done
+wait "$GRADLE_PID"
 GRADLE_EXIT=$?
 set -e
 

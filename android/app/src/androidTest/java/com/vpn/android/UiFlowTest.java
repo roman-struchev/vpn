@@ -9,7 +9,6 @@ import static androidx.test.espresso.matcher.ViewMatchers.isDisplayed;
 import static androidx.test.espresso.matcher.ViewMatchers.withId;
 import static androidx.test.espresso.matcher.ViewMatchers.withText;
 import static org.hamcrest.CoreMatchers.allOf;
-import static org.hamcrest.CoreMatchers.instanceOf;
 import static org.hamcrest.CoreMatchers.not;
 import static org.junit.Assert.assertNotNull;
 
@@ -61,8 +60,10 @@ import okhttp3.Response;
  * Flow driven entirely by taps/typing on real views:
  *   Login screen -> toggle to "register" -> type email/password -> submit
  *   -> MainActivity/ConnectFragment appears -> Profile tab shows the
- *   registered email -> Devices tab -> "Add device" dialog -> type a
- *   device name -> device appears in the real RecyclerView list.
+ *   registered email -> Connect tab shows the trial -> Connect button and
+ *   the real OS VPN-consent dialog. (There is no manual "add device" step
+ *   any more: the service registers this device itself before fetching
+ *   links.)
  *
  * One step has no UI to drive: activating the free trial. Per
  * ApiFlowTest's own class doc, "the Android app has no billing UI" (no
@@ -114,9 +115,12 @@ public class UiFlowTest {
     public GrantPermissionRule notificationPermissionRule =
             GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS);
 
+    // The explicit form: launched plainly, LoginActivity signs this install
+    // into its own device-trial account on its own, racing the typing below.
     @Rule
     public ActivityScenarioRule<LoginActivity> activityRule =
-            new ActivityScenarioRule<>(LoginActivity.class);
+            new ActivityScenarioRule<>(LoginActivity.createShowFormIntent(
+                    androidx.test.core.app.ApplicationProvider.getApplicationContext()));
 
     private Context targetContext;
 
@@ -132,7 +136,7 @@ public class UiFlowTest {
     }
 
     @Test
-    public void registerThroughRealUiActivateTrialAndAddDeviceThroughRealUi() throws Exception {
+    public void registerThroughRealUiActivateTrialAndConnect() throws Exception {
         // --- 1. Register via the real Login screen -------------------------
         // ActivityScenarioRule already launched LoginActivity; since we just
         // cleared the token store it will actually show the login form
@@ -167,29 +171,12 @@ public class UiFlowTest {
         onView(withId(R.id.nav_connect)).perform(click());
         String expiresPrefixFormat = targetContext.getString(R.string.expires_at);
         String expiresPrefix = expiresPrefixFormat.substring(0, expiresPrefixFormat.indexOf('%')).trim();
-        waitFor(allOf(withId(R.id.expiresText), withTextStartingWith(expiresPrefix)), DEFAULT_TIMEOUT_MS);
+        // A trial may have an end date or none at all ("No expiry") — either
+        // way the card now shows the plan instead of "no subscription".
+        waitFor(allOf(withId(R.id.expiresText), org.hamcrest.CoreMatchers.anyOf(
+                withTextStartingWith(expiresPrefix), withText(R.string.expires_never))), DEFAULT_TIMEOUT_MS);
 
-        // --- 5. Add a device through the real "Add device" dialog -----------
-        String deviceName = "e2e-android-ui-device-" + System.currentTimeMillis();
-        onView(withId(R.id.nav_devices)).perform(click());
-        waitFor(withId(R.id.addDeviceButton), DEFAULT_TIMEOUT_MS);
-        onView(withId(R.id.addDeviceButton)).perform(click());
-        // The dialog's EditText has no id (created programmatically); it's
-        // the only EditText in the topmost (dialog) window, so matching by
-        // class is unambiguous. Espresso's default root matcher restricts
-        // onView() to the focused/topmost window, so this cannot accidentally
-        // hit some other EditText behind the dialog.
-        onView(instanceOf(android.widget.EditText.class)).perform(typeText(deviceName), closeSoftKeyboard());
-        // Not matching by withText(R.string.add_device_action) here: the
-        // AlertDialog re-uses that exact same string for both its title
-        // (setTitle) and its positive button (setPositiveButton), so a text
-        // matcher is ambiguous within the dialog itself. The standard
-        // AlertDialog button id is unambiguous.
-        onView(withId(android.R.id.button1)).perform(click());
-
-        waitFor(withText(deviceName), DEFAULT_TIMEOUT_MS);
-
-        // --- 6. Stretch goal: tap Connect and handle the real OS consent dialog ---
+        // --- 5. Stretch goal: tap Connect and handle the real OS consent dialog ---
         driveConnectFlowAndConfirmStateChanged();
     }
 

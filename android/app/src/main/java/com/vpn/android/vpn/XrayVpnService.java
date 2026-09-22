@@ -150,7 +150,12 @@ public class XrayVpnService extends VpnService implements DialerController {
     private volatile boolean stopping = false;
     private ProtectedSocketFactory protectedSockets;
     // Deliberately NOT protected: its whole job is to go through the tunnel.
+    // And never reuses a connection: a probe riding a stream opened before the
+    // node dropped this device's key kept passing (the node only refuses new
+    // connections) while nothing else could get through — found by
+    // TunnelFlowTest's key-revocation step.
     private final okhttp3.OkHttpClient livenessHttp = new okhttp3.OkHttpClient.Builder()
+            .connectionPool(new okhttp3.ConnectionPool(0, 1, java.util.concurrent.TimeUnit.SECONDS))
             .connectTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
             .readTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
             .callTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
@@ -388,6 +393,13 @@ public class XrayVpnService extends VpnService implements DialerController {
                             "XHTTP", null, null, assetDir);
             if (stopping) return;
             XrayInvoker.runXray(config);
+            // runXray only fails if the config is broken; a node that does
+            // not answer (down, key revoked, wrong port) "starts" just fine.
+            // Declaring CONNECTED on that showed "Protected" with no internet
+            // until the next health check a minute later — and again after
+            // every retry.
+            verifyTunnelOrThrow();
+            if (stopping) return;
 
             backoffPolicy.onSuccess();
             transition(ConnectionEvent.TUNNEL_UP);
@@ -462,6 +474,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                 stopXrayQuietly();
                 XrayInvoker.runXray(XrayConfigFactory.buildP2pExit(
                         tunInterface.getFd(), TUN_MTU, ensureGeoAssetsExtracted(), "127.0.0.1", localPort));
+                verifyTunnelOrThrow();
 
                 p2pExitRegion = region;
                 if (backoffPolicy != null) backoffPolicy.onSuccess();
@@ -582,6 +595,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                         vless, backoffPolicy.getFingerprint(), tunInterface.getFd(), TUN_MTU,
                         "XHTTP", null, null, ensureGeoAssetsExtracted(), "127.0.0.1", localPort);
                 XrayInvoker.runXray(config);
+                verifyTunnelOrThrow();
 
                 backoffPolicy.onSuccess();
                 transition(ConnectionEvent.TUNNEL_UP);
@@ -775,6 +789,18 @@ public class XrayVpnService extends VpnService implements DialerController {
         });
     }
 
+    /**
+     * Two tries: the first request through a fresh tunnel also pays for its
+     * handshake. Throws so the caller's ordinary failure path takes over.
+     */
+    private void verifyTunnelOrThrow() {
+        for (int attempt = 0; attempt < 2 && !stopping; attempt++) {
+            if (isTunnelAlive()) return;
+        }
+        if (stopping) return;
+        throw new IllegalStateException("The tunnel does not carry traffic (node unreachable, key revoked, or plan inactive)");
+    }
+
     /** stopXray throws when nothing is running; that is the common, harmless case here. */
     private static void stopXrayQuietly() {
         try {
@@ -872,7 +898,11 @@ public class XrayVpnService extends VpnService implements DialerController {
      * LIVENESS_FAILURES_BEFORE_RECONNECT.
      */
     private boolean isTunnelAlive() {
-        okhttp3.Request request = new okhttp3.Request.Builder().url(LIVENESS_PROBE_URL).get().build();
+        okhttp3.Request request = new okhttp3.Request.Builder()
+                .url(LIVENESS_PROBE_URL)
+                .header("Connection", "close")
+                .get()
+                .build();
         try (okhttp3.Response response = livenessHttp.newCall(request).execute()) {
             return response.code() > 0;
         } catch (Exception e) {

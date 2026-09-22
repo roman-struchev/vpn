@@ -46,6 +46,11 @@ public final class AppUpdateManager {
      * unreachable) are swallowed so this never disrupts normal app use.
      */
     public void checkAndPrompt(Context uiContext) {
+        // A debug build is signed with a different key than the releases on
+        // GitHub, so "updating" it could only end in the installer refusing
+        // the APK — and the dialog also popped up over instrumented tests,
+        // swallowing their taps.
+        if (com.vpn.android.BuildConfig.DEBUG) return;
         Async.run(
                 () -> new AppUpdateChecker().checkForUpdate(),
                 update -> {

@@ -517,14 +517,27 @@ public class ConnectFragment extends Fragment {
         }
 
         if (latestProfile != null && !latestProfile.hasActiveSubscription) {
-            Snackbar snackbar = Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG);
-            if (!isGuest) {
-                snackbar.setAction(R.string.get_plan_action, v -> openBillingPage());
-            }
-            snackbar.show();
+            // The profile on screen may be up to a poll old — a plan bought on
+            // the web a moment ago would be refused here. Ask again before
+            // saying no.
+            loadProfile(loaded -> {
+                if (binding == null) return;
+                if (latestProfile != null && latestProfile.hasActiveSubscription) {
+                    requestVpnAndStart();
+                    return;
+                }
+                Snackbar snackbar = Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG);
+                if (!isGuest) {
+                    snackbar.setAction(R.string.get_plan_action, v -> openBillingPage());
+                }
+                snackbar.show();
+            });
             return;
         }
+        requestVpnAndStart();
+    }
 
+    private void requestVpnAndStart() {
         Intent prepareIntent = VpnService.prepare(requireContext());
         if (prepareIntent != null) {
             vpnPermissionLauncher.launch(prepareIntent);
