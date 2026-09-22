@@ -108,6 +108,8 @@ app.whenReady().then(() => {
   });
 
   vpnController = new VpnController(apiClient, systemProxyManager);
+  // Persisted since the choice used to reset to bypassRu on every launch.
+  vpnController.setRussianRoutingMode(tokenStore.getRussianRoutingMode() ?? 'bypassRu');
 
   const relayManager = new RelayManager(apiClient, tokenStore);
   relayManagerRef = relayManager;

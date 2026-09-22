@@ -4,6 +4,16 @@ import type { RegionInfo, UserProfile } from '../types';
 import type { RussianRoutingMode } from '../../../shared/xrayConfigFactory';
 import { t } from '../i18n';
 import { regionKeyFor } from '../../../shared/regionKey';
+import type { FailureReason } from '../../../shared/failureReason';
+
+/** ERROR alone says nothing; each reason has its own fix (get a plan, sign in, wait, check the network). */
+const FAILURE_LABEL: Record<FailureReason, string> = {
+  NO_SUBSCRIPTION: t.failureNoSubscription,
+  SESSION_EXPIRED: t.failureSessionExpired,
+  NO_SERVERS: t.failureNoServers,
+  NETWORK: t.failureNetwork,
+  UNKNOWN: t.stateError,
+};
 
 /**
  * A row's identity. The server sends it; falling back to the region keeps an
@@ -61,6 +71,7 @@ export default function ConnectPage({
   const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [selectedRegion, setSelectedRegionState] = useState<string | null>(null);
   const [regionFallback, setRegionFallback] = useState(false);
+  const [failure, setFailure] = useState<FailureReason | null>(null);
   const [billingError, setBillingError] = useState<string | null>(null);
   const [pings, setPings] = useState<Record<string, number>>({});
   const [russianMode, setRussianMode] = useState<RussianRoutingMode>('bypassRu');
@@ -76,6 +87,7 @@ export default function ConnectPage({
 
   useEffect(() => {
     window.vpnApi.getConnectionState().then(setState);
+    window.vpnApi.getFailure().then(setFailure).catch(() => undefined);
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
     window.vpnApi.getRegions().then(setRegions).catch(() => undefined);
     window.vpnApi
@@ -104,6 +116,7 @@ export default function ConnectPage({
     const offState = window.vpnApi.onStateChange(setState);
     const offRegion = window.vpnApi.onRegionChange(setRegion);
     const offRegionFallback = window.vpnApi.onRegionFallback(setRegionFallback);
+    const offFailure = window.vpnApi.onFailure(setFailure);
     // Traffic usage only changes server-side while a session is active, and
     // the app has no push channel for it — poll at a modest cadence instead
     // of leaving the number stale until the app is relaunched. The manual
@@ -115,6 +128,7 @@ export default function ConnectPage({
       offState();
       offRegion();
       offRegionFallback();
+      offFailure();
       clearInterval(usageInterval);
     };
   }, []);
@@ -290,7 +304,7 @@ export default function ConnectPage({
                   }`}
                 />
                 <span className={`text-xs font-semibold tracking-wide ${STATE_COLOR[state]}`}>
-                  {STATE_LABEL[state]}
+                  {state === 'ERROR' && failure ? FAILURE_LABEL[failure] : STATE_LABEL[state]}
                 </span>
               </div>
             )}
@@ -414,8 +428,13 @@ export default function ConnectPage({
                 <div className="h-full bg-brand-500 rounded-full transition-all duration-300" style={{ width: `${percent}%` }} />
               </div>
               <p className="mt-2 text-[11px] text-white/50">
-                {t.expiresAt}: {new Date(sub.expiresAt).toLocaleDateString()}{' '}
-                {new Date(sub.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {t.expiresAt}:{' '}
+                {sub.noExpiry
+                  ? t.expiresNever
+                  : `${new Date(sub.expiresAt).toLocaleDateString()} ${new Date(sub.expiresAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`}
               </p>
             </>
           ) : (

@@ -25,6 +25,8 @@ export interface UserProfile {
     trafficUsedBytes: number;
     trafficLimitBytes: number;
     expiresAt: string;
+    /** No real end date (the server still sends a far-future expiresAt) — show "never", not a date in 2126. */
+    noExpiry?: boolean;
   };
 }
 

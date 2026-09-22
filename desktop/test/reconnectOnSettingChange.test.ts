@@ -5,30 +5,34 @@ vi.mock('electron', () => ({ app: { getPath: () => '/tmp', isPackaged: false, ge
 
 /**
  * region:set / vpn:setRussianRoutingMode must reconnect an active tunnel —
- * both settings only take effect when connect() runs again, so without this
- * the UI showed the new region/mode while traffic kept using the old one.
+ * both settings only take effect when the connect flow runs again, so without
+ * this the UI showed the new region/mode while traffic kept using the old one.
+ * And it must do so without going through disconnect(): that switched the
+ * system proxy off in between, sending every app straight out for a moment.
  */
 describe('VpnController#reconnectIfActive', () => {
   const build = async (state: string) => {
     const { VpnController } = await import('../src/main/vpn/vpnController');
-    const controller = new VpnController({} as any, {} as any);
+    const systemProxy = { enable: vi.fn(), disable: vi.fn() };
+    const controller = new VpnController({} as any, systemProxy as any);
     vi.spyOn(controller, 'getState').mockReturnValue(state as any);
     const disconnect = vi.spyOn(controller, 'disconnect').mockResolvedValue(undefined);
-    const connect = vi.spyOn(controller, 'connect').mockResolvedValue(undefined);
-    return { controller, disconnect, connect };
+    const loadAndStart = vi.spyOn(controller as any, 'loadAndStart').mockResolvedValue(undefined);
+    return { controller, disconnect, loadAndStart, systemProxy };
   };
 
-  it.each(['CONNECTED', 'CONNECTING', 'RECONNECTING'])('reconnects from %s', async (state) => {
-    const { controller, disconnect, connect } = await build(state);
+  it.each(['CONNECTED', 'CONNECTING', 'RECONNECTING'])('re-runs the connect flow from %s, proxy left on', async (state) => {
+    const { controller, disconnect, loadAndStart, systemProxy } = await build(state);
     await controller.reconnectIfActive();
-    expect(disconnect).toHaveBeenCalledOnce();
-    expect(connect).toHaveBeenCalledOnce();
+    expect(loadAndStart).toHaveBeenCalledOnce();
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(systemProxy.disable).not.toHaveBeenCalled();
   });
 
   it.each(['DISCONNECTED', 'ERROR', 'OPERATOR_BLOCKED'])('does nothing from %s', async (state) => {
-    const { controller, disconnect, connect } = await build(state);
+    const { controller, disconnect, loadAndStart } = await build(state);
     await controller.reconnectIfActive();
     expect(disconnect).not.toHaveBeenCalled();
-    expect(connect).not.toHaveBeenCalled();
+    expect(loadAndStart).not.toHaveBeenCalled();
   });
 });

@@ -93,12 +93,14 @@ export function registerIpcHandlers(
   ipcMain.handle('vpn:connect', () => vpn.connect());
   ipcMain.handle('vpn:disconnect', () => vpn.disconnect());
   ipcMain.handle('vpn:getState', () => vpn.getState());
+  ipcMain.handle('vpn:getFailure', () => vpn.getFailure());
   ipcMain.handle('vpn:getRussianRoutingMode', () => vpn.getRussianRoutingMode());
   // Same reconnect as region:set — the RU routing rules live in the running
   // xray's config, so switching modes mid-session otherwise changed nothing
   // until the user reconnected by hand.
   ipcMain.handle('vpn:setRussianRoutingMode', async (_e, mode: RussianRoutingMode) => {
     vpn.setRussianRoutingMode(mode);
+    tokenStore.saveRussianRoutingMode(mode);
     await vpn.reconnectIfActive();
   });
 
@@ -138,6 +140,15 @@ export function registerIpcHandlers(
   });
   vpn.on('regionFallback', (fellBack) => {
     if (!win.isDestroyed()) win.webContents.send('vpn:regionFallback', fellBack);
+  });
+  vpn.on('failure', (reason) => {
+    if (!win.isDestroyed()) win.webContents.send('vpn:failure', reason);
+  });
+  // The session ended for good (see ApiClient#recoverSession). A running
+  // tunnel is left alone — its keys stay valid until the server says
+  // otherwise — but every screen needs the user signed in again.
+  apiClient.onSessionExpired(() => {
+    if (!win.isDestroyed()) win.webContents.send('session:expired');
   });
   // Pushed on every mode change, including RelayManager's own auto-off once
   // a TIMED window expires — without this the renderer only ever learned

@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { FailureReason } from '../shared/failureReason';
 import type { ConnectionState } from '../shared/connectionState';
 import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
 
@@ -72,6 +73,21 @@ const vpnApi = {
     const listener = (_e: unknown, fellBack: boolean) => callback(fellBack);
     ipcRenderer.on('vpn:regionFallback', listener);
     return () => ipcRenderer.removeListener('vpn:regionFallback', listener);
+  },
+  /** Why the last attempt ended in ERROR (null otherwise) — see shared/failureReason.ts. */
+  getFailure: (): Promise<FailureReason | null> => ipcRenderer.invoke('vpn:getFailure'),
+  onFailure: (callback: (reason: FailureReason | null) => void) => {
+    const listener = (_e: unknown, reason: FailureReason | null) => callback(reason);
+    ipcRenderer.on('vpn:failure', listener);
+    return () => ipcRenderer.removeListener('vpn:failure', listener);
+  },
+  /** The session ran out and could not be renewed: the user has to sign in again. */
+  onSessionExpired: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('session:expired', listener);
+    return () => {
+      ipcRenderer.removeListener('session:expired', listener);
+    };
   },
 
   /**

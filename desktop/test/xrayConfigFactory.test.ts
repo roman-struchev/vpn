@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseVlessUri } from '../src/shared/vlessUri';
-import { buildP2pExitConfig, buildXrayConfig, HTTP_PORT, SOCKS_PORT } from '../src/shared/xrayConfigFactory';
+import { buildP2pExitConfig, buildXrayConfig, HTTP_PORT, PROBE_PORT, SOCKS_PORT } from '../src/shared/xrayConfigFactory';
 
 const LINK =
   'vless://d290f1ee-6c54-4b01-90e6-d701748f0851@203.0.113.10:443' +
@@ -12,11 +12,24 @@ describe('buildXrayConfig', () => {
   it('listens SOCKS5 + HTTP on localhost (no TUN — system-proxy MVP)', () => {
     const config = buildXrayConfig(parseVlessUri(LINK), 'firefox') as any;
     const tags = config.inbounds.map((i: any) => i.tag);
-    expect(tags).toEqual(['socks-in', 'http-in']);
-    expect(config.inbounds[0].listen).toBe('127.0.0.1');
+    expect(tags).toEqual(['socks-in', 'http-in', 'probe-in']);
+    expect(config.inbounds.every((i: any) => i.listen === '127.0.0.1')).toBe(true);
     expect(config.inbounds[0].port).toBe(SOCKS_PORT);
     expect(config.inbounds[1].port).toBe(HTTP_PORT);
   });
+
+  it.each(['off', 'bypassRu', 'onlyRu'] as const)(
+    'sends the liveness probe through the tunnel in %s mode, ahead of every other rule',
+    (mode) => {
+      // In onlyRu the ordinary inbounds send a foreign address direct, so a
+      // probe through them passed with the tunnel dead.
+      const config = buildXrayConfig(parseVlessUri(LINK), 'firefox', 'XHTTP', undefined, {
+        russianRoutingMode: mode,
+      }) as any;
+      expect(config.inbounds.find((i: any) => i.tag === 'probe-in').port).toBe(PROBE_PORT);
+      expect(config.routing.rules[0]).toEqual({ type: 'field', inboundTag: ['probe-in'], outboundTag: 'proxy' });
+    }
+  );
 
   it('proxy outbound is the default route (first in the list)', () => {
     const config = buildXrayConfig(parseVlessUri(LINK), 'firefox') as any;
@@ -139,7 +152,7 @@ describe('buildP2pExitConfig (another user\'s device as the exit)', () => {
   it('keeps the inbounds and DoH the ordinary config has', () => {
     const config: any = buildP2pExitConfig({ host: '127.0.0.1', port: 1080 });
 
-    expect(config.inbounds.map((i: any) => i.tag)).toEqual(['socks-in', 'http-in']);
+    expect(config.inbounds.map((i: any) => i.tag)).toEqual(['socks-in', 'http-in', 'probe-in']);
     expect(config.inbounds[1].port).toBe(HTTP_PORT);
     expect(config.dns.servers[0]).toContain('dns-query');
   });

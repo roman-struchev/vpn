@@ -17,11 +17,26 @@ type AuthPhase = 'checking' | 'loggedOut' | 'loggedIn' | 'serverUnavailable';
 const NETWORK_ERROR_PREFIX = 'NETWORK_ERROR:';
 const isNetworkError = (e: unknown): boolean =>
   e instanceof Error && e.message.includes(NETWORK_ERROR_PREFIX);
+// A stored session that ran out and could not be renewed (see main's
+// ApiClient#recoverSession) — the user has to sign in, and must not be
+// dropped into a fresh trial account instead.
+const isSessionExpired = (e: unknown): boolean => e instanceof Error && e.message.includes('SESSION_EXPIRED');
 
 export default function App() {
   const [phase, setPhase] = useState<AuthPhase>('checking');
   const [isGuest, setIsGuest] = useState(false);
   const [tab, setTab] = useState<Tab>('connect');
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(
+    () =>
+      window.vpnApi.onSessionExpired(() => {
+        setIsGuest(false);
+        setSessionExpired(true);
+        setPhase('loggedOut');
+      }),
+    []
+  );
 
   const checkAuth = () => {
     setPhase('checking');
@@ -34,6 +49,12 @@ export default function App() {
       .catch((err) => {
         if (isNetworkError(err)) {
           setPhase('serverUnavailable');
+          return;
+        }
+        if (isSessionExpired(err)) {
+          setIsGuest(false);
+          setSessionExpired(true);
+          setPhase('loggedOut');
           return;
         }
         // No valid stored session — silently log this install into its own
@@ -74,7 +95,11 @@ export default function App() {
     return (
       <LoginPage
         isGuestSession={isGuest}
-        onAuthenticated={checkAuth}
+        onAuthenticated={() => {
+          setSessionExpired(false);
+          checkAuth();
+        }}
+        notice={sessionExpired ? t.sessionExpiredNotice : undefined}
         onCancel={isGuest ? () => setPhase('loggedIn') : undefined}
       />
     );

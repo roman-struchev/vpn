@@ -10,6 +10,14 @@ import type { Transport } from './transportFallbackPolicy';
  */
 export const SOCKS_PORT = 10808;
 export const HTTP_PORT = 10809;
+/**
+ * A third local HTTP inbound used only by the app's own liveness probe
+ * (main/vpn/tunnelProbe.ts). It always routes to the proxy outbound, whatever
+ * the RU routing mode: through the ordinary inbound, 'onlyRu' sends a foreign
+ * probe target direct, and the probe would pass with the tunnel dead.
+ */
+export const PROBE_PORT = 10810;
+export const PROBE_INBOUND_TAG = 'probe-in';
 
 const PROXY_OUTBOUND_TAG = 'proxy';
 const DNS_OUTBOUND_TAG = 'dns-out';
@@ -75,6 +83,7 @@ export function buildXrayConfig(
   const reality = vlessParam(vless, 'security', 'none').toLowerCase() === 'reality';
 
   const rules: object[] = [
+    { type: 'field', inboundTag: [PROBE_INBOUND_TAG], outboundTag: PROXY_OUTBOUND_TAG },
     {
       type: 'field',
       inboundTag: ['socks-in', 'http-in'],
@@ -158,6 +167,7 @@ export function buildXrayConfig(
         port: HTTP_PORT,
         sniffing: { enabled: true, destOverride: ['http', 'tls'] },
       },
+      { tag: PROBE_INBOUND_TAG, protocol: 'http', listen: '127.0.0.1', port: PROBE_PORT },
     ],
 
     outbounds: [

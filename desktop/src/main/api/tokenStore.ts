@@ -67,6 +67,22 @@ interface StoredAuth {
    * a different fact entirely.
    */
   p2pRelayRegion?: string;
+  /**
+   * The session belongs to this install's own device-trial account (see
+   * ApiClient#deviceLogin). Decides what an expired session turns into: a
+   * guest is silently signed back in, anyone else is sent to sign in.
+   * Absent on sessions saved before it existed — the first profile load
+   * fills it in.
+   */
+  deviceAccount?: boolean;
+  /** Persisted so the choice survives a restart (it used to reset to bypassRu). */
+  russianRoutingMode?: 'off' | 'bypassRu' | 'onlyRu';
+  /**
+   * One node per region (host:port, when learnt) from subscription links
+   * fetched anyway, so measuring a region's latency needs no links request
+   * of its own. See ApiClient#pingSelectedRegion.
+   */
+  pingTargets?: Record<string, { host: string; port: number; at: number }>;
 }
 
 /**
@@ -87,13 +103,79 @@ export class TokenStore {
     // a new device UUID).
     const current = this.load();
     const payload: StoredAuth = {
+      ...this.perInstall(current),
       token,
       userId,
       deviceId,
-      selectedRegion: current?.selectedRegion,
-      deviceUuid: current?.deviceUuid,
+      // Unchanged unless a login says otherwise (see saveSession) — this is
+      // also the path that attaches a deviceId to the current session.
+      deviceAccount: current?.deviceAccount,
     };
     this.writePayload(payload);
+  }
+
+  /** A brand new session, and what kind of account it is — see StoredAuth#deviceAccount. */
+  saveSession(token: string, userId: number, deviceAccount: boolean): void {
+    this.writePayload({ ...this.perInstall(this.load()), token, userId, deviceAccount });
+  }
+
+  /** Swaps in a renewed token, keeping everything else about the session. */
+  replaceToken(token: string): void {
+    const current = this.load();
+    if (!current?.token) return;
+    this.writePayload({ ...current, token });
+  }
+
+  /** Drops only the dead token: device, region and settings stay, so signing back in picks up where it left off. */
+  clearToken(): void {
+    const current = this.load();
+    if (!current) return;
+    const { token: _dropped, ...rest } = current;
+    this.writePayload(rest);
+  }
+
+  isDeviceAccount(): boolean | undefined {
+    return this.load()?.deviceAccount;
+  }
+
+  setDeviceAccount(deviceAccount: boolean): void {
+    const current = this.load();
+    if (!current?.token) return;
+    this.writePayload({ ...current, deviceAccount });
+  }
+
+  getRussianRoutingMode(): 'off' | 'bypassRu' | 'onlyRu' | undefined {
+    return this.load()?.russianRoutingMode;
+  }
+
+  saveRussianRoutingMode(mode: 'off' | 'bypassRu' | 'onlyRu'): void {
+    this.writePayload({ ...this.load(), russianRoutingMode: mode });
+  }
+
+  savePingTarget(region: string, host: string, port: number, nowMs: number): void {
+    const current = this.load();
+    this.writePayload({ ...current, pingTargets: { ...current?.pingTargets, [region]: { host, port, at: nowMs } } });
+  }
+
+  getPingTarget(region: string, nowMs: number, maxAgeMs: number): { host: string; port: number } | null {
+    const target = this.load()?.pingTargets?.[region];
+    if (!target || nowMs - target.at > maxAgeMs) return null;
+    return { host: target.host, port: target.port };
+  }
+
+  /**
+   * Facts about this install rather than about whoever is signed in — kept
+   * across logins. save() used to keep only the first two, so every sign-in
+   * also forgot the geo-IP answer.
+   */
+  private perInstall(current: StoredAuth | null): StoredAuth {
+    return {
+      selectedRegion: current?.selectedRegion,
+      deviceUuid: current?.deviceUuid,
+      originalIpIsRussia: current?.originalIpIsRussia,
+      russianRoutingMode: current?.russianRoutingMode,
+      pingTargets: current?.pingTargets,
+    };
   }
 
   private writePayload(payload: StoredAuth): void {
@@ -130,7 +212,9 @@ export class TokenStore {
   saveDeviceId(deviceId: number): void {
     const current = this.load();
     if (!current?.token || current.userId === undefined) return;
-    this.save(current.token, current.userId, deviceId);
+    // Spread, not save(): that rebuilds the payload from scratch and dropped
+    // this session's P2P relay settings whenever a device got registered.
+    this.writePayload({ ...current, deviceId });
   }
 
   getSelectedRegion(): string | null {
@@ -208,10 +292,6 @@ export class TokenStore {
    */
   clear(): void {
     const current = this.load();
-    this.writePayload({
-      deviceUuid: current?.deviceUuid,
-      selectedRegion: current?.selectedRegion,
-      originalIpIsRussia: current?.originalIpIsRussia,
-    });
+    this.writePayload(this.perInstall(current));
   }
 }

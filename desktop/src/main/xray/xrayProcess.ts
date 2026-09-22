@@ -40,6 +40,11 @@ export class XrayProcess {
     child.stdout.on('data', (chunk) => console.log(`[xray] ${chunk.toString().trim()}`));
     child.stderr.on('data', (chunk) => console.error(`[xray] ${chunk.toString().trim()}`));
     child.on('exit', (code, signal) => {
+      // Only if it is still the current process. A process stop()ped a
+      // moment ago exits *after* its replacement has started, and used to
+      // null out the replacement's handle here — orphaning it (never
+      // stopped again) — and report its own exit as the new one crashing.
+      if (this.child !== child) return;
       this.child = null;
       onExit(code, signal);
     });
@@ -47,11 +52,29 @@ export class XrayProcess {
     this.child = child;
   }
 
-  stop(): void {
-    if (!this.child) return;
-    // SIGTERM is enough on posix; on Windows child_process.kill() sends a
-    // forceful terminate regardless of the signal argument.
-    this.child.kill('SIGTERM');
+  /**
+   * Stops the current process and resolves once it has actually exited, so
+   * the next start() does not race it for the same local ports (a quick
+   * region change used to hit "address already in use" and then wait out a
+   * full backoff). Escalates to SIGKILL if it does not go quietly.
+   */
+  stop(): Promise<void> {
+    const child = this.child;
+    if (!child) return Promise.resolve();
     this.child = null;
+    if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+    return new Promise((resolve) => {
+      const killTimer = setTimeout(() => child.kill('SIGKILL'), STOP_GRACE_MS);
+      child.once('exit', () => {
+        clearTimeout(killTimer);
+        resolve();
+      });
+      // SIGTERM is enough on posix; on Windows child_process.kill() sends a
+      // forceful terminate regardless of the signal argument.
+      child.kill('SIGTERM');
+    });
   }
 }
+
+/** How long a stopping xray gets to exit on its own before it is killed. */
+const STOP_GRACE_MS = 3000;

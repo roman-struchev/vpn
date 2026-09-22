@@ -3,6 +3,8 @@ import { ApiHostRotation } from '../../shared/apiHostRotation';
 import { firstLinkForRegion } from '../../shared/vlessUri';
 import { isP2pRegionKey } from '../../shared/regionKey';
 import { pingTcp } from '../vpn/pingUtil';
+import { shouldRenew } from '../../shared/session';
+import { parseVlessUri, regionLabel } from '../../shared/vlessUri';
 import type { TokenStore } from './tokenStore';
 
 // Temporarily pointed at the test server (217.216.79.46:8080) instead of the
@@ -43,6 +45,8 @@ export interface UserProfile {
     trafficUsedBytes: number;
     trafficLimitBytes: number;
     expiresAt: string;
+    /** No real end date (the server still sends a far-future expiresAt) — show "never", not a date in 2126. */
+    noExpiry?: boolean;
   };
 }
 
@@ -111,6 +115,17 @@ export interface RoutingConfigResponse {
   }[];
 }
 
+/**
+ * Thrown (as an ApiError's message) when a session has ended and the user has
+ * to sign in again — survives the IPC boundary as text, like
+ * NETWORK_ERROR_PREFIX in ipc.ts, so the renderer can tell it from "no
+ * session yet" (which it answers with a silent device login).
+ */
+export const SESSION_EXPIRED = 'SESSION_EXPIRED';
+
+/** How long a remembered ping target stays usable. */
+const PING_TARGET_MAX_AGE_MS = 24 * 3600 * 1000;
+
 export class ApiError extends Error {
   constructor(
     public readonly httpCode: number,
@@ -128,6 +143,10 @@ export class ApiError extends Error {
  */
 export class ApiClient {
   private readonly hostRotation: ApiHostRotation;
+  private lastRenewAttemptMs = 0;
+  /** In-flight renewal/recovery, shared so parallel calls do not each start one. */
+  private sessionWork: Promise<string | null> | null = null;
+  private readonly sessionExpiredListeners = new Set<() => void>();
 
   /**
    * @param baseUrls primary host first, then backup domains (Phase 10:
@@ -150,13 +169,13 @@ export class ApiClient {
       { email, password, deviceUuid: this.tokenStore.getOrCreateDeviceUuid() },
       false
     );
-    this.tokenStore.save(resp.token, resp.userId);
+    this.tokenStore.saveSession(resp.token, resp.userId, false);
     return resp;
   }
 
   async register(email: string, password: string, referralCode?: string): Promise<AuthResponse> {
     const resp = await this.post<AuthResponse>('api/v1/auth/register', { email, password, referralCode }, false);
-    this.tokenStore.save(resp.token, resp.userId);
+    this.tokenStore.saveSession(resp.token, resp.userId, false);
     return resp;
   }
 
@@ -171,7 +190,7 @@ export class ApiClient {
    */
   async deviceLogin(deviceUuid: string, referralCode?: string): Promise<AuthResponse> {
     const resp = await this.post<AuthResponse>('api/v1/auth/device', { deviceUuid, referralCode }, false);
-    this.tokenStore.save(resp.token, resp.userId);
+    this.tokenStore.saveSession(resp.token, resp.userId, true);
     return resp;
   }
 
@@ -186,7 +205,7 @@ export class ApiClient {
    */
   async upgradeGuest(email: string, password: string): Promise<AuthResponse> {
     const resp = await this.post<AuthResponse>('api/v1/auth/upgrade', { email, password }, true);
-    this.tokenStore.save(resp.token, resp.userId);
+    this.tokenStore.saveSession(resp.token, resp.userId, false);
     return resp;
   }
 
@@ -204,16 +223,25 @@ export class ApiClient {
       { idToken, referralCode, deviceUuid: this.tokenStore.getOrCreateDeviceUuid() },
       false
     );
-    this.tokenStore.save(resp.token, resp.userId);
+    this.tokenStore.saveSession(resp.token, resp.userId, false);
     return resp;
+  }
+
+  /** Called when a session ends for good and the user has to sign in again. Returns an unsubscribe. */
+  onSessionExpired(listener: () => void): () => void {
+    this.sessionExpiredListeners.add(listener);
+    return () => this.sessionExpiredListeners.delete(listener);
   }
 
   getOrCreateDeviceUuid(): string {
     return this.tokenStore.getOrCreateDeviceUuid();
   }
 
-  getProfile(): Promise<UserProfile> {
-    return this.get<UserProfile>('api/v1/user/profile');
+  async getProfile(): Promise<UserProfile> {
+    const profile = await this.get<UserProfile>('api/v1/user/profile');
+    // Authoritative, and what decides how an expired session is handled.
+    if (profile) this.tokenStore.setDeviceAccount(Boolean(profile.isGuest));
+    return profile;
   }
 
   async getDevices(): Promise<DeviceDto[]> {
@@ -252,7 +280,30 @@ export class ApiClient {
   async getSubscriptionLinks(region?: string | null): Promise<SubscriptionLinksResponse> {
     const query = region ? `?region=${encodeURIComponent(region)}` : '';
     const resp = await this.get<SubscriptionLinksResponse>(`api/v1/user/subscription/links${query}`);
+    this.rememberPingTargets(resp.links ?? []);
     return { count: resp.count ?? 0, links: resp.links ?? [], requestedRegion: resp.requestedRegion, requestedRegionAvailable: resp.requestedRegionAvailable };
+  }
+
+  /**
+   * Notes one node per region from links fetched anyway (every connect does),
+   * so a latency measurement needs no links request of its own — which the
+   * server also counts against the account's anti-enumeration budget.
+   */
+  private rememberPingTargets(links: string[]): void {
+    const now = Date.now();
+    const seen = new Set<string>();
+    for (const link of links) {
+      try {
+        const uri = parseVlessUri(link);
+        const region = uri.remark ? regionLabel(uri.remark) : null;
+        if (region && !seen.has(region)) {
+          seen.add(region);
+          this.tokenStore.savePingTarget(region, uri.host, uri.port, now);
+        }
+      } catch {
+        // a malformed link just isn't remembered
+      }
+    }
   }
 
   /** Regions with at least one online node this user's subscription can reach, each with a rough load indicator. */
@@ -282,14 +333,19 @@ export class ApiClient {
     // honest — unlike a latency borrowed from some server in that country.
     if (isP2pRegionKey(region)) return null;
     try {
-      const resp = await this.getSubscriptionLinks(region);
-      // Only a node genuinely in this region: the server falls back to any
-      // online node when the asked-for one has none, and reporting that node's
-      // latency as this region's would be a plain lie (see firstLinkForRegion).
-      const node = firstLinkForRegion(resp.links || [], region);
-      if (node) {
-        return await pingTcp(node.host, node.port, 2000);
+      let target = this.tokenStore.getPingTarget(region, Date.now(), PING_TARGET_MAX_AGE_MS);
+      if (!target) {
+        // Not learnt yet (never connected there): fetch once, which also
+        // remembers it. Only a node genuinely in this region: the server
+        // falls back to any online node when the asked-for one has none, and
+        // reporting that node's latency as this region's would be a plain lie
+        // (see firstLinkForRegion).
+        const resp = await this.getSubscriptionLinks(region);
+        const node = firstLinkForRegion(resp.links || [], region);
+        if (!node) return null;
+        target = { host: node.host, port: node.port };
       }
+      return await pingTcp(target.host, target.port, 2000);
     } catch (e) {
       console.warn('Failed to ping the selected region:', e);
     }
@@ -505,11 +561,79 @@ export class ApiClient {
    * actual answer from the actual server, not a connectivity problem.
    */
   private async request<T>(path: string, init: RequestInit, auth: boolean): Promise<T> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (auth) {
-      const token = this.tokenStore.getToken();
-      if (token) headers.Authorization = `Bearer ${token}`;
+    const token = auth ? this.tokenStore.getToken() : null;
+    if (!token) return this.send<T>(path, init, null);
+
+    const current = (await this.renewIfNearExpiry(token)) ?? token;
+    try {
+      return await this.send<T>(path, init, current);
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.httpCode !== 401) throw e;
+      const recovered = await this.recoverSession(current);
+      if (!recovered) throw new ApiError(401, SESSION_EXPIRED);
+      return this.send<T>(path, init, recovered);
     }
+  }
+
+  /**
+   * Swaps a token close to expiry for a fresh one before it is used, so a
+   * client in regular use is never signed out by the clock. Best-effort: on
+   * failure the current token is still good for days.
+   */
+  private async renewIfNearExpiry(token: string): Promise<string | null> {
+    const now = Date.now();
+    if (!shouldRenew(token, now, this.lastRenewAttemptMs)) return null;
+    if (!this.sessionWork) {
+      this.lastRenewAttemptMs = now;
+      this.sessionWork = this.send<AuthResponse>('api/v1/auth/refresh', { method: 'POST', body: '{}' }, token)
+        .then((resp) => {
+          if (!resp?.token) return null;
+          this.tokenStore.replaceToken(resp.token);
+          return resp.token;
+        })
+        .catch(() => null)
+        .finally(() => {
+          this.sessionWork = null;
+        });
+    }
+    return this.sessionWork;
+  }
+
+  /**
+   * After a 401: a device-trial account is signed straight back in (nothing
+   * to ask the user for); anyone else's session is over — the dead token is
+   * dropped and listeners told, rather than every later call failing with an
+   * error nobody explains. Never creates a guest account for a registered
+   * user: that would silently hide their plan behind a fresh trial.
+   * @returns a token to retry with, or null.
+   */
+  private async recoverSession(rejectedToken: string): Promise<string | null> {
+    // A renewal or recovery already under way decides it for this call too.
+    if (this.sessionWork) await this.sessionWork;
+    const current = this.tokenStore.getToken();
+    if (current && current !== rejectedToken) return current; // already recovered by a parallel call
+    if (!this.sessionWork) {
+      this.sessionWork = (async () => {
+        if (this.tokenStore.isDeviceAccount() === true) {
+          try {
+            return (await this.deviceLogin(this.tokenStore.getOrCreateDeviceUuid())).token;
+          } catch {
+            // e.g. this device now belongs to a registered account — fall through
+          }
+        }
+        this.tokenStore.clearToken();
+        for (const listener of this.sessionExpiredListeners) listener();
+        return null;
+      })().finally(() => {
+        this.sessionWork = null;
+      });
+    }
+    return this.sessionWork;
+  }
+
+  private async send<T>(path: string, init: RequestInit, token: string | null): Promise<T> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
 
     let lastError: unknown;
     for (let attempt = 0; attempt < this.hostRotation.size(); attempt++) {

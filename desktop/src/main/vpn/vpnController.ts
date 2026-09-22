@@ -5,6 +5,8 @@ import type { SystemProxyManager } from '../proxy/systemProxy';
 import { XrayProcess } from '../xray/xrayProcess';
 import { probeCensorship } from './censorshipProbe';
 import { waitForPortOpen } from './portReady';
+import { probeThroughHttpProxy } from './tunnelProbe';
+import { classifyFailure, type FailureReason } from '../../shared/failureReason';
 import type { ConnectionEvent, ConnectionState } from '../../shared/connectionState';
 import { ConnectionStateMachine } from '../../shared/connectionState';
 import { ReconnectBackoffPolicy, type Fingerprint } from '../../shared/reconnectBackoffPolicy';
@@ -14,6 +16,7 @@ import {
   buildP2pExitConfig,
   buildXrayConfig,
   HTTP_PORT,
+  PROBE_PORT,
   type GrpcFallback,
   type RussianRoutingMode,
 } from '../../shared/xrayConfigFactory';
@@ -35,11 +38,24 @@ const MAX_RELAY_ATTEMPTS = 3;
  */
 const P2P_EXIT_RETRY_DELAY_MS = 15_000;
 
+/** How often a CONNECTED tunnel is checked end to end, and how many misses in a row mean it is dead. */
+const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const LIVENESS_FAILURES_BEFORE_RECONNECT = 2;
+
+/**
+ * A connect whose first API calls could not reach the server (just woke up,
+ * Wi-Fi not joined yet) is retried this many times before giving up.
+ */
+const MAX_NETWORK_RETRIES = 5;
+const NETWORK_RETRY_DELAY_MS = 10_000;
+
 export interface VpnControllerEvents {
   state: [ConnectionState];
   region: [string | null];
   /** true when a pinned region preference had no online node and connect() fell back to all regions. */
   regionFallback: [boolean];
+  /** Why the last attempt ended in ERROR; null whenever the state is anything else. */
+  failure: [FailureReason | null];
 }
 
 /**
@@ -70,6 +86,17 @@ export class VpnController extends EventEmitter {
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
   private retryTimer: NodeJS.Timeout | null = null;
+  private healthTimer: NodeJS.Timeout | null = null;
+  private livenessFailures = 0;
+  private networkRetries = 0;
+  private failure: FailureReason | null = null;
+  /**
+   * Bumped by every connect/reconnect/disconnect. Each flow carries the value
+   * it started with and stops at its next step once it no longer matches —
+   * otherwise a flow still awaiting the network when the user reconnected
+   * carried on and started its own xray next to the new one.
+   */
+  private session = 0;
   // Default preserves the old always-on bypass-RU behavior for anyone who
   // never touches the new control.
   private russianRoutingMode: RussianRoutingMode = 'bypassRu';
@@ -100,27 +127,73 @@ export class VpnController extends EventEmitter {
    * the running xray's config/node choice, so there's nothing to hot-reload).
    * A no-op while disconnected.
    */
+  getFailure(): FailureReason | null {
+    return this.failure;
+  }
+
+  /**
+   * Also keeps the system proxy on throughout: going through disconnect()
+   * turned it off in between, and for those seconds every app on the
+   * machine went straight out without the VPN.
+   */
   async reconnectIfActive(): Promise<void> {
     const state = this.getState();
     if (state !== 'CONNECTED' && state !== 'CONNECTING' && state !== 'RECONNECTING') return;
-    await this.disconnect();
-    await this.connect();
+    const gen = this.beginSession();
+    this.p2pExitRegion = null;
+    await this.xrayProcess.stop();
+    await this.teardownRelayBridge();
+    if (this.getState() === 'CONNECTED') this.transition('TUNNEL_DOWN');
+    this.networkRetries = 0;
+    await this.loadAndStart(gen);
   }
 
+  /** One end-to-end check, e.g. after the machine wakes up. */
   async checkLiveness(): Promise<void> {
     if (this.getState() !== 'CONNECTED') return;
-    const isReady = await waitForPortOpen(HTTP_PORT, '127.0.0.1', 1000);
-    if (!isReady) {
-      console.warn('Liveness check failed on HTTP proxy port; triggering recovery');
+    if (!(await probeThroughHttpProxy(PROBE_PORT))) {
+      console.warn('Liveness check failed: nothing gets through the tunnel; triggering recovery');
       void this.handleFailure();
     }
   }
 
   async connect(): Promise<void> {
-    if (this.getState() === 'CONNECTING' || this.getState() === 'CONNECTED') return;
-    this.stopping = false;
+    const state = this.getState();
+    // RECONNECTING included: a retry is already scheduled, and a second flow
+    // next to it would race it for the same xray and ports.
+    if (state === 'CONNECTING' || state === 'CONNECTED' || state === 'RECONNECTING') return;
+    const gen = this.beginSession();
+    this.networkRetries = 0;
     this.transition('CONNECT_REQUESTED');
+    await this.loadAndStart(gen);
+  }
 
+  /** Cancels whatever the previous flow had scheduled and starts a new generation (see `session`). */
+  private beginSession(): number {
+    this.stopping = false;
+    this.clearTimers();
+    this.setFailure(null);
+    return ++this.session;
+  }
+
+  private alive(gen: number): boolean {
+    return !this.stopping && gen === this.session;
+  }
+
+  private clearTimers(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.stopHealthChecks();
+  }
+
+  private setFailure(reason: FailureReason | null): void {
+    this.failure = reason;
+    this.emit('failure', reason);
+  }
+
+  private async loadAndStart(gen: number): Promise<void> {
     try {
       // Must happen before fetching subscription links, not just after a
       // successful tunnel start (the only other call site, below): a brand
@@ -139,7 +212,7 @@ export class VpnController extends EventEmitter {
       const selection = this.apiClient.getSelectedRegion();
       if (isP2pRegionKey(selection)) {
         const region = regionFromKey(selection as string);
-        if (await this.connectThroughP2pExit(region)) {
+        if (await this.connectThroughP2pExit(region, gen)) {
           this.emit('regionFallback', false);
           return;
         }
@@ -156,6 +229,7 @@ export class VpnController extends EventEmitter {
         this.apiClient.getRoutingConfig(null, null),
         this.apiClient.getSubscriptionLinks(preferredRegion),
       ]);
+      if (!this.alive(gen)) return;
       const regionFellBack =
         isP2pRegionKey(selection) ||
         (Boolean(preferredRegion) && linksResp.requestedRegionAvailable === false);
@@ -202,13 +276,86 @@ export class VpnController extends EventEmitter {
       const initialTransport: Transport = policy.primaryTransport?.toUpperCase() === 'GRPC' ? 'GRPC' : 'XHTTP';
       this.transportFallback = new TransportFallbackPolicy(parsed.length, this.grpcByHost.size > 0, initialTransport);
 
-      await this.attemptStart();
+      await this.attemptStart(gen);
     } catch (e) {
+      if (!this.alive(gen)) return;
+      const reason = classifyFailure(e);
+      if (reason === 'NETWORK' && this.networkRetries < MAX_NETWORK_RETRIES) {
+        this.networkRetries += 1;
+        console.warn(`API unreachable while loading the profile; retry ${this.networkRetries}`, e);
+        this.retryTimer = setTimeout(() => {
+          if (this.alive(gen)) void this.loadAndStart(gen);
+        }, NETWORK_RETRY_DELAY_MS);
+        return;
+      }
       // The user-visible dead end ("connected, nothing works" starts here) —
       // worth reporting with the reason, since the user only sees the state.
       reportError('vpn', 'PROFILE_LOAD_FAILED', 'Failed to load the VPN profile', e);
       console.error('Failed to load VPN profile', e);
-      this.transition('FATAL_ERROR');
+      await this.failTerminal('FATAL_ERROR', reason);
+    }
+  }
+
+  /**
+   * A dead end retrying cannot fix (no plan, signed out, operator blocks every
+   * path). Everything is torn down, the system proxy included — before, it
+   * stayed pointed at a stopped xray, so the machine was offline while the
+   * screen showed a "Connect" button.
+   */
+  private async failTerminal(event: 'FATAL_ERROR' | 'OPERATOR_BLOCK_DETECTED', reason: FailureReason | null): Promise<void> {
+    this.stopping = true;
+    this.clearTimers();
+    this.p2pExitRegion = null;
+    await this.xrayProcess.stop();
+    await this.teardownRelayBridge();
+    try {
+      await this.systemProxy.disable();
+    } catch (e) {
+      reportError('proxy', 'PROXY_DISABLE_FAILED', 'Failed to disable the system proxy after a failed connect', e);
+    }
+    this.transition(event);
+    this.setFailure(reason);
+    this.emit('region', null);
+  }
+
+  /**
+   * Whether bytes actually get through, not just whether xray listens —
+   * see tunnelProbe.ts. Two tries: the very first request through a fresh
+   * tunnel also pays for its handshake.
+   */
+  private async verifyTunnel(): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (await probeThroughHttpProxy(PROBE_PORT)) return true;
+    }
+    return false;
+  }
+
+  private startHealthChecks(gen: number): void {
+    this.stopHealthChecks();
+    this.livenessFailures = 0;
+    this.healthTimer = setInterval(() => {
+      void (async () => {
+        if (!this.alive(gen) || this.getState() !== 'CONNECTED') return;
+        if (await probeThroughHttpProxy(PROBE_PORT)) {
+          this.livenessFailures = 0;
+          return;
+        }
+        this.livenessFailures += 1;
+        // "Protected" with no working internet — invisible to the user as a
+        // failure, so nobody would ever report it.
+        reportError('vpn', 'TUNNEL_PROBE_FAILED', 'Tunnel liveness probe failed while the tunnel was up', null);
+        if (this.livenessFailures >= LIVENESS_FAILURES_BEFORE_RECONNECT && this.alive(gen)) {
+          this.livenessFailures = 0;
+          await this.handleFailure();
+        }
+      })();
+    }, HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  private stopHealthChecks(): void {
+    if (this.healthTimer) {
+      clearInterval(this.healthTimer);
+      this.healthTimer = null;
     }
   }
 
@@ -244,11 +391,10 @@ export class VpnController extends EventEmitter {
 
   async disconnect(): Promise<void> {
     this.stopping = true;
-    if (this.retryTimer) {
-      clearTimeout(this.retryTimer);
-      this.retryTimer = null;
-    }
-    this.xrayProcess.stop();
+    this.session += 1;
+    this.clearTimers();
+    this.setFailure(null);
+    await this.xrayProcess.stop();
     this.p2pExitRegion = null;
     await this.teardownRelayBridge();
     try {
@@ -266,8 +412,8 @@ export class VpnController extends EventEmitter {
     this.emit('regionFallback', false);
   }
 
-  private async attemptStart(): Promise<void> {
-    if (this.stopping || !this.backoff || !this.transportFallback) return;
+  private async attemptStart(gen: number = this.session): Promise<void> {
+    if (!this.alive(gen) || !this.backoff || !this.transportFallback) return;
     const vless = this.nodes[this.nodeIndex % this.nodes.length];
     const transport = this.transportFallback.getCurrentTransport();
     const attemptStartedAt = Date.now();
@@ -280,17 +426,29 @@ export class VpnController extends EventEmitter {
         this.grpcByHost.get(vless.host),
         { russianRoutingMode: this.russianRoutingMode }
       );
+      // Whatever an earlier attempt left running (a failed health check does
+      // not stop it) — start() refuses to run next to it.
+      await this.xrayProcess.stop();
       this.xrayProcess.start(config, (code, signal) => this.onXrayExit(code, signal));
 
       const ready = await waitForPortOpen(HTTP_PORT);
       if (!ready) {
-        this.xrayProcess.stop();
         throw new Error('xray did not start listening in time');
+      }
+      // Checked before the system proxy is switched on: a node that does not
+      // answer must fall through to the next one, not become "Protected".
+      if (!(await this.verifyTunnel())) {
+        throw new Error('the tunnel does not carry traffic (node unreachable, key revoked, or plan inactive)');
+      }
+      if (!this.alive(gen)) {
+        await this.xrayProcess.stop();
+        return;
       }
 
       await this.systemProxy.enable();
       this.backoff.onSuccess();
       this.transition('TUNNEL_UP');
+      this.startHealthChecks(gen);
       this.emit('region', vless.remark ? regionLabel(vless.remark) : vless.host);
 
       const connectTimeMs = Date.now() - attemptStartedAt;
@@ -298,7 +456,9 @@ export class VpnController extends EventEmitter {
       this.reportTelemetry(false, connectedNodeId, connectTimeMs, 0);
       void this.registerOrTouchDevice();
     } catch (e) {
+      if (!this.alive(gen)) return;
       console.warn(`Tunnel start failed on node ${this.nodeIndex} (transport=${transport})`, e);
+      await this.xrayProcess.stop();
       await this.handleFailure();
     }
   }
@@ -315,7 +475,7 @@ export class VpnController extends EventEmitter {
    * turn rather than a single one being trusted: they are phones and laptops,
    * and one going offline mid-attempt is ordinary.
    */
-  private async connectThroughP2pExit(region: string): Promise<boolean> {
+  private async connectThroughP2pExit(region: string, gen: number = this.session): Promise<boolean> {
     let exits: { nodeId: number; region: string | null }[];
     try {
       exits = await this.apiClient.getP2pExits(region);
@@ -332,15 +492,22 @@ export class VpnController extends EventEmitter {
     }
 
     for (const exit of exits.slice(0, MAX_RELAY_ATTEMPTS)) {
-      if (this.stopping) return false;
+      if (!this.alive(gen)) return false;
       console.log(`Connecting out through peer ${exit.nodeId} in ${exit.region ?? region}`);
       await this.teardownRelayBridge();
 
       const bridge = new P2pRelayBridge(this.apiClient, exit.nodeId, 'socks');
       try {
         const localPort = await bridge.start();
+        // start() is a whole WebRTC negotiation; a disconnect meanwhile must
+        // not be followed by the tunnel coming up anyway.
+        if (!this.alive(gen)) {
+          await bridge.stop().catch(() => undefined);
+          return false;
+        }
         this.relayBridge = bridge;
 
+        await this.xrayProcess.stop();
         this.xrayProcess.start(
           buildP2pExitConfig({ host: '127.0.0.1', port: localPort }, { russianRoutingMode: this.russianRoutingMode }),
           (code, signal) => this.onXrayExit(code, signal)
@@ -348,13 +515,16 @@ export class VpnController extends EventEmitter {
 
         const ready = await waitForPortOpen(HTTP_PORT);
         if (!ready) {
-          this.xrayProcess.stop();
           throw new Error('xray did not start listening in time on the P2P exit');
+        }
+        if (!(await this.verifyTunnel())) {
+          throw new Error('the P2P exit does not carry traffic');
         }
         await this.systemProxy.enable();
 
         this.p2pExitRegion = region;
         this.transition('TUNNEL_UP');
+        this.startHealthChecks(gen);
         // Labelled as what it is: the exit is a person's own connection, so
         // the speed is their uplink and the IP is residential. Presenting it
         // as an ordinary region would set the wrong expectation.
@@ -366,6 +536,7 @@ export class VpnController extends EventEmitter {
         reportError('p2p-exit', 'EXIT_CONNECT_FAILED', 'Could not connect out through a P2P exit peer', e, {
           exitNodeId: String(exit.nodeId),
         });
+        await this.xrayProcess.stop();
         await this.teardownRelayBridge();
       }
     }
@@ -382,7 +553,8 @@ export class VpnController extends EventEmitter {
     const region = this.p2pExitRegion;
     if (this.stopping || !region) return;
 
-    this.xrayProcess.stop();
+    this.stopHealthChecks();
+    await this.xrayProcess.stop();
     await this.teardownRelayBridge();
     this.transition('TUNNEL_DOWN');
     await this.retryP2pExit(region);
@@ -447,7 +619,12 @@ export class VpnController extends EventEmitter {
       const bridge = new P2pRelayBridge(this.apiClient, relay.nodeId, { host: vless.host, port: vless.port });
       try {
         const localPort = await bridge.start();
+        if (this.stopping) {
+          await bridge.stop().catch(() => undefined);
+          return false;
+        }
         this.relayBridge = bridge;
+        await this.xrayProcess.stop();
 
         const config = buildXrayConfig(
           vless,
@@ -460,12 +637,15 @@ export class VpnController extends EventEmitter {
 
         const ready = await waitForPortOpen(HTTP_PORT);
         if (!ready) {
-          this.xrayProcess.stop();
           throw new Error('xray did not start listening in time over the relay');
+        }
+        if (!(await this.verifyTunnel())) {
+          throw new Error('the relayed tunnel does not carry traffic');
         }
         await this.systemProxy.enable();
         this.backoff.onSuccess();
         this.transition('TUNNEL_UP');
+        this.startHealthChecks(this.session);
         // Say so in the status: a relayed connection goes through a stranger's
         // device and is usually slower, so presenting it as an ordinary
         // connection would be misleading.
@@ -477,6 +657,7 @@ export class VpnController extends EventEmitter {
         reportError('p2p-relay', 'RELAY_CONNECT_FAILED', 'Could not reach a node through a relay peer', e, {
           relayNodeId: String(relay.nodeId),
         });
+        await this.xrayProcess.stop();
         await this.teardownRelayBridge();
       }
     }
@@ -516,6 +697,7 @@ export class VpnController extends EventEmitter {
 
   private async handleFailure(): Promise<void> {
     if (this.stopping) return;
+    this.stopHealthChecks();
     // A P2P exit session has neither of the two things this method works
     // with (a node list and a transport ladder) — and would read
     // this.nodes[0] of an empty array on its way to finding that out.
@@ -524,6 +706,10 @@ export class VpnController extends EventEmitter {
       return;
     }
     if (!this.backoff || !this.transportFallback) return;
+    // Leave CONNECTED first: the state machine only allows the terminal
+    // outcomes below (operator blocked, fatal) from a connecting state, and a
+    // dead tunnel found by the health check arrives here while CONNECTED.
+    if (this.getState() === 'CONNECTED') this.transition('TUNNEL_DOWN');
 
     // Capture which node this failure is actually about before nodeIndex
     // potentially advances below — telemetry must be attributed to the node
@@ -551,9 +737,23 @@ export class VpnController extends EventEmitter {
             return;
           }
           this.reportTelemetry(true, failedNodeId, 0, this.backoff.getConsecutiveFailuresOnNode());
-          this.transition('OPERATOR_BLOCK_DETECTED');
+          await this.failTerminal('OPERATOR_BLOCK_DETECTED', null);
           return;
         }
+        // A whole round failed and it is not the operator. The node list is
+        // the one fetched at connect time, possibly hours ago: nodes come and
+        // go, and a plan that ran out or a device revoked elsewhere looks
+        // exactly like this from here. Start over from the server's current
+        // answer instead of walking the same stale list forever — loadAndStart
+        // ends in a clear "no subscription" if that is what it is.
+        this.reportTelemetry(false, failedNodeId, 0, this.backoff.getConsecutiveFailuresOnNode());
+        this.transition('TUNNEL_DOWN');
+        const gen = this.session;
+        this.retryTimer = setTimeout(() => {
+          if (!this.alive(gen)) return;
+          void this.xrayProcess.stop().then(() => this.loadAndStart(gen));
+        }, decision.delaySeconds * 1000);
+        return;
       } else if (transportOutcome.transportChanged) {
         console.log('XHTTP exhausted across all nodes, falling back to gRPC+Reality (Phase 9)');
       }
@@ -561,8 +761,9 @@ export class VpnController extends EventEmitter {
 
     this.reportTelemetry(whitelistSuspected, failedNodeId, 0, this.backoff.getConsecutiveFailuresOnNode());
     this.transition('TUNNEL_DOWN');
+    const gen = this.session;
     this.retryTimer = setTimeout(() => {
-      if (!this.stopping) void this.attemptStart();
+      if (this.alive(gen)) void this.attemptStart(gen);
     }, decision.delaySeconds * 1000);
   }
 

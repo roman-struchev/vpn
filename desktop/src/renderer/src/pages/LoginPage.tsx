@@ -1,10 +1,31 @@
 import { useState } from 'react';
 import { t } from '../i18n';
+import { classifyLoginError } from '../../../shared/loginError';
+
+/** The server's English prose (behind Electron's IPC prefix) as a message in the app's language. */
+function loginErrorText(e: unknown): string {
+  const kind = classifyLoginError(e instanceof Error ? e.message : String(e));
+  switch (kind) {
+    case 'INVALID_CREDENTIALS':
+      return t.loginErrorInvalidCredentials;
+    case 'EMAIL_TAKEN':
+      return t.loginErrorEmailTaken;
+    case 'PASSWORD_TOO_SHORT':
+      return t.loginErrorPasswordShort;
+    case 'ACCOUNT_BLOCKED':
+      return t.loginErrorBlocked;
+    case 'NETWORK':
+      return t.loginErrorNetwork;
+    default:
+      return t.loginErrorGeneric;
+  }
+}
 
 export default function LoginPage({
   isGuestSession,
   onAuthenticated,
   onCancel,
+  notice,
 }: {
   /**
    * True when a guest/device-trial session is still active (e.g. reached
@@ -18,6 +39,8 @@ export default function LoginPage({
   isGuestSession: boolean;
   onAuthenticated: () => void;
   onCancel?: () => void;
+  /** Shown above the form, e.g. why the user is here again (their session expired). */
+  notice?: string;
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -45,7 +68,7 @@ export default function LoginPage({
       }
       onAuthenticated();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(loginErrorText(e));
     } finally {
       setLoading(false);
     }
@@ -60,7 +83,7 @@ export default function LoginPage({
       await window.vpnApi.googleLogin();
       onAuthenticated();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(loginErrorText(e));
     } finally {
       setLoading(false);
     }
@@ -127,6 +150,7 @@ export default function LoginPage({
       </button>
 
       {error && <p className="text-center text-sm text-state-error">{error}</p>}
+      {notice && !error && <p className="text-center text-sm text-state-connecting">{notice}</p>}
     </div>
   );
 }
