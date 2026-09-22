@@ -1,5 +1,7 @@
 # UX Review — Web Dashboard, Admin Panel, Desktop, Android
 
+> **Статус (22.09.2026):** исторический документ. Большинство пунктов исправлено: локализация AuthModal, подтверждения в админке, срок триала, выбор тарифа на лендинге, кнопка «Выбрать тариф» в клиентах. Часть ссылок устарела: `DevicesFragment`/`DevicesPage` больше нет, устройства переехали в профиль. Актуальный аудит клиентов — `docs/AUDIT.md`, раздел 3.
+
 Scope: read the actual UI code for all four surfaces (`web/src`, `web/src/admin`, `desktop/src/renderer`, `android/app/src/main`) plus the server-side logic behind billing/trial/device-auth where the client behavior only makes sense in light of it. All file/line references point at code as of `d01d10e` (head of `main` at review time). Findings are concrete and cite the exact spot; proposed fixes are specific, not "polish this."
 
 ---

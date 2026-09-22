@@ -14,10 +14,9 @@
 | [**`google-play-readiness.md`**](google-play-readiness.md) | **Чеклист публикации в Google Play**: требования VpnService, черновик политики конфиденциальности, маппинг полей Data Safety и статус верификации аккаунта. |
 | [**`P2P_RELAY.md`**](P2P_RELAY.md) | **Подключение через участников сети**: чем реле отличается от выходной ноды, как устроен путь xray → мост → WebRTC → реле → нода, когда он включается автоматически, какие есть ограничения (STUN без TURN) и где это в коде. |
 | [**`DIAGNOSTICS.md`**](DIAGNOSTICS.md) | **Сбор ошибок с нод и клиентов**: что и как собирается, почему хранится агрегировано по отпечатку, какие стоят лимиты, как получить готовый к анализу отчёт (`/api/v1/admin/diagnostics/report`) и как добавить новую точку сбора в agent/desktop/android. |
-| [**`BUGS_AND_OBSERVATIONS.md`**](BUGS_AND_OBSERVATIONS.md) | **Отчёт технического аудита**: подтвержденные баги, уязвимости (включая критический double-credit в крипто-платежах), проблемы безопасности и рекомендации по улучшению кодовой базы. |
+| [**`AUDIT.md`**](AUDIT.md) | **Отчёт технического аудита**: баги и уязвимости сервера (включая double-credit в крипто-платежах) и аудит клиентов от 22.09.2026 (надёжность туннеля, сессии, UX) со статусом исправлений. |
 | [**`research/UX_REVIEW.md`**](research/UX_REVIEW.md) | **UX-аудит** веб-дашборда, админки, desktop и Android с конкретными находками ("Quick Win #N") — на них ссылаются комментарии в коде. |
 | [**`research/WEB_HANDOFF_RESEARCH.md`**](research/WEB_HANDOFF_RESEARCH.md) | **Исследование и дизайн** механизма client→web SSO handoff (реализовано, на разделы документа ссылаются комментарии в `web/src/App.tsx` и др.). |
-| [**`TODO_ANDROID_GUEST_PROFILE.md`**](TODO_ANDROID_GUEST_PROFILE.md) | **TODO**: портировать на Android UX-исправление гостевого/пробного профиля, уже сделанное для desktop (`isGuest`, merge при входе, единый экран без вкладок для гостя) — конкретный список пробелов по файлам. |
 
 ---
 
@@ -27,4 +26,4 @@
 * **Для сетевых инженеров и работы с нодами**: изучите [`research/ru-blocking.md`](research/ru-blocking.md) и [`ARCHITECTURE.md`](ARCHITECTURE.md) (разделы 4 и 5).
 * **Для мобильных и десктопных разработчиков**: см. [`ARCHITECTURE.md`](ARCHITECTURE.md) (раздел 8), [`android/README.md`](../android/README.md) и [`desktop/README.md`](../desktop/README.md).
 * **Для подготовки релиза в сторы**: см. [`google-play-readiness.md`](google-play-readiness.md) и [`stores-and-liability.md`](stores-and-liability.md).
-* **Для планирования багфиксов**: см. [`BUGS_AND_OBSERVATIONS.md`](BUGS_AND_OBSERVATIONS.md).
+* **Для планирования багфиксов**: см. [`AUDIT.md`](AUDIT.md) и [`TODO.md`](TODO.md).
