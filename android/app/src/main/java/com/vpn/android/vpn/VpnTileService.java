@@ -40,7 +40,10 @@ public class VpnTileService extends TileService {
         }
 
         ConnectionState state = VpnStatusBus.state.getValue();
-        if (state == ConnectionState.CONNECTED || state == ConnectionState.CONNECTING) {
+        // Same rule as the in-app button: every state the tile shows as
+        // active is one a tap turns off. RECONNECTING used to send CONNECT,
+        // starting a second connect flow next to the scheduled retry.
+        if (isActive(state)) {
             Intent intent = new Intent(this, XrayVpnService.class);
             intent.setAction(XrayVpnService.ACTION_DISCONNECT);
             startService(intent);
@@ -50,6 +53,26 @@ public class VpnTileService extends TileService {
             ContextCompat.startForegroundService(this, intent);
         }
         updateTileState();
+    }
+
+    static boolean isActive(ConnectionState state) {
+        return state == ConnectionState.CONNECTED
+                || state == ConnectionState.CONNECTING
+                || state == ConnectionState.RECONNECTING;
+    }
+
+    /**
+     * Asks the system to call onStartListening again, so a tile that is
+     * visible while the state changes (shade pulled down during a connect)
+     * does not keep showing the old one.
+     */
+    public static void requestRefresh(android.content.Context context) {
+        try {
+            TileService.requestListeningState(context,
+                    new android.content.ComponentName(context, VpnTileService.class));
+        } catch (Exception ignored) {
+            // tile not added, or not allowed from here — nothing to refresh
+        }
     }
 
     private void updateTileState() {

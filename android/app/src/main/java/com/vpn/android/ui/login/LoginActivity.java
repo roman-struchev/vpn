@@ -41,6 +41,16 @@ public class LoginActivity extends AppCompatActivity {
      */
     public static final String EXTRA_FORCE_FORM = "force_form";
     public static final String EXTRA_IS_GUEST_SESSION = "is_guest_session";
+    /** Opened because the session ran out (see MainActivity): say so above the form. */
+    public static final String EXTRA_SESSION_EXPIRED = "session_expired";
+
+    /** The sign-in form for a user whose session could not be renewed, as a fresh task. */
+    public static Intent createSessionExpiredIntent(Context context) {
+        Intent intent = createShowFormIntent(context, false);
+        intent.putExtra(EXTRA_SESSION_EXPIRED, true);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        return intent;
+    }
 
     private ActivityLoginBinding binding;
     private ApiClient apiClient;
@@ -84,6 +94,9 @@ public class LoginActivity extends AppCompatActivity {
 
         if (forceForm) {
             binding.formContainer.setVisibility(View.VISIBLE);
+            if (getIntent().getBooleanExtra(EXTRA_SESSION_EXPIRED, false)) {
+                showError(getString(R.string.session_expired_message));
+            }
         } else {
             // Fresh install (or a device-login that never completed): rather
             // than forcing registration/login, silently log this install
@@ -166,7 +179,7 @@ public class LoginActivity extends AppCompatActivity {
                 },
                 error -> {
                     setLoading(false);
-                    showError(error.getMessage() != null ? error.getMessage() : getString(R.string.login_error_generic));
+                    showError(getString(errorMessage(error)));
                 });
     }
 
@@ -182,7 +195,7 @@ public class LoginActivity extends AppCompatActivity {
     private void signInWithGoogle() {
         String clientId = getString(R.string.google_web_client_id);
         if (clientId == null || clientId.isBlank() || "REPLACE_WITH_GOOGLE_WEB_CLIENT_ID".equals(clientId)) {
-            Toast.makeText(this, "Google Sign-In is not configured", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, R.string.google_signin_not_configured, Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -249,8 +262,20 @@ public class LoginActivity extends AppCompatActivity {
                 },
                 error -> {
                     setLoading(false);
-                    showError(error.getMessage() != null ? error.getMessage() : getString(R.string.login_error_generic));
+                    showError(getString(errorMessage(error)));
                 });
+    }
+
+    /** A message in the user's language rather than the server's English, or an IOException's. */
+    private static int errorMessage(Exception error) {
+        switch (LoginError.classify(error)) {
+            case INVALID_CREDENTIALS: return R.string.login_error_invalid_credentials;
+            case EMAIL_TAKEN: return R.string.login_error_email_taken;
+            case PASSWORD_TOO_SHORT: return R.string.login_error_password_short;
+            case ACCOUNT_BLOCKED: return R.string.login_error_blocked;
+            case NETWORK: return R.string.server_unavailable_message;
+            default: return R.string.login_error_generic;
+        }
     }
 
     private void goToMain() {

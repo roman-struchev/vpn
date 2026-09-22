@@ -158,4 +158,14 @@
     <string name="p2p_relay_notification_title">P2P mode is active</string>
     <string name="p2p_relay_notification_text">Your device is relaying traffic and earning bonus traffic</string>
     <string name="reconnecting_with_new_settings">Reconnecting with the new settings…</string>
+    <string name="state_error_no_subscription">No active plan</string>
+    <string name="state_error_session_expired">Session expired — please sign in again</string>
+    <string name="state_error_no_servers">No servers available right now. Try again later</string>
+    <string name="state_error_network">Can\'t reach the server. Check your connection</string>
+    <string name="session_expired_message">Your session has expired. Please sign in again.</string>
+    <string name="google_signin_not_configured">Google sign-in is not available yet</string>
+    <string name="login_error_invalid_credentials">Wrong email or password</string>
+    <string name="login_error_email_taken">This email is already registered</string>
+    <string name="login_error_password_short">Password must be at least 6 characters</string>
+    <string name="login_error_blocked">This account is blocked</string>
 </resources>

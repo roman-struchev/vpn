@@ -42,6 +42,7 @@ import com.vpn.android.ui.login.LoginActivity;
 import com.vpn.android.ui.settings.SettingsActivity;
 import com.vpn.android.vpn.VpnStarter;
 import com.vpn.android.vpn.state.ConnectionState;
+import com.vpn.android.vpn.state.FailureReason;
 
 public class ConnectFragment extends Fragment {
 
@@ -60,7 +61,7 @@ public class ConnectFragment extends Fragment {
     /** Whether the server had to substitute a region for the picked one. */
     private boolean regionFellBack;
     private final android.os.Handler trafficRefreshHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-    // Silent 60s background poll while this screen is visible — traffic usage
+    // Silent 60s poll while this screen is actually on screen — traffic usage
     // is otherwise only ever loaded once on fragment creation. This is also
     // why there is no "refresh" button next to the figure any more: it did
     // what this already does, a minute sooner at most.
@@ -146,10 +147,50 @@ public class ConnectFragment extends Fragment {
         });
 
 
+        VpnStatusBus.failureReason.observe(getViewLifecycleOwner(),
+                reason -> renderState(VpnStatusBus.state.getValue()));
+
         renderSelectedRegion();
         loadProfile();
         loadRegions();
+        profileJustLoaded = true;
+    }
+
+    /** Set by onViewCreated's own load, so the onResume right after it does not ask again. */
+    private boolean profileJustLoaded;
+
+    /**
+     * The poll runs only while this tab is in front and the app is open. It
+     * used to start with the view and stop only when the view was destroyed —
+     * and with the VPN service keeping the process alive, that meant a
+     * profile request every minute in the background for as long as the
+     * tunnel was up.
+     */
+    private void startTrafficPolling() {
+        trafficRefreshHandler.removeCallbacks(trafficRefreshRunnable);
         trafficRefreshHandler.postDelayed(trafficRefreshRunnable, TRAFFIC_REFRESH_INTERVAL_MS);
+    }
+
+    private void stopTrafficPolling() {
+        trafficRefreshHandler.removeCallbacks(trafficRefreshRunnable);
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        stopTrafficPolling();
+    }
+
+    @Override
+    public void onHiddenChanged(boolean hidden) {
+        super.onHiddenChanged(hidden);
+        if (hidden) {
+            stopTrafficPolling();
+        } else if (isResumed()) {
+            loadProfile();
+            renderSettingsSummaryRow();
+            startTrafficPolling();
+        }
     }
 
     private void loadRegions() {
@@ -231,6 +272,13 @@ public class ConnectFragment extends Fragment {
         }
         if (RegionKey.isP2p(selected)) {
             return; // A peer has no address to measure — see formatRegionRow.
+        }
+        if (isVpnActive(VpnStatusBus.state.getValue())) {
+            // With the tunnel up this socket goes through it, so the figure
+            // would be the tunnel's own round trip (or near zero, answered
+            // locally by the TUN stack) — not the latency to that region. The
+            // last direct measurement stays on screen instead.
+            return;
         }
         Async.run(
                 this,
@@ -397,6 +445,11 @@ public class ConnectFragment extends Fragment {
                 profile -> {
                     if (binding == null) return;
                     latestProfile = profile;
+                    if (profile != null) {
+                        // Authoritative, and what decides how an expired
+                        // session is handled (see ApiClient#recoverSession).
+                        tokenStore.setDeviceAccount(profile.isGuest);
+                    }
                     if (profile == null) {
                         // An empty body is not a profile. Everything below
                         // dereferences it, and the guard above used to stop
@@ -451,13 +504,14 @@ public class ConnectFragment extends Fragment {
         }
     }
 
-    private void onConnectButtonClicked() {
-        ConnectionState state = VpnStatusBus.state.getValue();
-        boolean isActive = state == ConnectionState.CONNECTED
+    private static boolean isVpnActive(ConnectionState state) {
+        return state == ConnectionState.CONNECTED
                 || state == ConnectionState.CONNECTING
                 || state == ConnectionState.RECONNECTING;
+    }
 
-        if (isActive) {
+    private void onConnectButtonClicked() {
+        if (isVpnActive(VpnStatusBus.state.getValue())) {
             stopVpn();
             return;
         }
@@ -510,6 +564,7 @@ public class ConnectFragment extends Fragment {
     }
 
     private void renderState(ConnectionState state) {
+        if (binding == null || state == null) return;
         switch (state) {
             case CONNECTED:
                 binding.statusText.setText(R.string.state_connected);
@@ -536,7 +591,9 @@ public class ConnectFragment extends Fragment {
                 binding.operatorBlockedCard.setVisibility(View.VISIBLE);
                 break;
             case ERROR:
-                binding.statusText.setText(R.string.state_error);
+                // The reason, not just "error": each has a different fix
+                // (get a plan, sign in, wait, check the connection).
+                binding.statusText.setText(errorText(VpnStatusBus.failureReason.getValue()));
                 binding.statusText.setTextColor(getResources().getColor(R.color.state_error, null));
                 binding.connectButton.setText(R.string.connect_action);
                 binding.operatorBlockedCard.setVisibility(View.GONE);
@@ -551,9 +608,27 @@ public class ConnectFragment extends Fragment {
         }
     }
 
+    private static int errorText(FailureReason reason) {
+        if (reason == null) return R.string.state_error;
+        switch (reason) {
+            case NO_SUBSCRIPTION: return R.string.state_error_no_subscription;
+            case SESSION_EXPIRED: return R.string.state_error_session_expired;
+            case NO_SERVERS: return R.string.state_error_no_servers;
+            case NETWORK: return R.string.state_error_network;
+            default: return R.string.state_error;
+        }
+    }
+
     @Override
     public void onResume() {
         super.onResume();
+        if (!isHidden()) {
+            // Back from the background (or the web dashboard, where a plan
+            // may just have been bought): the poll was paused meanwhile.
+            if (!profileJustLoaded) loadProfile();
+            startTrafficPolling();
+        }
+        profileJustLoaded = false;
         // The RU route may have just been changed on the screen this row
         // opens, and coming back to a row still naming the old mode would
         // read as "my change did not take".

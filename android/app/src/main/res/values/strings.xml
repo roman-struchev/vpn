@@ -168,4 +168,14 @@
     <string name="update_download_failed">Не удалось скачать обновление</string>
     <string name="update_install_permission_needed">Разрешите установку приложений из этого источника, затем повторите попытку</string>
     <string name="reconnecting_with_new_settings">Переподключаемся с новыми настройками…</string>
+    <string name="state_error_no_subscription">Нет активной подписки</string>
+    <string name="state_error_session_expired">Сессия истекла — войдите снова</string>
+    <string name="state_error_no_servers">Сейчас нет доступных серверов. Попробуйте позже</string>
+    <string name="state_error_network">Сервер недоступен. Проверьте интернет</string>
+    <string name="session_expired_message">Сессия истекла. Войдите снова.</string>
+    <string name="google_signin_not_configured">Вход через Google пока недоступен</string>
+    <string name="login_error_invalid_credentials">Неверный email или пароль</string>
+    <string name="login_error_email_taken">Этот email уже зарегистрирован</string>
+    <string name="login_error_password_short">Пароль должен быть не короче 6 символов</string>
+    <string name="login_error_blocked">Аккаунт заблокирован</string>
 </resources>

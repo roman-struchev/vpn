@@ -27,6 +27,7 @@ import com.vpn.android.ui.MainActivity;
 import com.vpn.android.vpn.state.ConnectionEvent;
 import com.vpn.android.vpn.state.ConnectionState;
 import com.vpn.android.vpn.state.ConnectionStateMachine;
+import com.vpn.android.vpn.state.FailureReason;
 import com.vpn.android.vpn.xray.VlessUri;
 import com.vpn.android.vpn.xray.XrayConfigFactory;
 import com.vpn.android.vpn.xray.XrayInvoker;
@@ -61,13 +62,21 @@ public class XrayVpnService extends VpnService implements DialerController {
     private static final int NOTIFICATION_ID = 1;
     private static final int TUN_MTU = 1500;
     private static final String DNS_PROTECT_ENDPOINT = "1.1.1.1:53";
-    // Liveness probe (see isTunnelAlive): a literal IP, so a broken DNS path can't
-    // fail it on its own, and two strikes before acting so one slow probe on a
-    // flaky mobile link doesn't cause a pointless reconnect.
-    private static final String LIVENESS_PROBE_HOST = "1.1.1.1";
-    private static final int LIVENESS_PROBE_PORT = 443;
-    private static final int LIVENESS_PROBE_TIMEOUT_MS = 6000;
+    // Liveness probe (see isTunnelAlive): a real HTTPS exchange with a literal
+    // IP, so a broken DNS path can't fail it on its own, and two strikes
+    // before acting so one slow probe on a flaky mobile link doesn't cause a
+    // pointless reconnect.
+    private static final String LIVENESS_PROBE_URL = "https://1.1.1.1/cdn-cgi/trace";
+    private static final int LIVENESS_PROBE_TIMEOUT_MS = 8000;
     private static final int LIVENESS_FAILURES_BEFORE_RECONNECT = 2;
+
+    /**
+     * How many times a connect whose very first API calls could not reach
+     * the server is retried before giving up — e.g. auto-connect at boot,
+     * which runs before the phone has a network.
+     */
+    private static final int MAX_PROFILE_LOAD_NETWORK_RETRIES = 5;
+    private static final long PROFILE_LOAD_RETRY_DELAY_MS = 10_000L;
 
     /**
      * How many relay peers to try before telling the user the network is
@@ -137,13 +146,26 @@ public class XrayVpnService extends VpnService implements DialerController {
     private final Map<String, Long> nodeIdsByHost = new HashMap<>();
     private int currentNodeIndex = 0;
     private int consecutiveLivenessFailures = 0;
+    private int profileLoadNetworkRetries = 0;
     private volatile boolean stopping = false;
+    private ProtectedSocketFactory protectedSockets;
+    // Deliberately NOT protected: its whole job is to go through the tunnel.
+    private final okhttp3.OkHttpClient livenessHttp = new okhttp3.OkHttpClient.Builder()
+            .connectTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .callTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(false)
+            .build();
 
     @Override
     public void onCreate() {
         super.onCreate();
         tokenStore = new TokenStore(this);
-        apiClient = new ApiClient(tokenStore);
+        protectedSockets = new ProtectedSocketFactory(this);
+        // Protected: this client keeps talking to our API while the TUN is up
+        // (reloading nodes after a failed round, relay signaling), and through
+        // a broken tunnel none of that could get out.
+        apiClient = new ApiClient(tokenStore, protectedSockets);
     }
 
     @Override
@@ -162,11 +184,16 @@ public class XrayVpnService extends VpnService implements DialerController {
     }
 
     private void connect() {
-        if (stateMachine.getState() == ConnectionState.CONNECTING
-                || stateMachine.getState() == ConnectionState.CONNECTED) {
+        ConnectionState current = stateMachine.getState();
+        // RECONNECTING included: a retry is already scheduled, and a second
+        // connect flow next to it would race it for the same TUN and core.
+        if (current == ConnectionState.CONNECTING
+                || current == ConnectionState.CONNECTED
+                || current == ConnectionState.RECONNECTING) {
             return;
         }
         stopping = false;
+        profileLoadNetworkRetries = 0;
         transition(ConnectionEvent.CONNECT_REQUESTED);
         startForeground(NOTIFICATION_ID, buildNotification());
         worker.execute(this::loadProfileAndConnect);
@@ -278,11 +305,22 @@ public class XrayVpnService extends VpnService implements DialerController {
 
             attemptTunnelStart();
         } catch (Exception e) {
+            if (stopping) return;
+            FailureReason reason = FailureReason.classify(e);
+            // No network yet (boot auto-connect, a lift, a tunnel) is not a
+            // reason to give up on the first try — wait for it a little.
+            if (reason == FailureReason.NETWORK && profileLoadNetworkRetries < MAX_PROFILE_LOAD_NETWORK_RETRIES) {
+                profileLoadNetworkRetries++;
+                Log.w(TAG, "API unreachable while loading the profile; retry " + profileLoadNetworkRetries, e);
+                mainHandler.postDelayed(() -> {
+                    if (!stopping) worker.execute(this::loadProfileAndConnect);
+                }, PROFILE_LOAD_RETRY_DELAY_MS);
+                return;
+            }
             // The dead end the user sees as "it just doesn't connect".
             DiagnosticsReporter.error("vpn", "PROFILE_LOAD_FAILED", "Failed to load the VPN profile", e);
             Log.e(TAG, "Failed to load VPN profile", e);
-            transition(ConnectionEvent.FATAL_ERROR);
-            updateNotification();
+            failTerminal(ConnectionEvent.FATAL_ERROR, reason);
         }
     }
 
@@ -333,6 +371,10 @@ public class XrayVpnService extends VpnService implements DialerController {
         try {
             ensureTunEstablished();
             int tunFd = tunInterface.getFd();
+            // A retry after a failed health check arrives here with the old
+            // core still running; starting a second one next to it leaves two
+            // instances reading the same TUN.
+            stopXrayQuietly();
 
             XrayInvoker.registerDialerController(this);
             XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
@@ -344,6 +386,7 @@ public class XrayVpnService extends VpnService implements DialerController {
                             assetDir)
                     : XrayConfigFactory.build(vless, backoffPolicy.getFingerprint(), tunFd, TUN_MTU,
                             "XHTTP", null, null, assetDir);
+            if (stopping) return;
             XrayInvoker.runXray(config);
 
             backoffPolicy.onSuccess();
@@ -404,11 +447,19 @@ public class XrayVpnService extends VpnService implements DialerController {
                 P2pRelayConnector connector = P2pRelayConnector.forExit(
                         new ApiClientSignaling(apiClient), peerConnectionFactory(), exit.nodeId);
                 int localPort = connector.start();
+                // start() is a whole WebRTC negotiation, seconds long; a
+                // disconnect in the meantime must not be followed by the
+                // tunnel coming up anyway.
+                if (stopping) {
+                    connector.stop();
+                    return false;
+                }
                 relayConnector = connector;
 
                 ensureTunEstablished();
                 XrayInvoker.registerDialerController(this);
                 XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
+                stopXrayQuietly();
                 XrayInvoker.runXray(XrayConfigFactory.buildP2pExit(
                         tunInterface.getFd(), TUN_MTU, ensureGeoAssetsExtracted(), "127.0.0.1", localPort));
 
@@ -517,11 +568,16 @@ public class XrayVpnService extends VpnService implements DialerController {
                         peerConnectionFactory(),
                         relay.nodeId, vless.getHost(), vless.getPort());
                 int localPort = connector.start();
+                if (stopping) {
+                    connector.stop();
+                    return false;
+                }
                 relayConnector = connector;
 
                 ensureTunEstablished();
                 XrayInvoker.registerDialerController(this);
                 XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
+                stopXrayQuietly();
                 String config = XrayConfigFactory.build(
                         vless, backoffPolicy.getFingerprint(), tunInterface.getFd(), TUN_MTU,
                         "XHTTP", null, null, ensureGeoAssetsExtracted(), "127.0.0.1", localPort);
@@ -608,6 +664,14 @@ public class XrayVpnService extends VpnService implements DialerController {
             return;
         }
 
+        // Leave CONNECTED first: the state machine only allows the terminal
+        // outcomes below (operator blocked) from a connecting state, and a dead
+        // tunnel found by the health check arrives here while CONNECTED —
+        // the transition was rejected and the screen kept saying "Protected".
+        if (stateMachine.getState() == ConnectionState.CONNECTED) {
+            transition(ConnectionEvent.TUNNEL_DOWN);
+        }
+
         // Capture which node this failure is actually about before currentNodeIndex
         // potentially advances below — telemetry must be attributed to the node that
         // just failed, not to whichever node we're about to try next.
@@ -619,7 +683,7 @@ public class XrayVpnService extends VpnService implements DialerController {
             currentNodeIndex++;
             TransportFallbackPolicy.Outcome transportOutcome = transportFallbackPolicy.onNodeSwitch();
             if (transportOutcome.allTransportsExhausted) {
-                CensorshipVerdict.Result verdict = new CensorshipProbeService().probe();
+                CensorshipVerdict.Result verdict = new CensorshipProbeService(protectedSockets).probe();
                 whitelistSuspected = verdict == CensorshipVerdict.Result.OPERATOR_RESTRICTION;
                 if (whitelistSuspected) {
                     // Every node has failed on every transport and the probe
@@ -631,10 +695,24 @@ public class XrayVpnService extends VpnService implements DialerController {
                         return;
                     }
                     reportTelemetry(0, backoffPolicy.getConsecutiveFailuresOnNode(), true, failedNodeId);
-                    transition(ConnectionEvent.OPERATOR_BLOCK_DETECTED);
-                    updateNotification();
+                    failTerminal(ConnectionEvent.OPERATOR_BLOCK_DETECTED, null);
                     return;
                 }
+                // A whole round failed and it is not the operator. The node
+                // list is the one fetched at connect time, possibly hours
+                // ago: nodes come and go, and a plan that ran out or a device
+                // revoked elsewhere looks exactly like this from here. Start
+                // over from the server's current answer instead of walking the
+                // same stale list forever — loadProfileAndConnect ends in a
+                // clear "no subscription" if that is what it is.
+                reportTelemetry(0, backoffPolicy.getConsecutiveFailuresOnNode(), false, failedNodeId);
+                transition(ConnectionEvent.TUNNEL_DOWN);
+                updateNotification();
+                scheduleOnWorker(decision.delaySeconds * 1000L, () -> {
+                    stopXrayQuietly();
+                    loadProfileAndConnect();
+                });
+                return;
             } else if (transportOutcome.transportChanged) {
                 Log.i(TAG, "XHTTP exhausted across all nodes, falling back to gRPC+Reality (Phase 9)");
             }
@@ -642,16 +720,67 @@ public class XrayVpnService extends VpnService implements DialerController {
         reportTelemetry(0, backoffPolicy.getConsecutiveFailuresOnNode(), whitelistSuspected, failedNodeId);
         transition(ConnectionEvent.TUNNEL_DOWN);
         updateNotification();
-        worker.execute(() -> {
+        scheduleOnWorker(decision.delaySeconds * 1000L, this::attemptTunnelStart);
+    }
+
+    /**
+     * Runs {@code task} on the worker after a delay. The wait sits on the main
+     * handler, not on the worker, which is a single thread: sleeping there
+     * held up everything queued behind it, including a disconnect.
+     */
+    private void scheduleOnWorker(long delayMs, Runnable task) {
+        mainHandler.postDelayed(() -> {
+            if (stopping) return;
             try {
-                Thread.sleep(decision.delaySeconds * 1000L);
-            } catch (InterruptedException ignored) {
-                return;
+                worker.execute(() -> {
+                    if (!stopping) task.run();
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                // service already destroyed
             }
-            if (!stopping) {
-                attemptTunnelStart();
+        }, delayMs);
+    }
+
+    /**
+     * A dead end the service cannot fix by retrying (the operator blocks
+     * every path, no plan, signed out...). Everything is torn down — before
+     * this, the TUN stayed up with no working core behind it, so the whole
+     * phone was offline while the screen showed a "Connect" button — and the
+     * service stops, leaving a dismissible notification that says why.
+     */
+    private void failTerminal(ConnectionEvent event, FailureReason reason) {
+        stopping = true;
+        mainHandler.removeCallbacks(healthCheck);
+        stopRelayConnector();
+        stopXrayQuietly();
+        try {
+            XrayInvoker.resetDns();
+        } catch (Exception ignored) {
+        }
+        closeTun();
+        transition(event);
+        VpnStatusBus.failureReason.postValue(reason);
+        VpnStatusBus.activeRegion.postValue(null);
+        mainHandler.post(() -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(STOP_FOREGROUND_DETACH);
+            } else {
+                stopForeground(false);
             }
+            if (ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED) {
+                NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, buildNotification());
+            }
+            stopSelf();
         });
+    }
+
+    /** stopXray throws when nothing is running; that is the common, harmless case here. */
+    private static void stopXrayQuietly() {
+        try {
+            XrayInvoker.stopXray();
+        } catch (Exception ignored) {
+        }
     }
 
     /**
@@ -734,15 +863,18 @@ public class XrayVpnService extends VpnService implements DialerController {
     }
 
     /**
-     * TCP-connects to a well-known always-up endpoint through the tunnel (this
-     * service's own sockets are not protected, so they go through the TUN like
-     * any app's). One slow/blocked probe is not treated as a dead tunnel — see
+     * A real HTTPS request through the tunnel (livenessHttp's sockets are not
+     * protected, so they go through the TUN like any app's). A bare TCP
+     * connect is not enough: xray's TUN stack completes the handshake itself
+     * before it dials anything, so it "succeeded" with the node unreachable.
+     * Any HTTP answer means bytes went all the way out and back. One slow
+     * probe is not treated as a dead tunnel — see
      * LIVENESS_FAILURES_BEFORE_RECONNECT.
      */
     private boolean isTunnelAlive() {
-        try (java.net.Socket socket = new java.net.Socket()) {
-            socket.connect(new java.net.InetSocketAddress(LIVENESS_PROBE_HOST, LIVENESS_PROBE_PORT), LIVENESS_PROBE_TIMEOUT_MS);
-            return true;
+        okhttp3.Request request = new okhttp3.Request.Builder().url(LIVENESS_PROBE_URL).get().build();
+        try (okhttp3.Response response = livenessHttp.newCall(request).execute()) {
+            return response.code() > 0;
         } catch (Exception e) {
             return false;
         }
@@ -789,7 +921,7 @@ public class XrayVpnService extends VpnService implements DialerController {
         }
     }
 
-    private void ensureTunEstablished() throws Exception {
+    private synchronized void ensureTunEstablished() throws Exception {
         if (tunInterface != null) {
             return;
         }
@@ -834,11 +966,20 @@ public class XrayVpnService extends VpnService implements DialerController {
                 } catch (PackageManager.NameNotFoundException ignored) {
                 }
             }
+            // This app too: the liveness probe has to go through the tunnel
+            // to test it, and with an allow-list anything not on it bypasses
+            // the TUN — the probe then always passed. Its own API/signaling
+            // traffic is unaffected (that client uses protected sockets).
+            try {
+                builder.addAllowedApplication(getPackageName());
+            } catch (PackageManager.NameNotFoundException ignored) {
+            }
         }
         if (!TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(routingMode)) {
             Set<String> disallowed = tokenStore.getDisallowedApps();
             if (disallowed != null) {
                 for (String pkg : disallowed) {
+                    if (pkg.equals(getPackageName())) continue; // see the onlyRu note above
                     try {
                         builder.addDisallowedApplication(pkg);
                     } catch (PackageManager.NameNotFoundException ignored) {
@@ -857,6 +998,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private void disconnect() {
         stopping = true;
         p2pExitRegion = null;
+        VpnStatusBus.failureReason.postValue(null);
         mainHandler.removeCallbacks(healthCheck);
         if (p2pExitRetry != null) {
             mainHandler.removeCallbacks(p2pExitRetry);
@@ -879,7 +1021,7 @@ public class XrayVpnService extends VpnService implements DialerController {
         stopSelf();
     }
 
-    private void closeTun() {
+    private synchronized void closeTun() {
         if (tunInterface != null) {
             try {
                 tunInterface.close();
@@ -890,10 +1032,15 @@ public class XrayVpnService extends VpnService implements DialerController {
         }
     }
 
-    private void transition(ConnectionEvent event) {
+    // synchronized: events arrive from the main thread (connect/disconnect)
+    // and the worker (attempt results), and the state machine is not
+    // thread-safe by design.
+    private synchronized void transition(ConnectionEvent event) {
         try {
             ConnectionState newState = stateMachine.dispatch(event);
             VpnStatusBus.state.postValue(newState);
+            if (newState != ConnectionState.ERROR) VpnStatusBus.failureReason.postValue(null);
+            VpnTileService.requestRefresh(this);
         } catch (IllegalStateException e) {
             Log.w(TAG, "Ignored invalid transition: " + event + " from " + stateMachine.getState());
         }
@@ -908,8 +1055,17 @@ public class XrayVpnService extends VpnService implements DialerController {
     @Override
     public void onDestroy() {
         stopping = true;
-        mainHandler.removeCallbacks(healthCheck);
+        mainHandler.removeCallbacksAndMessages(null);
         stopRelayConnector();
+        // Here and not only in disconnect(): the worker is shut down below,
+        // which drops the stop that disconnect() queued if the worker was
+        // busy — and the core lives in this process, so it would keep running
+        // with nobody left to stop it.
+        stopXrayQuietly();
+        try {
+            XrayInvoker.resetDns();
+        } catch (Exception ignored) {
+        }
         closeTun();
         worker.shutdownNow();
         super.onDestroy();
@@ -934,12 +1090,18 @@ public class XrayVpnService extends VpnService implements DialerController {
         PendingIntent pendingDisconnect = PendingIntent.getService(
                 this, 0, disconnectIntent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
 
-        return new NotificationCompat.Builder(this, VpnApp.VPN_STATUS_CHANNEL_ID)
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, VpnApp.VPN_STATUS_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_shield)
                 .setContentTitle(getString(R.string.app_name))
                 .setContentText(text)
+                .setContentIntent(pendingContent);
+        if (state == ConnectionState.OPERATOR_BLOCKED || state == ConnectionState.ERROR) {
+            // Nothing is running any more (see failTerminal): a note the user
+            // can dismiss, not a control for a session that no longer exists.
+            return builder.setOngoing(false).setAutoCancel(true).build();
+        }
+        return builder
                 .setOngoing(true)
-                .setContentIntent(pendingContent)
                 .addAction(0, getString(R.string.notif_disconnect_action), pendingDisconnect)
                 .build();
     }

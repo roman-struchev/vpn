@@ -29,6 +29,16 @@ public class TokenStore {
     private static final String KEY_ORIGINAL_IP_IS_RUSSIA = "original_ip_is_russia";
     private static final String KEY_AUTO_CONNECT_ON_BOOT = "auto_connect_on_boot";
     private static final String KEY_DISALLOWED_APPS = "disallowed_apps";
+    // Whether the stored session belongs to this install's own device-trial
+    // account (see ApiClient#deviceAuth). Decides what an expired session
+    // turns into: a guest is silently signed back in, anyone else is sent to
+    // the sign-in form. Absent on installs from before it existed until the
+    // first profile load fills it in (see setDeviceAccount).
+    private static final String KEY_DEVICE_ACCOUNT = "device_account";
+    // Where each region's latency is measured: one node's host:port and when
+    // it was learnt, from the subscription links the app fetches anyway. Lets
+    // the ping skip a links request of its own every time it runs.
+    private static final String KEY_PING_TARGET_PREFIX = "ping_target_";
     // P2P relay mode (docs/research/P2P_RELAY_FEASIBILITY.md §8) — this
     // device's own persisted node identity, separate from the user's JWT
     // above, plus a locally-cached copy of the last relay window the user
@@ -110,6 +120,54 @@ public class TokenStore {
 
     public void save(String token, long userId) {
         prefs.edit().putString(KEY_TOKEN, token).putLong(KEY_USER_ID, userId).apply();
+    }
+
+    /** A new session plus what kind of account it is — see KEY_DEVICE_ACCOUNT. */
+    public void saveSession(String token, long userId, boolean deviceAccount) {
+        prefs.edit()
+                .putString(KEY_TOKEN, token)
+                .putLong(KEY_USER_ID, userId)
+                .putBoolean(KEY_DEVICE_ACCOUNT, deviceAccount)
+                .apply();
+    }
+
+    /** Replaces the token of the current session, keeping everything else. */
+    public void replaceToken(String token) {
+        prefs.edit().putString(KEY_TOKEN, token).apply();
+    }
+
+    /** Drops only the dead token: device id, region and settings stay, so signing back in picks up where it left off. */
+    public void clearToken() {
+        prefs.edit().remove(KEY_TOKEN).apply();
+    }
+
+    /** null when not known yet (a session saved before this was recorded). */
+    public Boolean isDeviceAccount() {
+        if (!prefs.contains(KEY_DEVICE_ACCOUNT)) return null;
+        return prefs.getBoolean(KEY_DEVICE_ACCOUNT, false);
+    }
+
+    /** Filled in from the profile's isGuest, which is authoritative. */
+    public void setDeviceAccount(boolean deviceAccount) {
+        prefs.edit().putBoolean(KEY_DEVICE_ACCOUNT, deviceAccount).apply();
+    }
+
+    public void savePingTarget(String region, String host, int port, long nowMs) {
+        prefs.edit().putString(KEY_PING_TARGET_PREFIX + region, host + "|" + port + "|" + nowMs).apply();
+    }
+
+    /** {host, port} learnt no longer than maxAgeMs ago, or null. */
+    public String[] getPingTarget(String region, long nowMs, long maxAgeMs) {
+        String raw = prefs.getString(KEY_PING_TARGET_PREFIX + region, null);
+        if (raw == null) return null;
+        String[] parts = raw.split("\\|");
+        if (parts.length != 3) return null;
+        try {
+            if (nowMs - Long.parseLong(parts[2]) > maxAgeMs) return null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        return new String[]{parts[0], parts[1]};
     }
 
     public String getToken() {

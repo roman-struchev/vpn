@@ -9,20 +9,22 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
 
 import com.vpn.android.R;
 import com.vpn.android.api.ApiClient;
-import com.vpn.android.api.TokenStore;
 import com.vpn.android.databinding.ActivityMainBinding;
 import com.vpn.android.ui.connect.ConnectFragment;
+import com.vpn.android.ui.login.LoginActivity;
 import com.vpn.android.ui.profile.ProfileFragment;
 import com.vpn.android.update.AppUpdateManager;
-import com.vpn.android.util.Async;
 
 public class MainActivity extends AppCompatActivity {
 
+    private static final String TAG_CONNECT = "connect";
+    private static final String TAG_PROFILE = "profile";
+
     private ActivityMainBinding binding;
-    private ApiClient apiClient;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,21 +32,20 @@ public class MainActivity extends AppCompatActivity {
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        apiClient = new ApiClient(new TokenStore(this));
         requestNotificationPermissionIfNeeded();
 
         if (savedInstanceState == null) {
-            showFragment(new ConnectFragment());
+            showTab(TAG_CONNECT);
             new AppUpdateManager(this).checkAndPrompt(this);
         }
 
         binding.bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
             if (id == R.id.nav_connect) {
-                showFragment(new ConnectFragment());
+                showTab(TAG_CONNECT);
                 return true;
             } else if (id == R.id.nav_profile) {
-                showFragment(new ProfileFragment());
+                showTab(TAG_PROFILE);
                 return true;
             }
             return false;
@@ -52,38 +53,57 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        checkProfile();
+    protected void onStart() {
+        super.onStart();
+        // A session that ran out and could not be renewed silently (see
+        // ApiClient#execute) — until now every screen just stopped loading.
+        ApiClient.setSessionExpiredListener(() -> runOnUiThread(() -> {
+            if (isFinishing()) return;
+            startActivity(LoginActivity.createSessionExpiredIntent(this));
+            finish();
+        }));
     }
 
+    @Override
+    protected void onStop() {
+        ApiClient.setSessionExpiredListener(null);
+        super.onStop();
+    }
+
+    /**
+     * Guest (device-trial) accounts get a single screen: no bottom nav, and
+     * the connect tab in front. Reported by ConnectFragment from the profile
+     * it loads anyway — this activity used to fetch the same profile a
+     * second time on every resume just to decide this.
+     */
     public void setGuestMode(boolean isGuest) {
-        if (binding != null) {
-            binding.bottomNav.setVisibility(isGuest ? View.GONE : View.VISIBLE);
+        if (binding == null) return;
+        binding.bottomNav.setVisibility(isGuest ? View.GONE : View.VISIBLE);
+        if (isGuest) {
+            showTab(TAG_CONNECT);
+            binding.bottomNav.getMenu().findItem(R.id.nav_connect).setChecked(true);
         }
     }
 
-    private void checkProfile() {
-        Async.run(
-                () -> apiClient.getProfile(),
-                profile -> {
-                    boolean isGuest = profile != null && profile.isGuest;
-                    setGuestMode(isGuest);
-                    Fragment current = getSupportFragmentManager().findFragmentById(R.id.fragmentContainer);
-                    if (current instanceof ConnectFragment) {
-                        ((ConnectFragment) current).setGuest(isGuest);
-                    } else if (isGuest) {
-                        showFragment(ConnectFragment.newInstance(true));
-                    }
-                },
-                error -> { /* keep current state */ });
-    }
-
-    private void showFragment(Fragment fragment) {
-        getSupportFragmentManager()
-                .beginTransaction()
-                .replace(R.id.fragmentContainer, fragment)
-                .commit();
+    /**
+     * Tabs are created once and then shown/hidden. Replacing them on every
+     * switch rebuilt the screen and re-ran its profile, region and ping
+     * requests each time the user tapped between two tabs.
+     */
+    private void showTab(String tag) {
+        FragmentManager fm = getSupportFragmentManager();
+        Fragment target = fm.findFragmentByTag(tag);
+        androidx.fragment.app.FragmentTransaction tx = fm.beginTransaction();
+        for (Fragment f : fm.getFragments()) {
+            if (f != target && !f.isHidden()) tx.hide(f);
+        }
+        if (target == null) {
+            target = TAG_PROFILE.equals(tag) ? new ProfileFragment() : new ConnectFragment();
+            tx.add(R.id.fragmentContainer, target, tag);
+        } else if (target.isHidden()) {
+            tx.show(target);
+        }
+        tx.commit();
     }
 
     private void requestNotificationPermissionIfNeeded() {

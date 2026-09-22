@@ -82,6 +82,21 @@ public class ProfileFragment extends Fragment {
         // external browser, so a plan bought there is only visible here once
         // this screen asks again — without this, a user came back from a
         // successful purchase to a card still showing their old plan.
+        if (!isHidden()) refresh();
+    }
+
+    /**
+     * Tabs are shown/hidden rather than rebuilt (MainActivity#showTab), so
+     * coming back to this one does not go through onResume — it has to ask
+     * for fresh data here too.
+     */
+    @Override
+    public void onHiddenChanged(boolean hidden) {
+        super.onHiddenChanged(hidden);
+        if (!hidden && isResumed()) refresh();
+    }
+
+    private void refresh() {
         loadProfile();
         loadDevices();
         renderP2pRow();

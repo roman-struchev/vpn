@@ -10,9 +10,9 @@ import okhttp3.Response;
 /**
  * Runs the two HTTP probes behind {@link CensorshipVerdict}: a known-reachable
  * Russian host (default gosuslugi.ru, per PLAN.md §6) and a foreign test host.
- * Both probes run on the underlying network path (outside the VPN tunnel),
- * since the whole point is to tell "operator blocks this" apart from
- * "our tunnel/node is down".
+ * Both probes must run on the underlying network path (outside the VPN
+ * tunnel — see the SocketFactory constructor), since the whole point is to
+ * tell "operator blocks this" apart from "our tunnel/node is down".
  */
 public class CensorshipProbeService {
 
@@ -27,14 +27,31 @@ public class CensorshipProbeService {
         this(DEFAULT_WHITELIST_HOST, DEFAULT_FOREIGN_TEST_HOST);
     }
 
+    /**
+     * @param socketFactory must bypass the tunnel (ProtectedSocketFactory)
+     *                      when called from the VPN service: the probe runs
+     *                      while the TUN is up, and through it both hosts
+     *                      would simply look unreachable — so the verdict was
+     *                      always NO_CONNECTIVITY and operator blocking (and
+     *                      with it the relay fallback) never triggered.
+     */
+    public CensorshipProbeService(javax.net.SocketFactory socketFactory) {
+        this(DEFAULT_WHITELIST_HOST, DEFAULT_FOREIGN_TEST_HOST, socketFactory);
+    }
+
     public CensorshipProbeService(String whitelistUrl, String foreignTestUrl) {
+        this(whitelistUrl, foreignTestUrl, null);
+    }
+
+    public CensorshipProbeService(String whitelistUrl, String foreignTestUrl, javax.net.SocketFactory socketFactory) {
         this.whitelistUrl = whitelistUrl;
         this.foreignTestUrl = foreignTestUrl;
-        this.client = new OkHttpClient.Builder()
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .connectTimeout(4, TimeUnit.SECONDS)
                 .readTimeout(4, TimeUnit.SECONDS)
-                .callTimeout(6, TimeUnit.SECONDS)
-                .build();
+                .callTimeout(6, TimeUnit.SECONDS);
+        if (socketFactory != null) builder.socketFactory(socketFactory);
+        this.client = builder.build();
     }
 
     public CensorshipVerdict.Result probe() {

@@ -50,8 +50,49 @@ public class ApiClient {
     private final Gson gson = new Gson();
     private final TokenStore tokenStore;
 
+    /**
+     * Told when a session has ended for good (expired and not renewable
+     * without the user) — the UI's cue to show the sign-in form. Called on
+     * whatever thread noticed; a listener that touches views must post.
+     */
+    public interface SessionExpiredListener {
+        void onSessionExpired();
+    }
+
+    private static volatile SessionExpiredListener sessionExpiredListener;
+
+    public static void setSessionExpiredListener(SessionExpiredListener listener) {
+        sessionExpiredListener = listener;
+    }
+
+    /** The refresh throttle is process-wide; tests each start from a clean slate. */
+    static void resetSessionStateForTests() {
+        lastRefreshAttemptMs = 0;
+    }
+
+    /** Renew the token once it has less than this left. */
+    static final long REFRESH_WHEN_LEFT_SEC = 7L * 24 * 3600;
+    /** And at most this often, so an unreachable server is not asked on every call. */
+    private static final long REFRESH_ATTEMPT_INTERVAL_MS = 3_600_000L;
+    private static final Object SESSION_LOCK = new Object();
+    private static volatile long lastRefreshAttemptMs = 0;
+
+    /** How long a remembered ping target (see pingSelectedRegion) stays usable. */
+    private static final long PING_TARGET_MAX_AGE_MS = 24L * 3600 * 1000;
+
     public ApiClient(TokenStore tokenStore) {
         this(hostsFromBuildConfig(), tokenStore);
+    }
+
+    /**
+     * For the VPN service: every socket comes from {@code socketFactory},
+     * which there is one that VpnService#protect()s it. Otherwise, once the
+     * TUN is up, the service's own API calls (signaling for a relay, the
+     * reload after a failed round) would be routed into the very tunnel they
+     * are trying to repair.
+     */
+    public ApiClient(TokenStore tokenStore, javax.net.SocketFactory socketFactory) {
+        this(hostsFromBuildConfig(), tokenStore, buildHttp(socketFactory));
     }
 
     public ApiClient(String baseUrl, TokenStore tokenStore) {
@@ -71,18 +112,18 @@ public class ApiClient {
         this.hostRotation = new ApiHostRotation(normalized);
         this.tokenStore = tokenStore;
 
-        if (customHttp != null) {
-            this.http = customHttp;
-        } else {
-            OkHttpClient bootstrap = new OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .build();
-            this.http = bootstrap.newBuilder()
-                    .dns(DohDns.create(bootstrap))
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .readTimeout(15, TimeUnit.SECONDS)
-                    .build();
-        }
+        this.http = customHttp != null ? customHttp : buildHttp(null);
+    }
+
+    private static OkHttpClient buildHttp(javax.net.SocketFactory socketFactory) {
+        OkHttpClient.Builder base = new OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS);
+        if (socketFactory != null) base.socketFactory(socketFactory);
+        OkHttpClient bootstrap = base.build();
+        return bootstrap.newBuilder()
+                .dns(DohDns.create(bootstrap))
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build();
     }
 
     private static List<String> hostsFromBuildConfig() {
@@ -106,7 +147,7 @@ public class ApiClient {
         }
         AuthResponse resp = post("api/v1/auth/login", body, AuthResponse.class, false);
         if (tokenStore != null) {
-            tokenStore.save(resp.token, resp.userId);
+            tokenStore.saveSession(resp.token, resp.userId, false);
         }
         return resp;
     }
@@ -118,7 +159,7 @@ public class ApiClient {
         if (referralCode != null) body.addProperty("referralCode", referralCode);
         AuthResponse resp = post("api/v1/auth/register", body, AuthResponse.class, false);
         if (tokenStore != null) {
-            tokenStore.save(resp.token, resp.userId);
+            tokenStore.saveSession(resp.token, resp.userId, false);
         }
         return resp;
     }
@@ -137,7 +178,7 @@ public class ApiClient {
         body.addProperty("password", password);
         AuthResponse resp = post("api/v1/auth/upgrade", body, AuthResponse.class, true);
         if (tokenStore != null) {
-            tokenStore.save(resp.token, resp.userId);
+            tokenStore.saveSession(resp.token, resp.userId, false);
         }
         return resp;
     }
@@ -152,7 +193,7 @@ public class ApiClient {
         }
         AuthResponse resp = post("api/v1/auth/google", body, AuthResponse.class, false);
         if (tokenStore != null) {
-            tokenStore.save(resp.token, resp.userId);
+            tokenStore.saveSession(resp.token, resp.userId, false);
         }
         return resp;
     }
@@ -172,7 +213,7 @@ public class ApiClient {
         if (referralCode != null) body.addProperty("referralCode", referralCode);
         AuthResponse resp = post("api/v1/auth/device", body, AuthResponse.class, false);
         if (tokenStore != null) {
-            tokenStore.save(resp.token, resp.userId);
+            tokenStore.saveSession(resp.token, resp.userId, true);
         }
         return resp;
     }
@@ -220,7 +261,7 @@ public class ApiClient {
     }
 
     public SubscriptionLinksResponse getSubscriptionLinks() throws ApiException, IOException {
-        return get("api/v1/user/subscription/links", SubscriptionLinksResponse.class);
+        return rememberPingTargets(get("api/v1/user/subscription/links", SubscriptionLinksResponse.class));
     }
 
     /**
@@ -233,13 +274,37 @@ public class ApiClient {
         if (region == null || region.isBlank()) {
             return getSubscriptionLinks();
         }
-        return executeWithHostRotation(host -> {
+        return rememberPingTargets(executeWithHostRotation(host -> {
             HttpUrl.Builder url = HttpUrl.parse(host + "api/v1/user/subscription/links").newBuilder();
             url.addQueryParameter("region", region);
             Request.Builder builder = new Request.Builder().url(url.build()).get();
             applyAuth(builder);
             return builder.build();
-        }, SubscriptionLinksResponse.class);
+        }, SubscriptionLinksResponse.class));
+    }
+
+    /**
+     * Notes one node per region from links that were fetched anyway (every
+     * connect fetches them), so measuring a region's latency does not need a
+     * links request of its own — which also counts against the account's
+     * anti-enumeration budget server-side.
+     */
+    private SubscriptionLinksResponse rememberPingTargets(SubscriptionLinksResponse resp) {
+        if (resp == null || resp.links == null || tokenStore == null) return resp;
+        long now = System.currentTimeMillis();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (String link : resp.links) {
+            try {
+                VlessUri uri = VlessUri.parse(link);
+                String region = uri.getRegionLabel();
+                if (region != null && seen.add(region)) {
+                    tokenStore.savePingTarget(region, uri.getHost(), uri.getPort(), now);
+                }
+            } catch (Exception ignored) {
+                // a malformed link just isn't remembered
+            }
+        }
+        return resp;
     }
 
     /**
@@ -347,11 +412,18 @@ public class ApiClient {
             return -1;
         }
         try {
-            SubscriptionLinksResponse resp = getSubscriptionLinks(region);
-            VlessUri node = firstLinkForRegion(resp == null ? null : resp.links, region);
-            if (node != null) {
-                return measureTcpLatency(node.getHost(), node.getPort(), 2000);
+            String[] target = tokenStore != null
+                    ? tokenStore.getPingTarget(region, System.currentTimeMillis(), PING_TARGET_MAX_AGE_MS)
+                    : null;
+            if (target == null) {
+                // Not learnt yet (never connected there): fetch once, which
+                // also remembers it for next time.
+                SubscriptionLinksResponse resp = getSubscriptionLinks(region);
+                VlessUri node = firstLinkForRegion(resp == null ? null : resp.links, region);
+                if (node == null) return -1;
+                target = new String[]{node.getHost(), String.valueOf(node.getPort())};
             }
+            return measureTcpLatency(target[0], Integer.parseInt(target[1]), 2000);
         } catch (Exception ignored) {
         }
         return -1;
@@ -576,7 +648,87 @@ public class ApiClient {
         throw lastError;
     }
 
+    /**
+     * Sends one request, keeping the session alive around it: a token close
+     * to expiry is renewed first, and a 401 (expired or revoked) is answered
+     * by signing a device-trial account straight back in and retrying once.
+     * Anyone else has to sign in themselves — the token is dropped and the
+     * SessionExpiredListener told, instead of every later call failing with
+     * an error nobody explains.
+     */
     private <T> T execute(Request request, Class<T> type) throws ApiException, IOException {
+        boolean authed = tokenStore != null && request.header("Authorization") != null;
+        if (!authed) {
+            return executeOnce(request, type);
+        }
+        request = renewIfNearExpiry(request);
+        try {
+            return executeOnce(request, type);
+        } catch (ApiException e) {
+            if (e.httpCode != 401) throw e;
+            String renewed = recoverSession(request.header("Authorization"));
+            if (renewed == null) throw e;
+            return executeOnce(request.newBuilder().header("Authorization", "Bearer " + renewed).build(), type);
+        }
+    }
+
+    private Request renewIfNearExpiry(Request request) {
+        String token = tokenStore.getToken();
+        long exp = JwtExpiry.expiresAtEpochSec(token);
+        long nowMs = System.currentTimeMillis();
+        long leftSec = exp - nowMs / 1000;
+        // Already expired: /refresh would only answer 401 — the 401 path in
+        // execute() is what handles that.
+        if (exp <= 0 || leftSec <= 0 || leftSec > REFRESH_WHEN_LEFT_SEC
+                || nowMs - lastRefreshAttemptMs < REFRESH_ATTEMPT_INTERVAL_MS) {
+            return request;
+        }
+        synchronized (SESSION_LOCK) {
+            if (!token.equals(tokenStore.getToken())) {
+                // Someone else renewed it while we waited.
+                return request.newBuilder().header("Authorization", "Bearer " + tokenStore.getToken()).build();
+            }
+            lastRefreshAttemptMs = nowMs;
+            try {
+                Request refresh = new Request.Builder()
+                        .url(hostRotation.current() + "api/v1/auth/refresh")
+                        .header("Authorization", "Bearer " + token)
+                        .post(RequestBody.create("{}", JSON))
+                        .build();
+                AuthResponse resp = executeOnce(refresh, AuthResponse.class);
+                if (resp != null && resp.token != null) {
+                    tokenStore.replaceToken(resp.token);
+                    return request.newBuilder().header("Authorization", "Bearer " + resp.token).build();
+                }
+            } catch (Exception ignored) {
+                // Best-effort: the current token still works for now.
+            }
+        }
+        return request;
+    }
+
+    /** @return a working token to retry with, or null when the user has to sign in. */
+    private String recoverSession(String rejectedAuthHeader) {
+        synchronized (SESSION_LOCK) {
+            String current = tokenStore.getToken();
+            if (current != null && !("Bearer " + current).equals(rejectedAuthHeader)) {
+                return current; // already recovered by another call
+            }
+            if (Boolean.TRUE.equals(tokenStore.isDeviceAccount())) {
+                try {
+                    return deviceAuth(tokenStore.getOrCreateDeviceUuid(), null).token;
+                } catch (Exception ignored) {
+                    // e.g. the device now belongs to a registered account — fall through
+                }
+            }
+            tokenStore.clearToken();
+        }
+        SessionExpiredListener listener = sessionExpiredListener;
+        if (listener != null) listener.onSessionExpired();
+        return null;
+    }
+
+    private <T> T executeOnce(Request request, Class<T> type) throws ApiException, IOException {
         try (Response response = http.newCall(request).execute()) {
             String responseBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {

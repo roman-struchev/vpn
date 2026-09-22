@@ -15,6 +15,8 @@ public final class VpnStatusBus {
     public static final MutableLiveData<String> activeRegion = new MutableLiveData<>(null);
     /** true when a pinned region preference had no online node and the last connect attempt fell back to all regions. */
     public static final MutableLiveData<Boolean> regionFallback = new MutableLiveData<>(false);
+    /** Why the last attempt ended in ERROR; null in every other state. */
+    public static final MutableLiveData<com.vpn.android.vpn.state.FailureReason> failureReason = new MutableLiveData<>(null);
 
     private VpnStatusBus() {
     }
