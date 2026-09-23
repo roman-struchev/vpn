@@ -134,4 +134,50 @@ class AgentStreamServiceImplTest {
 
         verify(p2pRelayAccountingService).recordRelayNodeReport(9L, "sess-y", 123L);
     }
+
+    @Test
+    void signalsFromManyRequestThreadsReachTheNodeStreamOneAtATime() throws Exception {
+        // A client sends its offer and a burst of ICE candidates in parallel,
+        // each on its own HTTP thread. gRPC's StreamObserver is not
+        // thread-safe; overlapping onNext calls got the node's stream
+        // cancelled on the real server.
+        java.util.concurrent.atomic.AtomicInteger inFlight = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicBoolean overlapped = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicInteger delivered = new java.util.concurrent.atomic.AtomicInteger();
+        StreamObserver<ServerMessage> nodeSide = new StreamObserver<>() {
+            @Override
+            public void onNext(ServerMessage value) {
+                if (inFlight.incrementAndGet() > 1) overlapped.set(true);
+                try {
+                    Thread.sleep(2);
+                } catch (InterruptedException ignored) {
+                }
+                inFlight.decrementAndGet();
+                delivered.incrementAndGet();
+            }
+
+            @Override
+            public void onError(Throwable t) {
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        };
+        connectNode(11L, nodeSide);
+        when(nodeManagementService.isNodeEligibleForRelay(11L)).thenReturn(true);
+        int before = delivered.get(); // the initial config sync
+
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(16);
+        java.util.List<java.util.concurrent.Future<Boolean>> sends = new java.util.ArrayList<>();
+        for (int i = 0; i < 64; i++) {
+            final int n = i;
+            sends.add(pool.submit(() -> service.sendSignalToNode(11L, "sess-" + (n % 4), ("c" + n).getBytes())));
+        }
+        for (java.util.concurrent.Future<Boolean> f : sends) assertTrue(f.get());
+        pool.shutdown();
+
+        assertFalse(overlapped.get(), "onNext must never run concurrently on one node's stream");
+        assertEquals(before + 64, delivered.get());
+    }
 }

@@ -175,7 +175,12 @@ class P2pRelayAccountingServiceTest {
 
     @Test
     void doesNotDoubleCredit_ifSessionAlreadyCredited() {
-        when(creditRepository.findBySessionId("sess-10")).thenReturn(Optional.of(new P2pRelayCredit()));
+        // Already settled up to exactly this total: the same report pair
+        // arriving again adds nothing.
+        P2pRelayCredit settled = new P2pRelayCredit();
+        settled.setBytesRelayed(1_000_000_000L);
+        settled.setBytesCredited(500_000_000L);
+        when(creditRepository.findBySessionId("sess-10")).thenReturn(Optional.of(settled));
 
         service.recordRelayNodeReport(5L, "sess-10", 1_000_000_000L);
         service.recordClientReport(5L, "sess-10", 1_000_000_000L, null, false);
@@ -193,4 +198,67 @@ class P2pRelayAccountingServiceTest {
         assertEquals(100_000_000_000L + 1_000_000_000L, captor.getValue().getTrafficLimitBytes());
     }
 
+
+    @Test
+    void cumulativeReports_settleOnlyWhatEachNewTotalAdds() {
+        // Both sides report a running total every 30s. Each agreed pair must
+        // settle the increment, not be ignored after the first one — that
+        // left long sessions charged and paid for their first seconds only.
+        java.util.concurrent.atomic.AtomicReference<P2pRelayCredit> row = new java.util.concurrent.atomic.AtomicReference<>();
+        when(creditRepository.findBySessionId("sess-cum")).thenAnswer(i -> Optional.ofNullable(row.get()));
+        when(creditRepository.save(any(P2pRelayCredit.class))).thenAnswer(i -> {
+            row.set(i.getArgument(0));
+            return i.getArgument(0);
+        });
+
+        service.recordRelayNodeReport(5L, "sess-cum", 100_000_000L);
+        service.recordClientReport(5L, "sess-cum", 100_000_000L, null, false);
+        service.recordRelayNodeReport(5L, "sess-cum", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-cum", 1_000_000_000L, null, false);
+        // A repeat of the same total adds nothing.
+        service.recordRelayNodeReport(5L, "sess-cum", 1_000_000_000L);
+        service.recordClientReport(5L, "sess-cum", 1_000_000_000L, null, false);
+
+        assertEquals(1_000_000_000L, row.get().getBytesRelayed());
+        assertEquals(500_000_000L, row.get().getBytesCredited()); // 0.5 of the whole session, not of its first report
+    }
+
+    @Test
+    void exitTraffic_isChargedToTheUser_inIncrements() {
+        Subscription userSub = new Subscription();
+        userSub.setTrafficUsedBytes(0L);
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(900L, "ACTIVE"))
+                .thenReturn(Optional.of(userSub));
+
+        service.recordRelayNodeReport(5L, "sess-exit", 100_000_000L);
+        service.recordClientReport(5L, "sess-exit", 100_000_000L, 900L, true);
+        service.recordRelayNodeReport(5L, "sess-exit", 400_000_000L);
+        service.recordClientReport(5L, "sess-exit", 400_000_000L, 900L, true);
+
+        assertEquals(400_000_000L, userSub.getTrafficUsedBytes());
+    }
+
+    @Test
+    void exitTraffic_isChargedEvenWhenNobodyIsPaid() {
+        // No owner (an admin-provisioned peer), or an owner at the daily cap:
+        // no credit either way, but the user's browsing still has to count.
+        Subscription userSub = new Subscription();
+        userSub.setTrafficUsedBytes(0L);
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(900L, "ACTIVE"))
+                .thenReturn(Optional.of(userSub));
+
+        node.setOwnerUser(null);
+        service.recordRelayNodeReport(5L, "sess-noowner", 300_000_000L);
+        service.recordClientReport(5L, "sess-noowner", 300_000_000L, 900L, true);
+        assertEquals(300_000_000L, userSub.getTrafficUsedBytes());
+
+        node.setOwnerUser(owner);
+        when(creditRepository.sumBytesCreditedSince(eq(77L), any(Instant.class)))
+                .thenReturn(P2pRelayAccountingService.DAILY_CAP_BYTES);
+        service.recordRelayNodeReport(5L, "sess-capped", 200_000_000L);
+        service.recordClientReport(5L, "sess-capped", 200_000_000L, 900L, true);
+        assertEquals(500_000_000L, userSub.getTrafficUsedBytes());
+
+        verify(creditRepository, never()).save(any(P2pRelayCredit.class));
+    }
 }

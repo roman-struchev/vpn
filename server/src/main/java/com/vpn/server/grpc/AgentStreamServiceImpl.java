@@ -70,7 +70,16 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
     }
 
     @Override
-    public StreamObserver<AgentMessage> syncStream(StreamObserver<ServerMessage> responseObserver) {
+    public StreamObserver<AgentMessage> syncStream(StreamObserver<ServerMessage> rawResponseObserver) {
+        // Everything that talks to a node goes through this one observer:
+        // this stream's own replies, config pushes, commands, and — the
+        // busiest — P2P signals, each forwarded from its own HTTP request
+        // thread. gRPC's StreamObserver is not thread-safe, and concurrent
+        // onNext calls made the server cancel the node's stream ("Cancelling
+        // the stream because of internal error") as soon as a client sent its
+        // offer and ICE candidates in parallel — every signal after that was
+        // lost and a P2P exit could never connect. Found on two emulators.
+        StreamObserver<ServerMessage> responseObserver = new SerializedStreamObserver<>(rawResponseObserver);
         return new StreamObserver<>() {
             private Long authenticatedNodeId = null;
 
@@ -364,4 +373,28 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
         log.debug("Recorded {}/{} diagnostic event(s) from node {}", accepted, reports.size(), nodeId);
     }
 
+
+    /** Serializes calls into a StreamObserver, which gRPC requires callers to do — see syncStream. */
+    static final class SerializedStreamObserver<T> implements StreamObserver<T> {
+        private final StreamObserver<T> delegate;
+
+        SerializedStreamObserver(StreamObserver<T> delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public synchronized void onNext(T value) {
+            delegate.onNext(value);
+        }
+
+        @Override
+        public synchronized void onError(Throwable t) {
+            delegate.onError(t);
+        }
+
+        @Override
+        public synchronized void onCompleted() {
+            delegate.onCompleted();
+        }
+    }
 }

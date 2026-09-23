@@ -135,35 +135,59 @@ public class P2pRelayAccountingService {
         target.tryCredit(sessionId, nodeId, mergedNodeBytes, mergedClientBytes, mergedUserId, mergedExit);
     }
 
-    // KNOWN LIMITATION, not yet exercised in production: a session_id is
-    // credited AT MOST ONCE, ever (this check) — but every relay-agent
-    // implementation (desktop/src/main/p2p/relayAgent.ts, android's
-    // P2pRelayAgent, agent/src/p2p/relay-session.ts) reports its side
-    // PERIODICALLY with a CUMULATIVE byte count, not once at session end. If
-    // a future "connecting client" (§8's consumer side — deliberately not
-    // built in any phase so far) also reports periodically rather than
-    // exactly once at session end, whichever early report-pair happens to
-    // arrive and agree FIRST silently claims the one-shot credit for that
-    // session_id, and every later (larger) report pair for the same session
-    // is a no-op — permanently undercounting a long-lived session. Currently
-    // inert (nothing calls recordClientReport in production yet), but
-    // whoever builds that consumer must either report exactly once at
-    // session end, or this dedup needs to become per-(session_id, report
-    // sequence) with delta-based credited amounts instead of totals.
+    /**
+     * Highest agreed total already settled per session, for sessions with no
+     * credit row to remember it (no owner, owner at the daily cap). Bounded:
+     * a session that falls out simply starts from its credit row, or from 0.
+     */
+    private final Map<String, Long> settledBytesBySession = java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<>(256, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Long> eldest) {
+                    return size() > 20_000;
+                }
+            });
+
+    /**
+     * Settles one agreed pair of CUMULATIVE reports. Both sides report
+     * periodically with a running total (every relay agent, and the
+     * connecting clients too), so a session is settled in increments: each
+     * new agreed total settles only what it adds over the last one.
+     *
+     * It used to settle a session once, ever — the first agreed pair, often
+     * from the first few seconds — and ignore every later one. A long P2P
+     * exit session was then charged to the user's quota, and paid to the
+     * peer, for its first report only. And the exit charge came after the
+     * owner/cap checks, so a peer with no owner, or one whose owner hit the
+     * daily credit cap, carried traffic nobody was charged for. Metering the
+     * user now comes first and does not depend on whether anyone is paid.
+     */
     @Transactional
     void tryCredit(String sessionId, Long nodeId, long nodeBytes, long clientBytes,
                    Long connectingUserId, boolean exitSession) {
-        if (creditRepository.findBySessionId(sessionId).isPresent()) {
-            log.debug("P2P session {} already credited — ignoring duplicate report pair", sessionId);
-            return;
-        }
-
         long larger = Math.max(nodeBytes, clientBytes);
         long smaller = Math.min(nodeBytes, clientBytes);
         if (larger > 0 && (larger - smaller) / (double) larger > TOLERANCE) {
             log.warn("P2P session {} reports disagree beyond tolerance (node={}, client={}) — not crediting", sessionId, nodeBytes, clientBytes);
             return;
         }
+
+        // Conservative: settle off the smaller of the two reports, never the
+        // larger, so an over-reporting side can never inflate its own payout
+        // even within tolerance.
+        long agreedTotal = smaller;
+        Optional<P2pRelayCredit> existing = creditRepository.findBySessionId(sessionId);
+        long alreadySettled = Math.max(
+                existing.map(P2pRelayCredit::getBytesRelayed).orElse(0L),
+                settledBytesBySession.getOrDefault(sessionId, 0L));
+        long deltaBytes = agreedTotal - alreadySettled;
+        if (deltaBytes <= 0) {
+            log.debug("P2P session {}: nothing new since the last settled total ({})", sessionId, alreadySettled);
+            return;
+        }
+        settledBytesBySession.put(sessionId, agreedTotal);
+
+        meterExitSession(sessionId, connectingUserId, exitSession, deltaBytes);
 
         Node node = nodeRepository.findById(nodeId).orElse(null);
         User owner = node != null ? node.getOwnerUser() : null;
@@ -172,12 +196,7 @@ public class P2pRelayAccountingService {
             return;
         }
 
-        // Conservative: credit off the smaller of the two reports, never the
-        // larger, so an over-reporting side can never inflate its own payout
-        // even within tolerance.
-        long relayedBytes = smaller;
-        long creditBytes = Math.round(relayedBytes * CREDIT_RATE);
-
+        long creditBytes = Math.round(deltaBytes * CREDIT_RATE);
         long alreadyCreditedToday = creditRepository.sumBytesCreditedSince(owner.getId(), Instant.now().minus(1, ChronoUnit.DAYS));
         long remainingCapBytes = DAILY_CAP_BYTES - alreadyCreditedToday;
         if (remainingCapBytes <= 0) {
@@ -189,12 +208,17 @@ public class P2pRelayAccountingService {
             return;
         }
 
-        P2pRelayCredit credit = new P2pRelayCredit();
-        credit.setUser(owner);
-        credit.setSessionId(sessionId);
-        credit.setRelayNode(node);
-        credit.setBytesRelayed(relayedBytes);
-        credit.setBytesCredited(finalCreditBytes);
+        P2pRelayCredit credit = existing.orElseGet(() -> {
+            P2pRelayCredit fresh = new P2pRelayCredit();
+            fresh.setUser(owner);
+            fresh.setSessionId(sessionId);
+            fresh.setRelayNode(node);
+            fresh.setBytesCredited(0L);
+            return fresh;
+        });
+        credit.setBytesRelayed(agreedTotal);
+        long creditedBefore = credit.getBytesCredited() == null ? 0L : credit.getBytesCredited();
+        credit.setBytesCredited(creditedBefore + finalCreditBytes);
         creditRepository.save(credit);
 
         // Credited directly onto the owner's own current traffic quota
@@ -210,10 +234,8 @@ public class P2pRelayAccountingService {
                 () -> log.warn("P2P session {}: user {} earned a credit but has no active subscription to apply it to", sessionId, owner.getId())
         );
 
-        log.info("P2P session {} credited: user {} relayed {} bytes -> {} bytes credited (node {})",
-                sessionId, owner.getId(), relayedBytes, finalCreditBytes, nodeId);
-
-        meterExitSession(sessionId, connectingUserId, exitSession, relayedBytes);
+        log.info("P2P session {} credited: user {} relayed {} more bytes (total {}) -> {} bytes credited (node {})",
+                sessionId, owner.getId(), deltaBytes, agreedTotal, finalCreditBytes, nodeId);
     }
 
     /**
