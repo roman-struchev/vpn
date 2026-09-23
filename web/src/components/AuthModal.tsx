@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Lang, translations } from '../i18n';
 import { api } from '../api';
+import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 // Google Identity Services client ID (see web/src/vite-env.d.ts for how to
 // set VITE_GOOGLE_CLIENT_ID). Left blank in dev/CI on purpose — the button
@@ -74,6 +75,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 }) => {
   const t = translations[lang];
   const [isRegister, setIsRegister] = useState(false);
+  // Forgotten password: 'email' asks where to send a code, 'code' takes it
+  // with the new password. null = the ordinary sign-in/sign-up form.
+  const [resetStep, setResetStep] = useState<null | 'email' | 'code'>(null);
+  const [resetCode, setResetCode] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
@@ -144,6 +149,104 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   }, [isOpen, isRegister]);
 
   if (!isOpen) return null;
+
+  const handleResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+    try {
+      if (resetStep === 'email') {
+        await api.requestPasswordReset(email);
+        setResetStep('code');
+      } else {
+        await api.confirmPasswordReset(email, resetCode, password);
+        setResetStep(null);
+        onSuccess();
+        onClose();
+      }
+    } catch (err: any) {
+      setError(err.message || 'Error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (resetStep) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-sm w-full space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-base">{t.resetTitle}</h3>
+            <button onClick={onClose} className="text-slate-400 hover:text-white text-xs">✕</button>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            {resetStep === 'email' ? t.resetIntro : t.resetCodeSent.replace('{email}', email)}
+          </p>
+          {error && (
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">{error}</div>
+          )}
+          <form onSubmit={handleResetSubmit} className="space-y-3">
+            {resetStep === 'email' ? (
+              <input
+                type="email"
+                required
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
+              />
+            ) : (
+              <>
+                <input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  placeholder={t.resetCodeLabel}
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500 tracking-widest"
+                />
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  placeholder={t.newPasswordLabel}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
+                />
+              </>
+            )}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-dark-950 font-bold text-xs transition-colors"
+            >
+              {loading ? '...' : resetStep === 'email' ? t.resetSendCode : t.resetSave}
+            </button>
+          </form>
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            {t.resetNoCodeHint}{' '}
+            <a href={SUPPORT_URL} target="_blank" rel="noreferrer" className="text-brand-500 hover:underline">
+              {SUPPORT_HANDLE}
+            </a>
+          </p>
+          <div className="text-center pt-2 border-t border-dark-800">
+            <button
+              onClick={() => {
+                setResetStep(null);
+                setError(null);
+              }}
+              className="text-xs text-slate-400 hover:text-white"
+            >
+              {t.backToLogin}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -227,6 +330,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               className="w-full px-3 py-2 rounded-xl bg-dark-900 border border-dark-700 text-xs outline-none focus:border-brand-500"
             />
           </div>
+
+          {!isRegister && (
+            <div className="-mt-1 text-right">
+              <button
+                type="button"
+                onClick={() => {
+                  setResetStep('email');
+                  setError(null);
+                  setPassword('');
+                }}
+                className="text-[11px] text-slate-400 hover:text-white"
+              >
+                {t.forgotPassword}
+              </button>
+            </div>
+          )}
 
           {isRegister && (
             <div>

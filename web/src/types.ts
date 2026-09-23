@@ -19,9 +19,18 @@ export interface UserProfile {
   telegramLinked?: boolean;
   hasActiveSubscription: boolean;
   hasUsedTrial: boolean;
+  /** Why no plan works right now; null/absent while one does. */
+  inactiveReason?: 'TRIAL_USED_UP' | 'TRAFFIC_USED_UP' | 'EXPIRED' | 'NONE' | null;
+  /** Auto-updating link for v2rayTun/Hiddify/Happ (every current node). */
+  subscriptionUrl?: string;
+  isGuest?: boolean;
   subscription?: {
     id: number;
     tariffId: string;
+    /** ACTIVE, or EXHAUSTED: out of traffic, still paid for until expiresAt. */
+    status?: 'ACTIVE' | 'EXHAUSTED';
+    /** Annual plans: when the next month's traffic arrives. */
+    trafficResetAt?: string | null;
     trafficUsedBytes: number;
     trafficLimitBytes: number;
     expiresAt: string;

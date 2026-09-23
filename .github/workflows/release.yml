@@ -1,4 +1,4 @@
-name: Release (Docker images, APK, DMG)
+name: Release (Docker images, APK, DMG, Windows)
 
 # ==============================================================================
 # Release build+publish pipeline
@@ -364,9 +364,56 @@ jobs:
             --config.publish.owner=${{ github.repository_owner }} \
             --config.publish.repo=${{ github.event.repository.name }}
 
+  # Windows installer (NSIS). The desktop app already handles Windows
+  # (system proxy via the registry, xray-windows), it just was never built,
+  # while the landing page promised Windows. Not required by
+  # finalize-release below: a failed Windows build must not hold back the
+  # macOS/Android release — the site then keeps showing "coming soon".
+  desktop-windows:
+    name: Build & Release Windows installer
+    needs: [version, create-draft-release]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: 'desktop/package-lock.json'
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Set package version from release
+        working-directory: desktop
+        run: npm version ${{ needs.version.outputs.version }} --no-git-tag-version --allow-same-version
+
+      - name: Fetch xray-core binary (win-x64)
+        working-directory: desktop
+        run: npm run fetch:xray -- win-x64
+
+      - name: Build (main/preload/renderer bundles, no tests)
+        working-directory: desktop
+        run: npm run build
+
+      - name: Package & publish Windows installer
+        # Unsigned: SmartScreen warns on first run ("More info" -> "Run anyway").
+        working-directory: desktop
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx electron-builder --win --x64 --publish always \
+            --config.publish.provider=github \
+            --config.publish.owner=${{ github.repository_owner }} \
+            --config.publish.repo=${{ github.event.repository.name }}
+
   finalize-release:
     name: Publish GitHub Release
-    needs: [version, create-draft-release, docker-server, docker-node, android-apk, desktop-dmg]
+    needs: [version, create-draft-release, docker-server, docker-node, android-apk, desktop-dmg, desktop-windows]
     if: |
       always() &&
       needs.create-draft-release.result == 'success' &&

@@ -8,6 +8,8 @@ import { DashboardView } from './components/DashboardView';
 import { AuthModal } from './components/AuthModal';
 import { AdminPanel } from './admin/AdminPanel';
 import { P2pRelayTermsPage } from './components/P2pRelayTermsPage';
+import { LegalDoc, LegalPage } from './components/LegalPage';
+import { SUPPORT_HANDLE, SUPPORT_URL } from './support';
 
 declare global {
   interface Window {
@@ -79,6 +81,14 @@ export function App() {
   // routing for arbitrary paths, so a hash fragment is the zero-backend-
   // changes way to give the feature a stable, linkable URL: <origin>/#p2p-terms).
   const [showP2pTerms, setShowP2pTerms] = useState(() => window.location.hash.startsWith('#p2p-terms'));
+  // #privacy / #terms: linkable pages (the store listings need a privacy URL).
+  const legalFromHash = (): LegalDoc | null =>
+    window.location.hash.startsWith('#privacy') ? 'privacy' : window.location.hash.startsWith('#terms') ? 'terms' : null;
+  const [legalDoc, setLegalDoc] = useState<LegalDoc | null>(legalFromHash);
+  const closeLegal = () => {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    setLegalDoc(null);
+  };
   // "Take me to the plans" — the destination the mobile apps' "Change plan"
   // button hands over (next=/#tariffs). Resolved once, here, rather than read
   // off location inside the dashboard: the handoff rewrites the URL only after
@@ -134,6 +144,8 @@ export function App() {
     const onHashChange = () => {
       setShowAdmin(window.location.hash.startsWith('#admin'));
       setShowP2pTerms(window.location.hash.startsWith('#p2p-terms'));
+      setLegalDoc(legalFromHash());
+      if (legalFromHash()) window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
@@ -223,7 +235,9 @@ export function App() {
         />
 
         <main className="pb-16">
-          {showP2pTerms ? (
+          {legalDoc ? (
+            <LegalPage doc={legalDoc} lang={lang} onBack={closeLegal} />
+          ) : showP2pTerms ? (
             <P2pRelayTermsPage lang={lang} onBack={closeP2pTerms} />
           ) : user && showAdmin && user.role === 'ADMIN' ? (
             <AdminPanel lang={lang} onBack={closeAdmin} />
@@ -233,6 +247,7 @@ export function App() {
               user={user}
               tariffs={tariffs}
               onRefreshUser={refreshUser}
+              onLogout={handleLogout}
               openTopUp={isTopUpOpen}
               setOpenTopUp={setIsTopUpOpen}
               highlightTariffId={selectedTariffId}
@@ -251,8 +266,19 @@ export function App() {
         </main>
       </div>
 
-      <footer className="border-t border-dark-800 py-6 text-center text-xs text-slate-500">
-        Aura Privacy VPN · XHTTP + Reality · Zero Logs · 2026
+      <footer className="border-t border-dark-800 py-6 px-4 text-xs text-slate-500">
+        <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
+          <span>Aura VPN · 2026</span>
+          <a href={SUPPORT_URL} target="_blank" rel="noreferrer" className="hover:text-slate-300">
+            {lang === 'ru' ? 'Поддержка' : 'Support'}: {SUPPORT_HANDLE}
+          </a>
+          <a href="#privacy" className="hover:text-slate-300">
+            {lang === 'ru' ? 'Политика конфиденциальности' : 'Privacy Policy'}
+          </a>
+          <a href="#terms" className="hover:text-slate-300">
+            {lang === 'ru' ? 'Условия использования' : 'Terms of Use'}
+          </a>
+        </div>
       </footer>
 
       <AuthModal

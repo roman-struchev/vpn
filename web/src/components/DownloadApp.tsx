@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Apple, Smartphone, ArrowRight, ExternalLink, Copy, Check } from 'lucide-react';
+import { Apple, Smartphone, ArrowRight, ExternalLink, Copy, Check, Monitor } from 'lucide-react';
 import { Lang, translations } from '../i18n';
 import { fetchLatestRelease, releasesPageUrl, LatestRelease } from '../utils/githubRelease';
 
@@ -103,7 +103,7 @@ export const DownloadApp: React.FC<DownloadAppProps> = ({ lang, compact }) => {
 
   const body = (
     <>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <PlatformButton
           icon={<Apple className="h-5 w-5" />}
           label={t.downloadMacLabel}
@@ -116,6 +116,13 @@ export const DownloadApp: React.FC<DownloadAppProps> = ({ lang, compact }) => {
           label={t.downloadAndroidLabel}
           sublabel={t.downloadAndroidSublabel}
           href={release?.apk?.browser_download_url}
+          comingSoonLabel={t.downloadComingSoon}
+        />
+        <PlatformButton
+          icon={<Monitor className="h-5 w-5" />}
+          label={t.downloadWindowsLabel}
+          sublabel={t.downloadWindowsSublabel}
+          href={release?.windows?.browser_download_url}
           comingSoonLabel={t.downloadComingSoon}
         />
       </div>

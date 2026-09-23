@@ -29,7 +29,64 @@ const getAuthHeaders = (): HeadersInit => {
   };
 };
 
+/** The server's `{"error": "..."}` message, else a fallback. */
+async function errorOf(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => null);
+  return new Error((body && body.error) || fallback);
+}
+
 export const api = {
+  /** Always resolves the same way: the server doesn't say whether the address exists. */
+  async requestPasswordReset(email: string): Promise<void> {
+    const res = await fetch('/api/v1/auth/password-reset/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!res.ok) throw await errorOf(res, 'Request failed');
+  },
+
+  async confirmPasswordReset(email: string, code: string, newPassword: string) {
+    const res = await fetch('/api/v1/auth/password-reset/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code, newPassword }),
+    });
+    if (!res.ok) throw await errorOf(res, 'Reset failed');
+    const data = await res.json();
+    setToken(data.token);
+    return data;
+  },
+
+  /** A one-time code for signing in to the Android/desktop app as this account. */
+  async getAppLoginCode(): Promise<{ code: string; expiresInSeconds: number }> {
+    const res = await fetch('/api/v1/user/app-login-code', { method: 'POST', headers: getAuthHeaders() });
+    if (!res.ok) throw await errorOf(res, 'Could not get a code');
+    return res.json();
+  },
+
+  /** Change the password, or add email + password to a Telegram/Google account. */
+  async setCredentials(email: string | null, currentPassword: string | null, newPassword: string) {
+    const res = await fetch('/api/v1/user/credentials', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ email, currentPassword, newPassword }),
+    });
+    if (!res.ok) throw await errorOf(res, 'Could not save');
+    const data = await res.json();
+    setToken(data.token);
+    return data;
+  },
+
+  async deleteAccount(): Promise<void> {
+    const res = await fetch('/api/v1/user/account', {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ confirm: true }),
+    });
+    if (!res.ok) throw await errorOf(res, 'Could not delete the account');
+  },
+
   async login(email: string, passwordHash: string) {
     const res = await fetch('/api/v1/auth/login', {
       method: 'POST',

@@ -20,6 +20,7 @@ import { api } from '../api';
 import { copyToClipboard } from '../utils/clipboard';
 import { DownloadApp } from './DownloadApp';
 import { P2pRelaySection } from './P2pRelaySection';
+import { AccountSection } from './AccountSection';
 
 const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
   LOW: 'bg-emerald-400',
@@ -43,6 +44,8 @@ interface DashboardViewProps {
   /** Land on the plans instead of the top of the dashboard — see App.tsx. */
   scrollToTariffs?: boolean;
   onRefreshUser: () => void;
+  /** After the account is deleted: sign out and go back to the landing page. */
+  onLogout?: () => void;
   openTopUp: boolean;
   setOpenTopUp: (open: boolean) => void;
   /**
@@ -61,6 +64,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   tariffs,
   scrollToTariffs,
   onRefreshUser,
+  onLogout,
   openTopUp,
   setOpenTopUp,
   highlightTariffId,
@@ -159,9 +163,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
+  // The auto-updating subscription URL, not links[0]: one vless:// key points
+  // at a single node and silently stops working when that node goes away —
+  // and for iOS/Windows a third-party client is the only way in.
+  const shareLink = user.subscriptionUrl || links[0] || '';
   const handleCopyLink = () => {
-    if (links.length > 0) {
-      copyToClipboard(links[0]);
+    if (shareLink) {
+      copyToClipboard(shareLink);
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
     }
@@ -348,8 +356,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // A paid plan with a real end date: other plans are a switch, not a second
   // purchase. Cheaper ones wait for the end of the period (buying one now
   // would throw away what is left of this one), pricier ones start at once.
+  const isExhausted = sub?.status === 'EXHAUSTED';
+  // Out of traffic (EXHAUSTED) isn't a running plan to switch away from: any
+  // plan bought now starts today, and the spent one is retired.
   const paidCurrentTariff =
-    sub && currentTariff && currentTariff.monthlyPriceUsdtMicro > 0 && !sub.noExpiry ? currentTariff : null;
+    sub && !isExhausted && currentTariff && currentTariff.monthlyPriceUsdtMicro > 0 && !sub.noExpiry
+      ? currentTariff
+      : null;
   const periodEndDate = sub ? new Date(sub.expiresAt).toLocaleDateString() : '';
   // Renewal is paid from the balance; when it's short the VPN just stops at
   // the end of the period, so say so while there's still time to top up.
@@ -375,6 +388,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const usedGb = sub ? sub.trafficUsedBytes / (1024 * 1024 * 1024) : 0;
   const limitGb = sub ? sub.trafficLimitBytes / (1024 * 1024 * 1024) : 0;
   const trafficPercent = limitGb > 0 ? Math.min(100, Math.round((usedGb / limitGb) * 100)) : 0;
+  // When a spent plan gets traffic again by itself: an annual plan's next
+  // month, else the end of the period (renewal).
+  const refillDate = sub
+    ? new Date(sub.trafficResetAt && sub.trafficResetAt < sub.expiresAt ? sub.trafficResetAt : sub.expiresAt).toLocaleDateString()
+    : '';
+  const cheapestPaidMicro = tariffs
+    .filter((tf) => tf.monthlyPriceUsdtMicro > 0)
+    .reduce((min, tf) => Math.min(min, tf.monthlyPriceUsdtMicro), Number.MAX_SAFE_INTEGER);
+  const inactiveMessage = !user.hasActiveSubscription
+    ? user.inactiveReason === 'TRIAL_USED_UP'
+      ? t.inactiveTrialUsedUp.replace('{price}', usd(cheapestPaidMicro === Number.MAX_SAFE_INTEGER ? 0 : cheapestPaidMicro))
+      : user.inactiveReason === 'TRAFFIC_USED_UP'
+        ? t.inactiveTrafficUsedUp.replace('{date}', refillDate)
+        : user.inactiveReason === 'EXPIRED'
+          ? t.inactiveExpired
+          : t.inactiveNone
+    : null;
+  const lowTraffic = !!sub && !isExhausted && limitGb > 0 && trafficPercent >= 90;
 
   // Merged, chronologically sorted "fund movements" for the Billing History
   // card -- real balance-ledger rows (deposits, subscription debits, referral
@@ -416,17 +447,55 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <h1 className="text-2xl font-bold tracking-tight">
                 {sub ? `${t.traffic}: ${usedGb.toFixed(2)} / ${limitGb.toFixed(0)} GB` : t.noActiveSub}
               </h1>
-              {sub && (
-                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold shrink-0">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{`${t.subscriptionActive} · ${sub.tariffId.toUpperCase()}`}</span>
-                </div>
-              )}
+              {sub &&
+                (isExhausted ? (
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold shrink-0">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    <span>{`${t.subscriptionOutOfTraffic} · ${sub.tariffId.toUpperCase()}`}</span>
+                  </div>
+                ) : (
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold shrink-0">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>{`${t.subscriptionActive} · ${sub.tariffId.toUpperCase()}`}</span>
+                  </div>
+                ))}
             </div>
             {sub && (
               <p className="text-xs text-slate-400 mt-1">
                 {t.expiresAt}: {sub.noExpiry ? t.expiresNever : formatExpiresAt(sub.expiresAt)}
               </p>
+            )}
+            {inactiveMessage && (
+              <div
+                data-testid="inactive-reason"
+                className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-start gap-2 flex-wrap"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p className="flex-1 min-w-[12rem]">{inactiveMessage}</p>
+                <a
+                  href="#tariffs"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    document.getElementById('tariffs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
+                  className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 font-bold whitespace-nowrap"
+                >
+                  {t.getPlanCta}
+                </a>
+              </div>
+            )}
+            {lowTraffic && (
+              <div
+                data-testid="low-traffic"
+                className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p>
+                  {(sub!.noExpiry ? t.lowTrafficTrial : t.lowTraffic)
+                    .replace('{left}', Math.max(0, limitGb - usedGb).toFixed(2))
+                    .replace('{date}', refillDate)}
+                </p>
+              </div>
             )}
             {renewalShortfallMicro > 0 && (
               <div
@@ -465,7 +534,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Quick Actions */}
           <div className="flex flex-wrap items-center gap-2 w-full">
-            {links.length > 0 && (
+            {sub && shareLink && (
               <>
                 <button
                   onClick={handleCopyLink}
@@ -482,6 +551,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <QrCode className="w-4 h-4" />
                 </button>
               </>
+            )}
+            {sub && shareLink && (
+              <p className="w-full text-[11px] text-slate-400 leading-relaxed">{t.subscriptionLinkHint}</p>
             )}
           </div>
         </div>
@@ -526,7 +598,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <p className="text-[11px] text-slate-500 mb-3 leading-snug">{t.deviceAutoAddedHint}</p>
 
         {devices.length === 0 ? (
-          <p className="text-xs text-slate-500 py-4 text-center">No devices added yet.</p>
+          <p className="text-xs text-slate-500 py-4 text-center">{t.noDevicesYet}</p>
         ) : (
           <div className="divide-y divide-dark-800">
             {devices.map((d) => (
@@ -656,7 +728,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             // trial is the user's current plan it's simply active, not "used up", so a
             // stale "Активировать бесплатно" button never invites a click that can only
             // ever fail, without implying anything is wrong with the plan they're on.
-            const isExpiredTrial = isTrial && !isCurrent && user.hasUsedTrial;
+            const isExpiredTrial = isTrial && user.hasUsedTrial && !(isCurrent && !isExhausted);
             const isSwitch = !!paidCurrentTariff && !isCurrent && !isTrial;
             const isDowngrade =
               isSwitch && tariff.monthlyPriceUsdtMicro < paidCurrentTariff!.monthlyPriceUsdtMicro;
@@ -704,7 +776,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </p>
                 </div>
 
-                {isTrial && isCurrent ? (
+                {isTrial && isCurrent && !isExhausted ? (
                   // Currently active trial with quota left — this is just their
                   // current plan (matches the emerald "Current" treatment above),
                   // not a disabled/broken control. Renewal isn't offered since the
@@ -743,7 +815,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         : isCurrent
                           ? paidCurrentTariff
                             ? t.renewNow
-                            : t.renewPlan
+                            : isExhausted
+                              ? t.buyAgainNow
+                              : t.renewPlan
                           : isDowngrade
                             ? t.switchFrom.replace('{date}', periodEndDate)
                             : isSwitch
@@ -794,7 +868,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={handleCopyReferral}
-              title={t.copyLink}
+              title={t.copyReferralLink}
               className="p-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-slate-300"
             >
               {copiedReferral ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -851,6 +925,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       <P2pRelaySection lang={lang} />
+
+      <AccountSection lang={lang} user={user} onChanged={onRefreshUser} onDeleted={() => onLogout?.()} />
 
       {/* Billing History — moved to the bottom of the page: it's a reference
           list people scroll to occasionally, not something that needs to
@@ -947,7 +1023,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="bg-dark-850 border border-dark-800 rounded-3xl p-6 max-w-sm w-full flex flex-col items-center">
             <h3 className="font-bold text-base mb-4">{t.qrCode}</h3>
             <div className="p-4 bg-white rounded-2xl mb-4">
-              <QRCodeSVG value={links[0]} size={200} />
+              <QRCodeSVG value={shareLink} size={200} />
             </div>
             <p className="text-[11px] text-slate-400 text-center mb-6">
               Scan with v2rayTun, Hiddify, or Happ camera to connect.
