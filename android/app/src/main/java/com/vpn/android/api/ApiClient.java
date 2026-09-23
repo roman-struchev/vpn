@@ -152,6 +152,45 @@ public class ApiClient {
         return resp;
     }
 
+    /**
+     * Signs in with a one-time code from the Telegram bot (/login) or the
+     * web dashboard — the only way into the app for an account made in
+     * Telegram, which has no password. Sends the deviceUuid like login(),
+     * so this install's trial account folds into it.
+     */
+    public AuthResponse loginWithCode(String code) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("code", code);
+        String deviceUuid = tokenStore != null ? tokenStore.getOrCreateDeviceUuid() : null;
+        if (deviceUuid != null && !deviceUuid.isBlank()) {
+            body.addProperty("deviceUuid", deviceUuid);
+        }
+        AuthResponse resp = post("api/v1/auth/code", body, AuthResponse.class, false);
+        if (tokenStore != null) {
+            tokenStore.saveSession(resp.token, resp.userId, false);
+        }
+        return resp;
+    }
+
+    /** Sends a reset code to the account's Telegram/email; the same answer whether or not it exists. */
+    public void requestPasswordReset(String email) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("email", email);
+        post("api/v1/auth/password-reset/request", body, JsonObject.class, false);
+    }
+
+    public AuthResponse confirmPasswordReset(String email, String code, String newPassword) throws ApiException, IOException {
+        JsonObject body = new JsonObject();
+        body.addProperty("email", email);
+        body.addProperty("code", code);
+        body.addProperty("newPassword", newPassword);
+        AuthResponse resp = post("api/v1/auth/password-reset/confirm", body, AuthResponse.class, false);
+        if (tokenStore != null) {
+            tokenStore.saveSession(resp.token, resp.userId, false);
+        }
+        return resp;
+    }
+
     public AuthResponse register(String email, String password, String referralCode) throws ApiException, IOException {
         JsonObject body = new JsonObject();
         body.addProperty("email", email);

@@ -16,6 +16,8 @@ enum LoginError {
     EMAIL_TAKEN,
     PASSWORD_TOO_SHORT,
     ACCOUNT_BLOCKED,
+    /** A sign-in or password-reset code that is mistyped, used, or older than 10 minutes. */
+    CODE_INVALID,
     NETWORK,
     GENERIC;
 
@@ -27,6 +29,7 @@ enum LoginError {
         if (message.contains("already registered")) return EMAIL_TAKEN;
         if (message.contains("at least 6")) return PASSWORD_TOO_SHORT;
         if (message.contains("suspended") || message.contains("blocked")) return ACCOUNT_BLOCKED;
+        if (message.contains("wrong or has expired")) return CODE_INVALID;
         return GENERIC;
     }
 }

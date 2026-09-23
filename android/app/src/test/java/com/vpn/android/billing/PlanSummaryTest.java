@@ -104,4 +104,44 @@ public class PlanSummaryTest {
         assertEquals("2026-10-18T21:40:00Z",
                 PlanSummary.of(profileOn("pro", 0, 1024, false), CATALOGUE).expiresAtIso());
     }
+
+    @Test
+    public void keepsAPlanThatRanOutOfTrafficWithWhyAndWhenItComesBack() {
+        UserProfile profile = profileOn("pro", 100, 100, false);
+        profile.hasActiveSubscription = false;
+        profile.inactiveReason = "TRAFFIC_USED_UP";
+        profile.subscription.status = "EXHAUSTED";
+        profile.subscription.trafficResetAt = "2026-10-01T00:00:00Z";
+
+        PlanSummary plan = PlanSummary.of(profile, CATALOGUE);
+
+        assertTrue(plan.hasSubscription());
+        assertTrue(plan.isExhausted());
+        assertFalse(plan.isRunningOut());
+        assertEquals("TRAFFIC_USED_UP", plan.inactiveReason());
+        assertEquals("2026-10-01T00:00:00Z", plan.refillAtIso());
+    }
+
+    @Test
+    public void saysWhyThereIsNoPlan() {
+        UserProfile profile = new UserProfile();
+        profile.inactiveReason = "EXPIRED";
+        PlanSummary plan = PlanSummary.of(profile, CATALOGUE);
+        assertFalse(plan.hasSubscription());
+        assertEquals("EXPIRED", plan.inactiveReason());
+    }
+
+    @Test
+    public void tellsARenewalTheBalanceWontCover() {
+        UserProfile profile = profileOn("pro", 0, 100, false);
+        profile.balanceUsdtMicro = 500_000;
+        profile.subscription.autoRenew = true;
+        profile.subscription.renewalPriceUsdtMicro = 2_000_000;
+
+        PlanSummary.Renewal renewal = PlanSummary.of(profile, CATALOGUE).renewal();
+
+        assertNotNull(renewal);
+        assertEquals(1.5, renewal.shortfallUsdt, 0.001);
+        assertNull(renewal.nextPlanName);
+    }
 }

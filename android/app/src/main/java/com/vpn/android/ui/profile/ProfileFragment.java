@@ -68,6 +68,13 @@ public class ProfileFragment extends Fragment {
                 startActivity(com.vpn.android.ui.settings.SettingsActivity.intent(requireContext())));
         binding.p2pRelayButton.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
+        binding.supportButton.setOnClickListener(v -> openUrl(SUPPORT_URL));
+        binding.privacyButton.setOnClickListener(v -> openUrl(webUrl("/#privacy")));
+        binding.termsButton.setOnClickListener(v -> openUrl(webUrl("/#terms")));
+        // Deleting happens on the site, signed in via the handoff, where the
+        // balance it forfeits is shown before confirming.
+        binding.deleteAccountButton.setOnClickListener(v ->
+                WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/#account"));
 
         deviceAdapter = new DeviceAdapter(this::confirmRevoke);
         binding.devicesList.setLayoutManager(new LinearLayoutManager(requireContext()));
@@ -268,6 +275,42 @@ public class ProfileFragment extends Fragment {
      * and an account with no plan at all gets a "choose a plan" state instead
      * of a card full of blanks.
      */
+    private static final String SUPPORT_URL = "https://t.me/struchev";
+
+    private static String webUrl(String path) {
+        String base = BuildConfig.WEB_BASE_URL == null ? "" : BuildConfig.WEB_BASE_URL.trim();
+        while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+        return base + path;
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(requireContext(), url, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Why the plan stopped, little traffic left, or what renewal will do — see PlanStatusText. */
+    private void renderPlanStatus(PlanSummary plan) {
+        String inactive = com.vpn.android.ui.PlanStatusText.inactive(requireContext(), plan);
+        String text = inactive != null ? inactive : com.vpn.android.ui.PlanStatusText.working(requireContext(), plan);
+        boolean warn = inactive != null || plan.isRunningOut()
+                || (plan.renewal() != null && plan.renewal().shortfallUsdt > 0);
+        binding.planStatusText.setVisibility(text != null ? View.VISIBLE : View.GONE);
+        binding.planStatusText.setText(text);
+        binding.planStatusText.setTextColor(warn
+                ? androidx.core.content.ContextCompat.getColor(requireContext(), R.color.state_error)
+                : com.google.android.material.color.MaterialColors.getColor(
+                        binding.planStatusText, android.R.attr.textColorSecondary));
+        boolean shortOfRenewal = plan.renewal() != null && plan.renewal().shortfallUsdt > 0;
+        if (shortOfRenewal) {
+            binding.changePlanButton.setText(R.string.profile_top_up);
+        } else if (plan.isExhausted()) {
+            binding.changePlanButton.setText(R.string.profile_change_plan_choose);
+        }
+    }
+
     private void renderPlan(PlanSummary plan) {
         // The allowance comes with the plan, and the device count next to the
         // list is the only place it is shown now — the devices tab used to
@@ -280,6 +323,7 @@ public class ProfileFragment extends Fragment {
             binding.planTrafficProgress.setVisibility(View.GONE);
             binding.planExpiryText.setVisibility(View.GONE);
             binding.changePlanButton.setText(R.string.profile_change_plan_choose);
+            renderPlanStatus(plan);
             return;
         }
 
@@ -311,6 +355,7 @@ public class ProfileFragment extends Fragment {
 
         // The device allowance is deliberately not repeated here: the devices
         // tab shows "2 из 5" where devices are actually added or revoked.
+        renderPlanStatus(plan);
     }
 
     /**

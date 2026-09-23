@@ -498,7 +498,9 @@ public class ConnectFragment extends Fragment {
 
     private void bindProfile(UserProfile profile) {
         if (!profile.hasActiveSubscription || profile.subscription == null) {
-            binding.trafficText.setText(R.string.state_no_subscription);
+            // Which of trial used up / traffic used up / plan ended it is.
+            binding.trafficText.setText(com.vpn.android.ui.PlanStatusText.inactive(requireContext(),
+                    com.vpn.android.billing.PlanSummary.of(profile, null)));
             binding.trafficProgress.setProgress(0);
             binding.expiresText.setText("");
             return;
@@ -551,7 +553,12 @@ public class ConnectFragment extends Fragment {
                     requestVpnAndStart();
                     return;
                 }
-                Snackbar snackbar = Snackbar.make(binding.getRoot(), R.string.state_no_subscription, Snackbar.LENGTH_LONG);
+                String why = latestProfile != null
+                        ? com.vpn.android.ui.PlanStatusText.inactive(requireContext(),
+                                com.vpn.android.billing.PlanSummary.of(latestProfile, null))
+                        : null;
+                Snackbar snackbar = Snackbar.make(binding.getRoot(),
+                        why != null ? why : getString(R.string.state_no_subscription), Snackbar.LENGTH_LONG);
                 if (!isGuest) {
                     snackbar.setAction(R.string.get_plan_action, v -> openBillingPage());
                 }
@@ -598,7 +605,7 @@ public class ConnectFragment extends Fragment {
     // the landing destination because the web app has no dedicated /billing
     // route yet — the pricing/top-up UI lives on its home screen.
     private void openBillingPage() {
-        WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/");
+        WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/#tariffs");
     }
 
     private void renderState(ConnectionState state) {

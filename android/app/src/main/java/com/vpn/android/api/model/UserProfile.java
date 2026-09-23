@@ -14,6 +14,8 @@ public class UserProfile {
     public long referralEarningsUsdtMicro;
     public boolean hasActiveSubscription;
     public boolean isGuest;
+    /** Why no plan works right now: TRIAL_USED_UP, TRAFFIC_USED_UP, EXPIRED, NONE; null while one does. */
+    public String inactiveReason;
     public SubscriptionInfo subscription;
 
     public static class SubscriptionInfo {
@@ -24,6 +26,14 @@ public class UserProfile {
         public String expiresAt;
         /** Server-side "never expires" flag (e.g. the free trial); expiresAt is then a far-future placeholder. */
         public boolean noExpiry;
+        /** ACTIVE, or EXHAUSTED: out of traffic, still the paid plan until expiresAt. */
+        public String status;
+        /** Annual plans: when the next month's traffic arrives. */
+        public String trafficResetAt;
+        public boolean autoRenew;
+        /** A cheaper plan scheduled to start at expiresAt. */
+        public String nextTariffId;
+        public long renewalPriceUsdtMicro;
     }
 
     public double balanceUsdt() {

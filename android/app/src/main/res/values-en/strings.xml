@@ -168,4 +168,30 @@
     <string name="login_error_email_taken">This email is already registered</string>
     <string name="login_error_password_short">Password must be at least 6 characters</string>
     <string name="login_error_blocked">This account is blocked</string>
+    <!-- Plan states, code sign-in, password reset, support (2026-09-24) -->
+    <string name="login_error_code_invalid">The code is wrong or expired — get a new one</string>
+    <string name="login_code_action">Sign in with a code from Telegram or the site</string>
+    <string name="login_code_title">Sign in with a code</string>
+    <string name="login_code_message">Get a code from the Telegram bot with /login, or on the site under Account. Valid for 10 minutes.</string>
+    <string name="login_code_hint">XXXX-XXXX</string>
+    <string name="forgot_password">Forgot password?</string>
+    <string name="reset_title">Reset password</string>
+    <string name="reset_intro">Enter your account email — a code goes to your linked Telegram and email.</string>
+    <string name="reset_send_code">Send code</string>
+    <string name="reset_code_hint">6-digit code</string>
+    <string name="reset_new_password_hint">New password (6+ characters)</string>
+    <string name="reset_code_sent">If %1$s is your account, a code is on its way. Enter it with a new password. No code? Support: @struchev.</string>
+    <string name="reset_save">Save and sign in</string>
+    <string name="plan_inactive_trial_used_up">Your free gigabyte is used up — choose a plan</string>
+    <string name="plan_inactive_traffic_used_up">Out of traffic. New traffic arrives %1$s — or buy the plan again now</string>
+    <string name="plan_inactive_expired">Your plan has ended — choose one to turn the VPN back on</string>
+    <string name="plan_low_traffic" formatted="false">Less than 10% of traffic left</string>
+    <string name="plan_renewal_on">Renews automatically on %1$s from your balance</string>
+    <string name="plan_renewal_into">From %1$s: %2$s, from your balance</string>
+    <string name="plan_renewal_short">On %1$s renewal charges $%2$.2f — your balance is $%3$.2f short. Top up, or the VPN stops</string>
+    <string name="profile_top_up">Top up balance</string>
+    <string name="profile_row_support">Support · @struchev</string>
+    <string name="profile_row_privacy">Privacy Policy</string>
+    <string name="profile_row_terms">Terms of Use</string>
+    <string name="profile_delete_account">Delete account</string>
 </resources>

@@ -88,6 +88,8 @@ public class LoginActivity extends AppCompatActivity {
         binding.submitButton.setOnClickListener(v -> submit());
         binding.toggleModeButton.setOnClickListener(v -> toggleMode());
         binding.googleSignInButton.setOnClickListener(v -> signInWithGoogle());
+        binding.codeSignInButton.setOnClickListener(v -> askForLoginCode());
+        binding.forgotPasswordButton.setOnClickListener(v -> askForResetEmail());
         binding.retryButton.setOnClickListener(v -> attemptDeviceLogin());
         applyMode();
         clearErrorsOnInput();
@@ -184,6 +186,109 @@ public class LoginActivity extends AppCompatActivity {
     }
 
     /**
+     * A one-time code from the Telegram bot (/login) or the web dashboard's
+     * Account section: the only way into the app for an account made in
+     * Telegram, which has no password.
+     */
+    private void askForLoginCode() {
+        android.widget.EditText input = dialogInput(getString(R.string.login_code_hint), android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.login_code_title)
+                .setMessage(R.string.login_code_message)
+                .setView(padded(input))
+                .setPositiveButton(R.string.login_action, (d, w) -> {
+                    String code = input.getText().toString().trim();
+                    if (code.isEmpty()) return;
+                    setLoading(true);
+                    Async.run(
+                            () -> apiClient.loginWithCode(code),
+                            (AuthResponse resp) -> goToMain(),
+                            error -> {
+                                setLoading(false);
+                                showError(getString(errorMessage(error)));
+                            });
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** Forgotten password, step 1: where to send the code (the account's Telegram and email). */
+    private void askForResetEmail() {
+        android.widget.EditText input = dialogInput(getString(R.string.login_email_hint),
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        input.setText(text(binding.emailInput));
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.reset_title)
+                .setMessage(R.string.reset_intro)
+                .setView(padded(input))
+                .setPositiveButton(R.string.reset_send_code, (d, w) -> {
+                    String email = input.getText().toString().trim();
+                    if (email.isEmpty()) return;
+                    setLoading(true);
+                    Async.run(
+                            () -> {
+                                apiClient.requestPasswordReset(email);
+                                return email;
+                            },
+                            sentTo -> {
+                                setLoading(false);
+                                askForResetCode(sentTo);
+                            },
+                            error -> {
+                                setLoading(false);
+                                showError(getString(errorMessage(error)));
+                            });
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** Step 2: the code and a new password; signs straight in. */
+    private void askForResetCode(String email) {
+        android.widget.EditText code = dialogInput(getString(R.string.reset_code_hint), android.text.InputType.TYPE_CLASS_NUMBER);
+        android.widget.EditText password = dialogInput(getString(R.string.reset_new_password_hint),
+                android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        android.widget.LinearLayout fields = new android.widget.LinearLayout(this);
+        fields.setOrientation(android.widget.LinearLayout.VERTICAL);
+        fields.addView(code);
+        fields.addView(password);
+        new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.reset_title)
+                .setMessage(getString(R.string.reset_code_sent, email))
+                .setView(padded(fields))
+                .setPositiveButton(R.string.reset_save, (d, w) -> {
+                    setLoading(true);
+                    Async.run(
+                            () -> apiClient.confirmPasswordReset(email, code.getText().toString().trim(),
+                                    password.getText().toString()),
+                            (AuthResponse resp) -> goToMain(),
+                            error -> {
+                                setLoading(false);
+                                showError(getString(errorMessage(error)));
+                            });
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private android.widget.EditText dialogInput(String hint, int inputType) {
+        android.widget.EditText input = new android.widget.EditText(this);
+        input.setHint(hint);
+        input.setInputType(inputType);
+        input.setSingleLine(true);
+        return input;
+    }
+
+    private View padded(View content) {
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        frame.setPadding(pad, 0, pad, 0);
+        frame.addView(content);
+        return frame;
+    }
+
+    /**
      * Google Sign-In via the Credential Manager API (androidx.credentials) — the
      * current recommended replacement for the deprecated GoogleSignInClient. The
      * "server client ID" passed to GetGoogleIdOption must be a Web-application-type
@@ -273,6 +378,7 @@ public class LoginActivity extends AppCompatActivity {
             case EMAIL_TAKEN: return R.string.login_error_email_taken;
             case PASSWORD_TOO_SHORT: return R.string.login_error_password_short;
             case ACCOUNT_BLOCKED: return R.string.login_error_blocked;
+            case CODE_INVALID: return R.string.login_error_code_invalid;
             case NETWORK: return R.string.server_unavailable_message;
             default: return R.string.login_error_generic;
         }
