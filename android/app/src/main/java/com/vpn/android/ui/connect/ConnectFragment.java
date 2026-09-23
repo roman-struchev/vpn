@@ -188,12 +188,21 @@ public class ConnectFragment extends Fragment {
             stopTrafficPolling();
         } else if (isResumed()) {
             loadProfile();
+            loadRegions();
             renderSettingsSummaryRow();
             startTrafficPolling();
         }
     }
 
     private void loadRegions() {
+        loadRegions(null);
+    }
+
+    /**
+     * @param then run after a successful load — the picker uses it to open
+     *             with a list instead of "Auto" alone.
+     */
+    private void loadRegions(@androidx.annotation.Nullable Runnable then) {
         Async.run(
                 this,
                 () -> apiClient.getRegions(),
@@ -204,6 +213,7 @@ public class ConnectFragment extends Fragment {
                     availableRegions = regions;
                     renderSelectedRegion();
                     loadSelectedRegionPing();
+                    if (then != null) then.run();
                 },
                 error -> { /* keep whatever the last "Auto" default shows; not fatal to the connect flow */ });
     }
@@ -381,7 +391,22 @@ public class ConnectFragment extends Fragment {
         return getString(R.string.region_load_low);
     }
 
+    /**
+     * The list is loaded with the screen, and the screen is no longer rebuilt
+     * on every tab switch — so a load that failed (server briefly down, no
+     * network yet) left the picker with nothing but "Auto" until the app was
+     * restarted. An empty list is fetched again before the picker opens.
+     */
     private void showRegionPicker() {
+        if (availableRegions.isEmpty()) {
+            loadRegions(this::openRegionPicker);
+            return;
+        }
+        openRegionPicker();
+    }
+
+    private void openRegionPicker() {
+        if (binding == null) return;
         List<String> labels = new ArrayList<>();
         List<String> values = new ArrayList<>();
         List<Boolean> accessible = new ArrayList<>();
@@ -638,7 +663,10 @@ public class ConnectFragment extends Fragment {
         if (!isHidden()) {
             // Back from the background (or the web dashboard, where a plan
             // may just have been bought): the poll was paused meanwhile.
-            if (!profileJustLoaded) loadProfile();
+            if (!profileJustLoaded) {
+                loadProfile();
+                loadRegions(); // availability and load change while the app is in the background
+            }
             startTrafficPolling();
         }
         profileJustLoaded = false;

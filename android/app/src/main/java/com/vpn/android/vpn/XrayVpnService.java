@@ -149,6 +149,21 @@ public class XrayVpnService extends VpnService implements DialerController {
     private int profileLoadNetworkRetries = 0;
     private volatile boolean stopping = false;
     private ProtectedSocketFactory protectedSockets;
+    /**
+     * Whether the current TUN keeps this app itself out (the P2P paths), and
+     * with it whether the liveness probe has to go through xray's probe
+     * inbound instead of the TUN — see ensureTunEstablished.
+     */
+    private volatile boolean tunExcludesSelf = false;
+    private final okhttp3.OkHttpClient probeInboundHttp = new okhttp3.OkHttpClient.Builder()
+            .proxy(new java.net.Proxy(java.net.Proxy.Type.HTTP,
+                    new java.net.InetSocketAddress("127.0.0.1", XrayConfigFactory.PROBE_PORT)))
+            .connectionPool(new okhttp3.ConnectionPool(0, 1, java.util.concurrent.TimeUnit.SECONDS))
+            .connectTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .readTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .callTimeout(LIVENESS_PROBE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            .retryOnConnectionFailure(false)
+            .build();
     // Deliberately NOT protected: its whole job is to go through the tunnel.
     // And never reuses a connection: a probe riding a stream opened before the
     // node dropped this device's key kept passing (the node only refuses new
@@ -374,12 +389,13 @@ public class XrayVpnService extends VpnService implements DialerController {
         boolean useGrpc = transportFallbackPolicy.getCurrentTransport() == TransportFallbackPolicy.Transport.GRPC;
         long attemptStartUptimeMs = android.os.SystemClock.elapsedRealtime();
         try {
-            ensureTunEstablished();
-            int tunFd = tunInterface.getFd();
             // A retry after a failed health check arrives here with the old
             // core still running; starting a second one next to it leaves two
-            // instances reading the same TUN.
+            // instances reading the same TUN. Stopped before the TUN may be
+            // rebuilt below, which the old core would still be reading.
             stopXrayQuietly();
+            ensureTunEstablished(false);
+            int tunFd = tunInterface.getFd();
 
             XrayInvoker.registerDialerController(this);
             XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
@@ -468,12 +484,13 @@ public class XrayVpnService extends VpnService implements DialerController {
                 }
                 relayConnector = connector;
 
-                ensureTunEstablished();
+                stopXrayQuietly();
+                ensureTunEstablished(true);
                 XrayInvoker.registerDialerController(this);
                 XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
-                stopXrayQuietly();
-                XrayInvoker.runXray(XrayConfigFactory.buildP2pExit(
-                        tunInterface.getFd(), TUN_MTU, ensureGeoAssetsExtracted(), "127.0.0.1", localPort));
+                XrayInvoker.runXray(XrayConfigFactory.withProbeInbound(XrayConfigFactory.buildP2pExit(
+                        tunInterface.getFd(), TUN_MTU, ensureGeoAssetsExtracted(), "127.0.0.1", localPort),
+                        XrayConfigFactory.PROBE_PORT));
                 verifyTunnelOrThrow();
 
                 p2pExitRegion = region;
@@ -587,13 +604,14 @@ public class XrayVpnService extends VpnService implements DialerController {
                 }
                 relayConnector = connector;
 
-                ensureTunEstablished();
+                stopXrayQuietly();
+                ensureTunEstablished(true);
                 XrayInvoker.registerDialerController(this);
                 XrayInvoker.setDns(this, DNS_PROTECT_ENDPOINT);
-                stopXrayQuietly();
-                String config = XrayConfigFactory.build(
+                String config = XrayConfigFactory.withProbeInbound(XrayConfigFactory.build(
                         vless, backoffPolicy.getFingerprint(), tunInterface.getFd(), TUN_MTU,
-                        "XHTTP", null, null, ensureGeoAssetsExtracted(), "127.0.0.1", localPort);
+                        "XHTTP", null, null, ensureGeoAssetsExtracted(), "127.0.0.1", localPort),
+                        XrayConfigFactory.PROBE_PORT);
                 XrayInvoker.runXray(config);
                 verifyTunnelOrThrow();
 
@@ -898,12 +916,15 @@ public class XrayVpnService extends VpnService implements DialerController {
      * LIVENESS_FAILURES_BEFORE_RECONNECT.
      */
     private boolean isTunnelAlive() {
+        // On a P2P path the app is outside its own TUN, so the probe goes
+        // into xray directly (probe inbound) — see tunExcludesSelf.
+        okhttp3.OkHttpClient http = tunExcludesSelf ? probeInboundHttp : livenessHttp;
         okhttp3.Request request = new okhttp3.Request.Builder()
                 .url(LIVENESS_PROBE_URL)
                 .header("Connection", "close")
                 .get()
                 .build();
-        try (okhttp3.Response response = livenessHttp.newCall(request).execute()) {
+        try (okhttp3.Response response = http.newCall(request).execute()) {
             return response.code() > 0;
         } catch (Exception e) {
             return false;
@@ -951,10 +972,23 @@ public class XrayVpnService extends VpnService implements DialerController {
         }
     }
 
-    private synchronized void ensureTunEstablished() throws Exception {
-        if (tunInterface != null) {
+    /**
+     * @param excludeSelf keep this app's own sockets out of the TUN. Required
+     *     whenever the path runs through another user's device: every
+     *     connection there is a WebRTC session the app opens itself (after the
+     *     TUN is up), and captured by the TUN its STUN/ICE packets went into
+     *     the tunnel they were meant to carry — the P2P exit could never
+     *     connect. Found on two emulators: "udp:10.0.2.15 ... [tun-in -> block]".
+     *     Java sockets can't be bound to the underlying network instead (EPERM
+     *     for a VPN app), and WebRTC's native sockets can't be protect()ed
+     *     from here, so the whole app goes around the tunnel for those
+     *     sessions; everything it relays still goes through xray.
+     */
+    private synchronized void ensureTunEstablished(boolean excludeSelf) throws Exception {
+        if (tunInterface != null && tunExcludesSelf == excludeSelf) {
             return;
         }
+        closeTun(); // built for the other kind of session
         Builder builder = new Builder()
                 .setSession(getString(R.string.app_name))
                 .setMtu(TUN_MTU)
@@ -1000,12 +1034,19 @@ public class XrayVpnService extends VpnService implements DialerController {
             // to test it, and with an allow-list anything not on it bypasses
             // the TUN — the probe then always passed. Its own API/signaling
             // traffic is unaffected (that client uses protected sockets).
-            try {
-                builder.addAllowedApplication(getPackageName());
-            } catch (PackageManager.NameNotFoundException ignored) {
+            // Not on a P2P path, where the app must stay out (see above);
+            // the probe uses xray's probe inbound there.
+            if (!excludeSelf) {
+                try {
+                    builder.addAllowedApplication(getPackageName());
+                } catch (PackageManager.NameNotFoundException ignored) {
+                }
             }
         }
         if (!TokenStore.RUSSIAN_ROUTING_ONLY_RU.equals(routingMode)) {
+            if (excludeSelf) {
+                builder.addDisallowedApplication(getPackageName());
+            }
             Set<String> disallowed = tokenStore.getDisallowedApps();
             if (disallowed != null) {
                 for (String pkg : disallowed) {
@@ -1022,6 +1063,7 @@ public class XrayVpnService extends VpnService implements DialerController {
         if (tunInterface == null) {
             throw new IllegalStateException("VpnService.Builder#establish() returned null (permission revoked?)");
         }
+        tunExcludesSelf = excludeSelf;
     }
 
 

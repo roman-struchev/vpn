@@ -232,6 +232,44 @@ public final class XrayConfigFactory {
         return root.toString();
     }
 
+    /** Where {@link #withProbeInbound} listens (loopback only). */
+    public static final int PROBE_PORT = 10810;
+    public static final String PROBE_INBOUND_TAG = "probe-in";
+
+    /**
+     * Adds a loopback HTTP inbound that always routes to the proxy outbound,
+     * for the service's own liveness probe.
+     *
+     * Needed whenever the path runs through another user's device: the app
+     * is then kept out of its own TUN (its WebRTC sockets would otherwise be
+     * captured by the tunnel they are supposed to carry — see
+     * XrayVpnService#ensureTunEstablished), so a probe sent the ordinary way
+     * would bypass the tunnel and prove nothing. Through this inbound it
+     * crosses exactly the path user traffic takes.
+     */
+    public static String withProbeInbound(String configJson, int port) {
+        JsonObject root = com.google.gson.JsonParser.parseString(configJson).getAsJsonObject();
+        JsonObject inbound = new JsonObject();
+        inbound.addProperty("tag", PROBE_INBOUND_TAG);
+        inbound.addProperty("protocol", "http");
+        inbound.addProperty("listen", "127.0.0.1");
+        inbound.addProperty("port", port);
+        root.getAsJsonArray("inbounds").add(inbound);
+
+        JsonObject routing = root.getAsJsonObject("routing");
+        JsonObject rule = new JsonObject();
+        rule.addProperty("type", "field");
+        JsonArray tags = new JsonArray();
+        tags.add(PROBE_INBOUND_TAG);
+        rule.add("inboundTag", tags);
+        rule.addProperty("outboundTag", PROXY_OUTBOUND_TAG);
+        JsonArray rules = new JsonArray();
+        rules.add(rule); // ahead of everything, the private-range block included
+        routing.getAsJsonArray("rules").forEach(rules::add);
+        routing.add("rules", rules);
+        return root.toString();
+    }
+
     private static JsonObject buildTunInbound(int mtu) {
         JsonObject inbound = new JsonObject();
         inbound.addProperty("tag", TUN_INBOUND_TAG);

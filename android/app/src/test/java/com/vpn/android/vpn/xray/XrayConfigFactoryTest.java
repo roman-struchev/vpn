@@ -125,4 +125,29 @@ public class XrayConfigFactoryTest {
         assertThrows(IllegalArgumentException.class,
                 () -> XrayConfigFactory.build(vless, "firefox", 5, 1500, "GRPC", null, "vless-grpc"));
     }
+
+    @Test
+    public void probeInboundAlwaysGoesThroughTheProxyAheadOfEveryOtherRule() {
+        // On a P2P path the app is outside its own TUN, so this inbound is the
+        // only way the liveness probe crosses the same path as user traffic.
+        String p2p = XrayConfigFactory.buildP2pExit(5, 1500, null, "127.0.0.1", 34567);
+        JsonObject root = JsonParser.parseString(
+                XrayConfigFactory.withProbeInbound(p2p, XrayConfigFactory.PROBE_PORT)).getAsJsonObject();
+
+        JsonObject probe = null;
+        for (com.google.gson.JsonElement e : root.getAsJsonArray("inbounds")) {
+            if ("probe-in".equals(e.getAsJsonObject().get("tag").getAsString())) probe = e.getAsJsonObject();
+        }
+        assertTrue("probe inbound present", probe != null);
+        assertEquals("127.0.0.1", probe.get("listen").getAsString());
+        assertEquals(XrayConfigFactory.PROBE_PORT, probe.get("port").getAsInt());
+
+        JsonObject first = root.getAsJsonObject("routing").getAsJsonArray("rules").get(0).getAsJsonObject();
+        assertEquals("probe-in", first.getAsJsonArray("inboundTag").get(0).getAsString());
+        assertEquals("proxy", first.get("outboundTag").getAsString());
+        // The original rules are all still there, after it.
+        assertEquals(
+                JsonParser.parseString(p2p).getAsJsonObject().getAsJsonObject("routing").getAsJsonArray("rules").size() + 1,
+                root.getAsJsonObject("routing").getAsJsonArray("rules").size());
+    }
 }

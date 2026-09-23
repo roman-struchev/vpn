@@ -150,15 +150,51 @@ public class P2pClientSession implements P2pRelayConnector.ClientSession {
         }, new MediaConstraints());
     }
 
+
+    /**
+     * Candidates that arrive before the remote description is actually set.
+     * setRemoteDescription completes asynchronously, and this libwebrtc's
+     * addIceCandidate(IceCandidate) rejects a candidate added before that —
+     * silently, so the candidates arriving right behind the answer were lost.
+     */
+    private final java.util.List<IceCandidate> pendingCandidates = new java.util.ArrayList<>();
+    private boolean remoteDescriptionSet = false;
+
+    private void addOrQueueCandidate(IceCandidate candidate) {
+        synchronized (pendingCandidates) {
+            if (!remoteDescriptionSet) {
+                if (pendingCandidates.size() < 32) pendingCandidates.add(candidate);
+                return;
+            }
+        }
+        peerConnection.addIceCandidate(candidate);
+    }
+
+    private void onRemoteDescriptionSet() {
+        java.util.List<IceCandidate> toAdd;
+        synchronized (pendingCandidates) {
+            remoteDescriptionSet = true;
+            toAdd = new java.util.ArrayList<>(pendingCandidates);
+            pendingCandidates.clear();
+        }
+        for (IceCandidate c : toAdd) {
+            peerConnection.addIceCandidate(c);
+        }
+    }
+
     public void handleAnswer(String answerSdp) {
-        peerConnection.setRemoteDescription(
-                new SdpObserverAdapter(), new SessionDescription(SessionDescription.Type.ANSWER, answerSdp));
+        peerConnection.setRemoteDescription(new SdpObserverAdapter() {
+            @Override
+            public void onSetSuccess() {
+                onRemoteDescriptionSet();
+            }
+        }, new SessionDescription(SessionDescription.Type.ANSWER, answerSdp));
     }
 
     public void handleRemoteIceCandidate(String candidate, String sdpMid) {
         // Same as the answering side: only one m-line is ever negotiated (the
         // implicit one backing the data channel), so index 0 is correct.
-        peerConnection.addIceCandidate(new IceCandidate(sdpMid, 0, candidate));
+        addOrQueueCandidate(new IceCandidate(sdpMid, 0, candidate));
     }
 
     private void bindDataChannel(DataChannel dc) {
@@ -204,7 +240,12 @@ public class P2pClientSession implements P2pRelayConnector.ClientSession {
     public void send(byte[] data) {
         DataChannel dc = this.dataChannel;
         if (dc == null || dc.state() != DataChannel.State.OPEN) return;
-        dc.send(new DataChannel.Buffer(ByteBuffer.wrap(data), false));
+        // binary=true: these are raw TCP bytes. Sent as text they reach a
+        // desktop or Linux peer (node-datachannel) as a UTF-8-decoded string,
+        // and every byte that is not valid UTF-8 is lost — TLS through such a
+        // peer never completed. Android-to-Android hid it (Java sees the same
+        // bytes either way). Found connecting an emulator through a host peer.
+        dc.send(new DataChannel.Buffer(ByteBuffer.wrap(data), true));
     }
 
     @Override

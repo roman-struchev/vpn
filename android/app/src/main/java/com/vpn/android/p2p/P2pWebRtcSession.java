@@ -110,12 +110,45 @@ public class P2pWebRtcSession implements RelayChannel {
         });
     }
 
+
+    /**
+     * Candidates that arrive before the remote description is actually set.
+     * setRemoteDescription completes asynchronously, and this libwebrtc's
+     * addIceCandidate(IceCandidate) rejects a candidate added before that —
+     * silently, so the candidates arriving right behind the offer were lost.
+     */
+    private final java.util.List<IceCandidate> pendingCandidates = new java.util.ArrayList<>();
+    private boolean remoteDescriptionSet = false;
+
+    private void addOrQueueCandidate(IceCandidate candidate) {
+        synchronized (pendingCandidates) {
+            if (!remoteDescriptionSet) {
+                if (pendingCandidates.size() < 32) pendingCandidates.add(candidate);
+                return;
+            }
+        }
+        peerConnection.addIceCandidate(candidate);
+    }
+
+    private void onRemoteDescriptionSet() {
+        java.util.List<IceCandidate> toAdd;
+        synchronized (pendingCandidates) {
+            remoteDescriptionSet = true;
+            toAdd = new java.util.ArrayList<>(pendingCandidates);
+            pendingCandidates.clear();
+        }
+        for (IceCandidate c : toAdd) {
+            peerConnection.addIceCandidate(c);
+        }
+    }
+
     /** Feeds the connecting client's SDP offer, answers it, and sends the answer back via {@code outgoingSignal}. */
     public void handleOffer(String offerSdp) {
         SessionDescription offer = new SessionDescription(SessionDescription.Type.OFFER, offerSdp);
         peerConnection.setRemoteDescription(new SdpObserverAdapter() {
             @Override
             public void onSetSuccess() {
+                onRemoteDescriptionSet();
                 peerConnection.createAnswer(new SdpObserverAdapter() {
                     @Override
                     public void onCreateSuccess(SessionDescription answer) {
@@ -141,7 +174,7 @@ public class P2pWebRtcSession implements RelayChannel {
         // mLineIndex isn't carried in our envelope (docs §8.1 keeps it
         // minimal) — 0 is safe here since every session only ever negotiates
         // a single m-line (the implicit one backing the data channel).
-        peerConnection.addIceCandidate(new IceCandidate(sdpMid, 0, candidate));
+        addOrQueueCandidate(new IceCandidate(sdpMid, 0, candidate));
     }
 
     private void bindDataChannel(DataChannel dc) {
@@ -178,7 +211,12 @@ public class P2pWebRtcSession implements RelayChannel {
     public void send(byte[] data) {
         DataChannel dc = this.dataChannel;
         if (dc == null || dc.state() != DataChannel.State.OPEN) return;
-        dc.send(new DataChannel.Buffer(ByteBuffer.wrap(data), false));
+        // binary=true: these are raw TCP bytes. Sent as text they reach a
+        // desktop or Linux peer (node-datachannel) as a UTF-8-decoded string,
+        // and every byte that is not valid UTF-8 is lost — TLS through such a
+        // peer never completed. Android-to-Android hid it (Java sees the same
+        // bytes either way). Found connecting an emulator through a host peer.
+        dc.send(new DataChannel.Buffer(ByteBuffer.wrap(data), true));
     }
 
     @Override
