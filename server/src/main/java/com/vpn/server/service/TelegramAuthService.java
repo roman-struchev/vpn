@@ -189,7 +189,7 @@ public class TelegramAuthService {
 
         user = userRepository.save(user);
 
-        // Grant 3-day trial subscription if trial tariff exists
+        // Trial: no time limit, the traffic quota is the only cap.
         Optional<Tariff> trialTariff = tariffRepository.findById("trial");
         if (trialTariff.isPresent() && trialTariff.get().getIsActive()) {
             Subscription sub = new Subscription();

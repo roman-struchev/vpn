@@ -258,7 +258,8 @@ public class TelegramBotService {
             newUser.setReferralCode(generateUniqueReferralCode());
             newUser = userRepository.save(newUser);
 
-            // Grant 3-day trial subscription
+            // Trial: no time limit, the traffic quota is the only cap — the same
+            // trial whichever door the user came in through (see BillingService).
             Tariff trialTariff = tariffRepository.findById("trial").orElse(null);
             if (trialTariff != null) {
                 Subscription trialSub = new Subscription();
@@ -268,7 +269,7 @@ public class TelegramBotService {
                 trialSub.setIsAnnual(false);
                 trialSub.setAutoRenew(false);
                 trialSub.setCurrentPeriodStart(Instant.now());
-                trialSub.setCurrentPeriodEnd(Instant.now().plus(3, ChronoUnit.DAYS));
+                trialSub.setCurrentPeriodEnd(Instant.now().plus(BillingService.NO_EXPIRY_DAYS, ChronoUnit.DAYS));
                 trialSub.setTrafficUsedBytes(0L);
                 trialSub.setTrafficLimitBytes(trialTariff.getTrafficQuotaBytes());
                 subscriptionRepository.save(trialSub);
@@ -364,7 +365,7 @@ public class TelegramBotService {
     private void sendWelcomeMessage(long chatId, User user) {
         String text = "👋 <b>Добро пожаловать в быстрый и приватный VPN!</b>\n\n" +
                 "🛡 Мы используем протоколы нового поколения (<b>XHTTP + Reality</b>) со встроенной устойчивостью к блокировкам.\n\n" +
-                "Вам доступен <b>бесплатный пробный период</b> на 3 дня!\n\n" +
+                "Вам доступен <b>бесплатный пробный период</b>: 1 ГБ трафика без ограничения по времени.\n\n" +
                 "Выберите действие в меню ниже:";
 
         Map<String, Object> keyboard = Map.of(

@@ -72,6 +72,16 @@ public class Subscription {
     @Column(name = "renewal_reminder_sent_at")
     private Instant renewalReminderSentAt;
 
+    // Annual plans only: when the used-traffic counter next resets to zero,
+    // so "N GB per month" holds for all twelve months (QuotaEnforcementTask).
+    // Null for monthly plans, whose renewal is the reset.
+    @Column(name = "traffic_reset_at")
+    private Instant trafficResetAt;
+
+    // When the "90% of traffic used" heads-up went out this traffic period.
+    @Column(name = "traffic_warning_sent_at")
+    private Instant trafficWarningSentAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -133,6 +143,12 @@ public class Subscription {
         Long price = Boolean.TRUE.equals(isAnnual) ? t.getAnnualPriceUsdtMicro() : t.getMonthlyPriceUsdtMicro();
         return price != null ? price : 0L;
     }
+
+    public Instant getTrafficResetAt() { return trafficResetAt; }
+    public void setTrafficResetAt(Instant trafficResetAt) { this.trafficResetAt = trafficResetAt; }
+
+    public Instant getTrafficWarningSentAt() { return trafficWarningSentAt; }
+    public void setTrafficWarningSentAt(Instant trafficWarningSentAt) { this.trafficWarningSentAt = trafficWarningSentAt; }
 
     public Instant getRenewalReminderSentAt() { return renewalReminderSentAt; }
     public void setRenewalReminderSentAt(Instant renewalReminderSentAt) { this.renewalReminderSentAt = renewalReminderSentAt; }

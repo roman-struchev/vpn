@@ -176,7 +176,8 @@ public class GoogleAuthService {
 
         user = userRepository.save(user);
 
-        // Grant 3-day trial subscription if trial tariff exists
+        // Trial: no time limit, the traffic quota is the only cap — the same
+        // trial whichever door the user came in through (see BillingService).
         Optional<Tariff> trialTariff = tariffRepository.findById("trial");
         if (trialTariff.isPresent() && trialTariff.get().getIsActive()) {
             Subscription sub = new Subscription();
@@ -186,7 +187,7 @@ public class GoogleAuthService {
             sub.setIsAnnual(false);
             sub.setAutoRenew(false);
             sub.setCurrentPeriodStart(Instant.now());
-            sub.setCurrentPeriodEnd(Instant.now().plus(3, ChronoUnit.DAYS));
+            sub.setCurrentPeriodEnd(Instant.now().plus(BillingService.NO_EXPIRY_DAYS, ChronoUnit.DAYS));
             sub.setTrafficUsedBytes(0L);
             sub.setTrafficLimitBytes(trialTariff.get().getTrafficQuotaBytes());
             subscriptionRepository.save(sub);

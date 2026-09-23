@@ -30,6 +30,8 @@ public class BillingService {
     // threshold as unlimited) — used here and by DeviceAuthService/
     // TelegramAuthService's trial grants.
     static final long NO_EXPIRY_DAYS = 36_500;
+    /** Length of one traffic period: a monthly plan's term, and the reset step inside an annual one. */
+    public static final long TRAFFIC_PERIOD_DAYS = 30;
 
     private final UserRepository userRepository;
     private final TariffRepository tariffRepository;
@@ -295,6 +297,16 @@ public class BillingService {
         Instant periodStart = now;
         Tariff carriedNextTariff = null;
 
+        // A plan that ran out of traffic is still on the books until its end.
+        // Buying now replaces it (the user needs traffic today), so it must
+        // not auto-renew on its own later and charge a second time.
+        for (Subscription exhausted : subscriptionRepository.findByUserIdAndStatus(userId, "EXHAUSTED")) {
+            exhausted.setStatus("SUPERSEDED");
+            exhausted.setAutoRenew(false);
+            exhausted.setNextTariff(null);
+            subscriptionRepository.save(exhausted);
+        }
+
         if (liveSub != null) {
             Subscription oldSub = liveSub;
             if (oldSub.getTariff() != null && oldSub.getTariff().getId().equalsIgnoreCase(tariffId)) {
@@ -323,7 +335,7 @@ public class BillingService {
         // meanwhile-expired trial period. See Subscription#hasNoExpiry.
         Instant periodEnd = isTrial
                 ? periodStart.plus(NO_EXPIRY_DAYS, ChronoUnit.DAYS)
-                : (isAnnual ? periodStart.plus(365, ChronoUnit.DAYS) : periodStart.plus(30, ChronoUnit.DAYS));
+                : (isAnnual ? periodStart.plus(365, ChronoUnit.DAYS) : periodStart.plus(TRAFFIC_PERIOD_DAYS, ChronoUnit.DAYS));
         boolean autoRenew = !isTrial;
 
         Subscription sub = new Subscription();
@@ -337,6 +349,11 @@ public class BillingService {
         sub.setTrafficUsedBytes(0L);
         sub.setTrafficLimitBytes(tariff.getTrafficQuotaBytes());
         sub.setNextTariff(carriedNextTariff);
+        // "N GB per month" holds on an annual plan too: the counter resets
+        // every 30 days inside the year (QuotaEnforcementTask).
+        if (isAnnual && !isTrial) {
+            sub.setTrafficResetAt(periodStart.plus(TRAFFIC_PERIOD_DAYS, ChronoUnit.DAYS));
+        }
 
         return subscriptionRepository.save(sub);
     }

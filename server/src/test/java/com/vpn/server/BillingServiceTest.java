@@ -579,4 +579,48 @@ class BillingServiceTest {
         assertThrows(IllegalStateException.class, () -> billingService.purchaseOrRenewSubscription(24L, "trial", false));
         assertEquals("ACTIVE", current.getStatus());
     }
+
+    @Test
+    void testAnnualPlanGetsAMonthlyTrafficReset() {
+        User user = new User();
+        user.setId(25L);
+        user.setBalanceUsdtMicro(100_000_000L);
+        Tariff pro = paidTariff("pro", 2_000_000L);
+        when(userRepository.findById(25L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("pro")).thenReturn(Optional.of(pro));
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+
+        Subscription annual = billingService.purchaseOrRenewSubscription(25L, "pro", true);
+        Subscription monthly = billingService.purchaseOrRenewSubscription(25L, "pro", false);
+
+        assertEquals(annual.getCurrentPeriodStart().plus(30, java.time.temporal.ChronoUnit.DAYS), annual.getTrafficResetAt());
+        assertNull(monthly.getTrafficResetAt());
+    }
+
+    @Test
+    void testBuyingAgainAfterRunningOutRetiresTheSpentPlan() {
+        User user = new User();
+        user.setId(26L);
+        user.setBalanceUsdtMicro(10_000_000L);
+        Tariff pro = paidTariff("pro", 2_000_000L);
+        Subscription spent = new Subscription();
+        spent.setId(80L);
+        spent.setUser(user);
+        spent.setTariff(pro);
+        spent.setStatus("EXHAUSTED");
+        spent.setAutoRenew(true);
+        spent.setCurrentPeriodEnd(Instant.now().plus(10, java.time.temporal.ChronoUnit.DAYS));
+        when(userRepository.findById(26L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("pro")).thenReturn(Optional.of(pro));
+        when(subscriptionRepository.findByUserIdAndStatus(26L, "EXHAUSTED")).thenReturn(List.of(spent));
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+
+        Subscription fresh = billingService.purchaseOrRenewSubscription(26L, "pro", false);
+
+        assertEquals("SUPERSEDED", spent.getStatus());
+        assertFalse(spent.getAutoRenew());
+        // Starts today, not queued behind the spent period.
+        assertTrue(fresh.getCurrentPeriodStart().isBefore(Instant.now().plusSeconds(5)));
+        assertEquals("ACTIVE", fresh.getStatus());
+    }
 }

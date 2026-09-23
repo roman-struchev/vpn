@@ -26,19 +26,22 @@ public class QuotaEnforcementTask {
     private final AgentStreamServiceImpl agentStreamService;
     private final com.vpn.server.service.BillingService billingService;
     private final com.vpn.server.service.RenewalNotifier renewalNotifier;
+    private final com.vpn.server.service.TrafficNotifier trafficNotifier;
 
     public QuotaEnforcementTask(
             SubscriptionRepository subscriptionRepository,
             CryptoInvoiceRepository cryptoInvoiceRepository,
             AgentStreamServiceImpl agentStreamService,
             com.vpn.server.service.BillingService billingService,
-            com.vpn.server.service.RenewalNotifier renewalNotifier
+            com.vpn.server.service.RenewalNotifier renewalNotifier,
+            com.vpn.server.service.TrafficNotifier trafficNotifier
     ) {
         this.subscriptionRepository = subscriptionRepository;
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
         this.agentStreamService = agentStreamService;
         this.billingService = billingService;
         this.renewalNotifier = renewalNotifier;
+        this.trafficNotifier = trafficNotifier;
     }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 10000)
@@ -46,6 +49,24 @@ public class QuotaEnforcementTask {
     public void runEnforcement() {
         Instant now = Instant.now();
         boolean stateChanged = false;
+
+        // 0. Monthly traffic periods inside an annual plan: the counter goes
+        // back to zero, and a plan that had run out works again.
+        for (Subscription sub : subscriptionRepository.findTrafficResetsDue(now)) {
+            Instant next = sub.getTrafficResetAt();
+            while (!next.isAfter(now)) {
+                next = next.plus(com.vpn.server.service.BillingService.TRAFFIC_PERIOD_DAYS, ChronoUnit.DAYS);
+            }
+            sub.setTrafficResetAt(next.isBefore(sub.getCurrentPeriodEnd()) ? next : null);
+            sub.setTrafficUsedBytes(0L);
+            sub.setTrafficWarningSentAt(null);
+            if ("EXHAUSTED".equals(sub.getStatus())) {
+                sub.setStatus("ACTIVE");
+                stateChanged = true;
+            }
+            subscriptionRepository.save(sub);
+            log.info("Monthly traffic reset for annual subscription {} (user {})", sub.getId(), sub.getUser().getId());
+        }
 
         // 1. Process time-expired subscriptions
         List<Subscription> expiredSubs = subscriptionRepository.findExpiredSubscriptions(now);
@@ -83,6 +104,7 @@ public class QuotaEnforcementTask {
         for (Subscription sub : exceededSubs) {
             sub.setStatus("EXHAUSTED");
             subscriptionRepository.save(sub);
+            trafficNotifier.notifyExhausted(sub);
             stateChanged = true;
             log.info("Subscription {} for user {} exhausted quota: {}/{} bytes",
                     sub.getId(), sub.getUser().getId(), sub.getTrafficUsedBytes(), sub.getTrafficLimitBytes());
@@ -107,6 +129,7 @@ public class QuotaEnforcementTask {
 
         // 3b. Warn ahead about renewals the balance won't cover
         renewalNotifier.remindUpcomingShortfalls(now);
+        trafficNotifier.warnLowTraffic(now);
 
         // 4. Mark expired crypto invoices
         List<CryptoInvoice> expiredInvoices = cryptoInvoiceRepository.findByStatusAndExpiresAtBefore("PENDING", now);

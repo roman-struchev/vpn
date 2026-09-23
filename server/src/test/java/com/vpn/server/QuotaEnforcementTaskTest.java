@@ -18,7 +18,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -40,6 +40,9 @@ class QuotaEnforcementTaskTest {
     @Mock
     private com.vpn.server.service.RenewalNotifier renewalNotifier;
 
+    @Mock
+    private com.vpn.server.service.TrafficNotifier trafficNotifier;
+
     private QuotaEnforcementTask quotaEnforcementTask;
 
     @BeforeEach
@@ -49,7 +52,8 @@ class QuotaEnforcementTaskTest {
                 cryptoInvoiceRepository,
                 agentStreamService,
                 billingService,
-                renewalNotifier
+                renewalNotifier,
+                trafficNotifier
         );
     }
 
@@ -220,5 +224,59 @@ class QuotaEnforcementTaskTest {
         assertEquals("EXPIRED", expired.getStatus());
         verify(renewalNotifier).notifyRenewalFailed(expired, shortfall);
         verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testAnnualPlanTrafficResetsMonthlyAndRevivesAnExhaustedPlan() {
+        User user = new User();
+        user.setId(33L);
+        Instant now = Instant.now();
+        Subscription annual = new Subscription();
+        annual.setId(6L);
+        annual.setUser(user);
+        annual.setStatus("EXHAUSTED");
+        annual.setIsAnnual(true);
+        annual.setTrafficUsedBytes(100L);
+        annual.setTrafficLimitBytes(100L);
+        annual.setTrafficWarningSentAt(now.minus(3, ChronoUnit.DAYS));
+        annual.setCurrentPeriodEnd(now.plus(200, ChronoUnit.DAYS));
+        annual.setTrafficResetAt(now.minus(1, ChronoUnit.HOURS));
+
+        when(subscriptionRepository.findTrafficResetsDue(any(Instant.class))).thenReturn(List.of(annual));
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class))).thenReturn(Collections.emptyList());
+        when(subscriptionRepository.findQuotaExceededSubscriptions()).thenReturn(Collections.emptyList());
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        assertEquals("ACTIVE", annual.getStatus());
+        assertEquals(0L, annual.getTrafficUsedBytes());
+        assertNull(annual.getTrafficWarningSentAt());
+        assertTrue(annual.getTrafficResetAt().isAfter(now.plus(29, ChronoUnit.DAYS)));
+        verify(agentStreamService).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testRunningOutOfTrafficTellsTheUser() {
+        User user = new User();
+        user.setId(34L);
+        Subscription sub = new Subscription();
+        sub.setId(7L);
+        sub.setUser(user);
+        sub.setStatus("ACTIVE");
+        sub.setTrafficUsedBytes(100L);
+        sub.setTrafficLimitBytes(100L);
+
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class))).thenReturn(Collections.emptyList());
+        when(subscriptionRepository.findQuotaExceededSubscriptions()).thenReturn(List.of(sub));
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        assertEquals("EXHAUSTED", sub.getStatus());
+        verify(trafficNotifier).notifyExhausted(sub);
+        verify(trafficNotifier).warnLowTraffic(any(Instant.class));
     }
 }
