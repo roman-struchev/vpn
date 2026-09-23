@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { DataTable } from 'primereact/datatable';
 import { Column } from 'primereact/column';
 import { Dialog } from 'primereact/dialog';
-import { adminApi, AdminUser } from '../adminApi';
+import { adminApi, AdminUser, userLabel } from '../adminApi';
 import { AdminT } from '../adminI18n';
 import { api } from '../../api';
 import type { Tariff } from '../../types';
@@ -33,7 +33,7 @@ export function UsersSection({ t }: { t: AdminT }) {
 
   useEffect(load, []);
 
-  const filtered = users.filter((u) => u.email.toLowerCase().includes(search.toLowerCase()));
+  const filtered = users.filter((u) => userLabel(u).toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="space-y-4">
@@ -67,7 +67,7 @@ export function UsersSection({ t }: { t: AdminT }) {
             sortable
             body={(u: AdminUser) => (
               <span className="flex items-center gap-2">
-                {u.email}
+                {userLabel(u)}
                 {isTrialDeviceUser(u) && (
                   <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-amber-500/10 text-amber-400 whitespace-nowrap">
                     {t.trialDeviceLabel}
@@ -182,7 +182,7 @@ function UserDetailDialog({
 
   return (
     <Dialog
-      header={user.email}
+      header={userLabel(user)}
       visible
       onHide={onClose}
       className="admin-dialog"
@@ -271,7 +271,7 @@ function UserDetailDialog({
                 // UX_REVIEW.md Quick Win #3.
                 if (amountMicro !== 0) {
                   const formatted = `${amountMicro > 0 ? '+' : ''}$${(amountMicro / 1_000_000).toFixed(2)}`;
-                  const msg = t.adjustBalanceConfirm.replace('{email}', user.email).replace('{amount}', formatted);
+                  const msg = t.adjustBalanceConfirm.replace('{email}', userLabel(user)).replace('{amount}', formatted);
                   if (!window.confirm(msg)) return;
                 }
                 run(() => adminApi.adjustBalance(user.id, amountMicro, reason || undefined));
@@ -322,7 +322,7 @@ function UserDetailDialog({
               <button
                 disabled={busy}
                 onClick={() => {
-                  const msg = t.cancelTemporaryTariffConfirm.replace('{email}', user.email);
+                  const msg = t.cancelTemporaryTariffConfirm.replace('{email}', userLabel(user));
                   if (!window.confirm(msg)) return;
                   run(() => adminApi.cancelTemporaryTariff(user.id));
                 }}
@@ -356,7 +356,7 @@ function UserDetailDialog({
               onClick={() => {
                 const tf = tariffs.find((x) => x.id === tariffId);
                 const msg = t.changeTariffConfirm
-                  .replace('{email}', user.email)
+                  .replace('{email}', userLabel(user))
                   .replace('{tariff}', (tf?.name ?? tariffId).toString())
                   .replace('{days}', tariffDays || '0');
                 if (!window.confirm(msg)) return;
@@ -374,7 +374,7 @@ function UserDetailDialog({
             disabled={busy}
             onClick={() => {
               const isBlocking = user.status !== 'BLOCKED';
-              const msg = (isBlocking ? t.blockConfirm : t.unblockConfirm).replace('{email}', user.email);
+              const msg = (isBlocking ? t.blockConfirm : t.unblockConfirm).replace('{email}', userLabel(user));
               if (!window.confirm(msg)) return;
               run(() => adminApi.setUserStatus(user.id, isBlocking ? 'BLOCKED' : 'ACTIVE'));
             }}

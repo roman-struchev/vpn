@@ -40,7 +40,8 @@ export interface DashboardMetrics {
 
 export interface AdminUser {
   id: number;
-  email: string;
+  /** Null for accounts made in Telegram and for deleted ones (status DELETED). */
+  email: string | null;
   telegramId: string | null;
   /** Set for accounts auto-created by the desktop app's no-signup trial flow (see AuthController#deviceAuth). */
   deviceUuid: string | null;
@@ -155,3 +156,15 @@ export const adminApi = {
     }),
   enforceQuotas: () => req<{ message: string }>('/tasks/enforce-quotas', { method: 'POST' }),
 };
+
+/**
+ * What to call a user in the admin UI: the email, else the Telegram id,
+ * else the row id — deleted accounts and Telegram-only ones have no email,
+ * and one null email used to break the whole users table.
+ */
+export function userLabel(u: { id: number; email: string | null; telegramId?: string | number | null; status?: string }): string {
+  if (u.email) return u.email;
+  if (u.status === 'DELETED') return `#${u.id} (deleted)`;
+  if (u.telegramId) return `tg:${u.telegramId}`;
+  return `#${u.id}`;
+}
