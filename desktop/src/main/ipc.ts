@@ -33,6 +33,10 @@ export function registerIpcHandlers(
   relayManager: RelayManager
 ): void {
   ipcMain.handle('auth:login', (_e, email: string, password: string) => apiClient.login(email, password));
+  ipcMain.handle('auth:loginWithCode', (_e, code: string) => apiClient.loginWithCode(code));
+  ipcMain.handle('auth:requestPasswordReset', (_e, email: string) => apiClient.requestPasswordReset(email));
+  ipcMain.handle('auth:confirmPasswordReset', (_e, email: string, code: string, newPassword: string) =>
+    apiClient.confirmPasswordReset(email, code, newPassword));
   ipcMain.handle('auth:register', (_e, email: string, password: string, referralCode?: string) =>
     apiClient.register(email, password, referralCode)
   );

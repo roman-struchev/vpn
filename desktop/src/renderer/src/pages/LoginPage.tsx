@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { t } from '../i18n';
 import { classifyLoginError } from '../../../shared/loginError';
+import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 /** The server's English prose (behind Electron's IPC prefix) as a message in the app's language. */
 function loginErrorText(e: unknown): string {
@@ -14,6 +15,8 @@ function loginErrorText(e: unknown): string {
       return t.loginErrorPasswordShort;
     case 'ACCOUNT_BLOCKED':
       return t.loginErrorBlocked;
+    case 'CODE_INVALID':
+      return t.loginErrorCodeInvalid;
     case 'NETWORK':
       return t.loginErrorNetwork;
     default:
@@ -42,7 +45,12 @@ export default function LoginPage({
   /** Shown above the form, e.g. why the user is here again (their session expired). */
   notice?: string;
 }) {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  // 'code': a one-time code from the Telegram bot or the web dashboard — the
+  // way in for an account made in Telegram (it has no password).
+  // 'reset': forgotten password, a code to Telegram/email then a new one.
+  const [mode, setMode] = useState<'login' | 'register' | 'code' | 'reset'>('login');
+  const [code, setCode] = useState('');
+  const [resetSent, setResetSent] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,6 +81,104 @@ export default function LoginPage({
       setLoading(false);
     }
   };
+
+  const run = async (action: () => Promise<void>) => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await action();
+    } catch (e) {
+      setError(loginErrorText(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitCode = () => {
+    if (!code.trim()) return setError(t.fieldRequired);
+    return run(async () => {
+      await window.vpnApi.loginWithCode(code.trim());
+      onAuthenticated();
+    });
+  };
+
+  const submitReset = () => {
+    if (!email.trim() || (resetSent && (!code.trim() || !password))) return setError(t.fieldRequired);
+    return run(async () => {
+      if (!resetSent) {
+        await window.vpnApi.requestPasswordReset(email.trim());
+        setResetSent(true);
+        return;
+      }
+      await window.vpnApi.confirmPasswordReset(email.trim(), code.trim(), password);
+      onAuthenticated();
+    });
+  };
+
+  const switchMode = (next: 'login' | 'register' | 'code' | 'reset') => {
+    setMode(next);
+    setError(null);
+    setCode('');
+    setResetSent(false);
+  };
+
+  const input =
+    'w-full rounded-lg border border-dark-800 bg-dark-900 px-4 py-2.5 text-sm outline-none focus:border-brand-500';
+
+  if (mode === 'code' || mode === 'reset') {
+    return (
+      <div className="relative flex h-screen flex-col items-center justify-center gap-4 px-8">
+        <button
+          type="button"
+          onClick={() => switchMode('login')}
+          className="absolute top-4 left-4 flex items-center gap-1.5 text-xs font-medium text-white/60 hover:text-white transition-colors"
+        >
+          <span>←</span>
+          <span>{t.back}</span>
+        </button>
+        <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600/20 text-3xl">🛡</div>
+        <h1 className="text-xl font-semibold">{mode === 'code' ? t.codeLoginTitle : t.resetTitle}</h1>
+        <p className="text-center text-xs leading-relaxed text-white/60">
+          {mode === 'code' ? t.codeLoginHint : resetSent ? t.resetCodeSent.replace('%s', email.trim()) : t.resetIntro}
+        </p>
+        {mode === 'code' ? (
+          <input
+            className={`${input} text-center font-mono tracking-widest uppercase`}
+            placeholder="XXXX-XXXX"
+            value={code}
+            autoFocus
+            onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submitCode()}
+          />
+        ) : !resetSent ? (
+          <input className={input} placeholder={t.email} type="email" value={email}
+            onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submitReset()} />
+        ) : (
+          <>
+            <input className={`${input} tracking-widest`} placeholder={t.resetCodeLabel} inputMode="numeric"
+              value={code} onChange={(e) => setCode(e.target.value)} />
+            <input className={input} placeholder={t.newPasswordLabel} type="password" value={password}
+              onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submitReset()} />
+          </>
+        )}
+        <button
+          className="w-full rounded-lg bg-brand-600 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-50"
+          disabled={loading}
+          onClick={mode === 'code' ? submitCode : submitReset}
+        >
+          {mode === 'code' ? t.login : resetSent ? t.resetSave : t.resetSendCode}
+        </button>
+        <p className="text-center text-[11px] text-white/40">
+          {t.needHelp}{' '}
+          <button className="text-brand-500 hover:underline" onClick={() => void window.vpnApi.openExternal(SUPPORT_URL)}>
+            {SUPPORT_HANDLE}
+          </button>
+        </p>
+        {error && <p className="text-center text-sm text-state-error">{error}</p>}
+      </div>
+    );
+  }
 
   const submitWithGoogle = async () => {
     setLoading(true);
@@ -128,12 +234,19 @@ export default function LoginPage({
         {mode === 'login' ? t.login : t.register}
       </button>
 
-      <button
-        className="text-sm text-brand-500 hover:underline"
-        onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-      >
-        {mode === 'login' ? t.toggleToRegister : t.toggleToLogin}
-      </button>
+      <div className="flex w-full items-center justify-between">
+        <button
+          className="text-sm text-brand-500 hover:underline"
+          onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
+        >
+          {mode === 'login' ? t.toggleToRegister : t.toggleToLogin}
+        </button>
+        {mode === 'login' && (
+          <button className="text-xs text-white/50 hover:text-white" onClick={() => switchMode('reset')}>
+            {t.forgotPassword}
+          </button>
+        )}
+      </div>
 
       <div className="flex w-full items-center gap-3 text-xs text-white/40">
         <div className="h-px flex-1 bg-dark-800" />
@@ -147,6 +260,14 @@ export default function LoginPage({
         onClick={submitWithGoogle}
       >
         {t.signInWithGoogle}
+      </button>
+
+      <button
+        className="w-full rounded-lg border border-dark-800 bg-dark-900 py-2.5 text-sm font-semibold transition-colors hover:bg-dark-800 disabled:opacity-50"
+        disabled={loading}
+        onClick={() => switchMode('code')}
+      >
+        {t.signInWithCode}
       </button>
 
       {error && <p className="text-center text-sm text-state-error">{error}</p>}

@@ -6,6 +6,11 @@ import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
 const vpnApi = {
   platform: process.platform,
   login: (email: string, password: string) => ipcRenderer.invoke('auth:login', email, password),
+  /** One-time code from the Telegram bot (/login) or the web dashboard. */
+  loginWithCode: (code: string) => ipcRenderer.invoke('auth:loginWithCode', code),
+  requestPasswordReset: (email: string): Promise<void> => ipcRenderer.invoke('auth:requestPasswordReset', email),
+  confirmPasswordReset: (email: string, code: string, newPassword: string) =>
+    ipcRenderer.invoke('auth:confirmPasswordReset', email, code, newPassword),
   register: (email: string, password: string, referralCode?: string) =>
     ipcRenderer.invoke('auth:register', email, password, referralCode),
   deviceLogin: (referralCode?: string) => ipcRenderer.invoke('auth:deviceLogin', referralCode),

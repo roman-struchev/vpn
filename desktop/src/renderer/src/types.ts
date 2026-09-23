@@ -19,9 +19,21 @@ export interface UserProfile {
    */
   isGuest: boolean;
   hasActiveSubscription: boolean;
+  /** Why no plan works right now; null/absent while one does (older servers never send it). */
+  inactiveReason?: 'TRIAL_USED_UP' | 'TRAFFIC_USED_UP' | 'EXPIRED' | 'NONE' | null;
   subscription?: {
     id: number;
     tariffId: string;
+    /** EXHAUSTED: out of traffic, but still the paid plan until expiresAt. */
+    status?: 'ACTIVE' | 'EXHAUSTED';
+    /** Annual plans: when the next month's traffic arrives. */
+    trafficResetAt?: string | null;
+    /** Renewed from the balance at expiresAt… */
+    autoRenew?: boolean;
+    /** …into this cheaper plan, if one was scheduled. */
+    nextTariffId?: string | null;
+    /** …for this much. */
+    renewalPriceUsdtMicro?: number;
     trafficUsedBytes: number;
     trafficLimitBytes: number;
     expiresAt: string;

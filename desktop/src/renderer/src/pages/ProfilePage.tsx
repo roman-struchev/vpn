@@ -3,6 +3,8 @@ import P2pRelaySection from '../components/P2pRelaySection';
 import type { DeviceDto, TariffInfo, UserProfile } from '../types';
 import { t } from '../i18n';
 import { planSummary } from '../../../shared/planSummary';
+import { inactiveReasonText } from '../planText';
+import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 function formatBytes(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -62,6 +64,15 @@ export default function ProfilePage({
   // Lands on the plans themselves (the web dashboard scrolls to #tariffs),
   // like the Android app's "Change plan" — the top of the dashboard left the
   // user hunting for the section they were sent to.
+  const openWeb = async (next: string) => {
+    setBillingError(null);
+    try {
+      await window.vpnApi.openWebHandoff(next);
+    } catch (e) {
+      setBillingError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const openBilling = async () => {
     setBillingError(null);
     try {
@@ -140,6 +151,11 @@ export default function ProfilePage({
                 ? t.planFree.replace('%s', planName ?? '')
                 : t.planPaid.replace('%s', planName ?? '').replace('%s', plan.monthlyPriceUsdt.toFixed(2))}
         </p>
+        {profile && !profile.hasActiveSubscription && inactiveReasonText(plan.inactiveReason, plan.refillAt) && (
+          <p data-testid="inactive-reason" className="mt-2 rounded-lg border border-state-error/30 bg-state-error/10 px-3 py-2 text-xs text-state-error">
+            {inactiveReasonText(plan.inactiveReason, plan.refillAt)}
+          </p>
+        )}
         {plan.hasSubscription && (
           <>
             <p className="mt-2 text-xs text-white/60">
@@ -159,6 +175,23 @@ export default function ProfilePage({
                 ? t.planExpiry.replace('%s', new Date(plan.expiresAt).toLocaleDateString())
                 : t.planNoExpiry}
             </p>
+            {plan.lowTraffic && (
+              <p data-testid="low-traffic" className="mt-2 text-xs text-state-connecting">{t.planLowTraffic}</p>
+            )}
+            {plan.renewal && plan.expiresAt && (
+              <p className={`mt-2 text-xs ${plan.renewal.shortfallUsdt > 0 ? 'text-state-connecting' : 'text-white/60'}`}>
+                {plan.renewal.shortfallUsdt > 0
+                  ? t.planRenewalShort
+                      .replace('%s', new Date(plan.expiresAt).toLocaleDateString())
+                      .replace('%s', plan.renewal.priceUsdt.toFixed(2))
+                      .replace('%s', plan.renewal.shortfallUsdt.toFixed(2))
+                  : plan.renewal.nextPlanName
+                    ? t.planRenewalInto
+                        .replace('%s', new Date(plan.expiresAt).toLocaleDateString())
+                        .replace('%s', plan.renewal.nextPlanName)
+                    : t.planRenewalOn.replace('%s', new Date(plan.expiresAt).toLocaleDateString())}
+              </p>
+            )}
           </>
         )}
         <p className="mt-2 text-xs text-white/60">
@@ -171,7 +204,11 @@ export default function ProfilePage({
           className="mt-3 w-full rounded-xl border border-dark-750 bg-dark-800 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-dark-750 transition-colors"
           onClick={() => void openBilling()}
         >
-          {profile && !plan.hasSubscription ? t.choosePlan : t.changePlan}
+          {plan.renewal && plan.renewal.shortfallUsdt > 0
+            ? t.topUpBalance
+            : profile && (!plan.hasSubscription || plan.exhausted)
+              ? t.choosePlan
+              : t.changePlan}
         </button>
         {billingError && <p className="mt-2 text-xs text-state-error">{billingError}</p>}
       </div>
@@ -244,6 +281,23 @@ export default function ProfilePage({
 
       {/* P2P Relay Mode */}
       <P2pRelaySection />
+
+      {/* Help & account — support, the documents, deleting the account (done
+          on the web dashboard, where the balance it forfeits is shown). */}
+      <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4 flex flex-col gap-2 text-xs">
+        <button className="text-left text-white/80 hover:text-white" onClick={() => void window.vpnApi.openExternal(SUPPORT_URL)}>
+          {t.supportLabel}: <span className="text-brand-400">{SUPPORT_HANDLE}</span>
+        </button>
+        <button className="text-left text-white/60 hover:text-white" onClick={() => void openWeb('/#privacy')}>
+          {t.privacyPolicy}
+        </button>
+        <button className="text-left text-white/60 hover:text-white" onClick={() => void openWeb('/#terms')}>
+          {t.termsOfUse}
+        </button>
+        <button className="text-left text-white/40 hover:text-state-error" onClick={() => void openWeb('/#account')}>
+          {t.deleteAccountOnWeb}
+        </button>
+      </div>
 
       {/* Logout */}
       <button

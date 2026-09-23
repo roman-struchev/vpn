@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { KeyRound, LifeBuoy, Smartphone, Trash2, UserCog } from 'lucide-react';
 import { Lang, translations } from '../i18n';
 import { UserProfile } from '../types';
@@ -34,6 +34,14 @@ export const AccountSection: React.FC<{
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // The apps send people here for things only the site does (deleting the
+  // account): <site>/#account lands on this section, not the top of the page.
+  useEffect(() => {
+    if (window.location.hash.startsWith('#account')) {
+      document.getElementById('account')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   const getCode = async () => {
     setCodeError(null);

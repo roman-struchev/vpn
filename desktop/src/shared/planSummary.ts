@@ -11,6 +11,11 @@
 
 export interface PlanSubscription {
   tariffId: string;
+  status?: 'ACTIVE' | 'EXHAUSTED';
+  trafficResetAt?: string | null;
+  autoRenew?: boolean;
+  nextTariffId?: string | null;
+  renewalPriceUsdtMicro?: number;
   trafficUsedBytes: number;
   trafficLimitBytes: number;
   expiresAt: string;
@@ -24,8 +29,26 @@ export interface PlanTariff {
   maxDevices: number;
 }
 
+export type InactiveReason = 'TRIAL_USED_UP' | 'TRAFFIC_USED_UP' | 'EXPIRED' | 'NONE';
+
 export interface PlanSummary {
   hasSubscription: boolean;
+  /** Out of traffic: still the user's plan until it ends, but nothing works. */
+  exhausted: boolean;
+  /** Why nothing works right now; null while the plan works. */
+  inactiveReason: InactiveReason | null;
+  /** 90%+ of the quota used on a working plan. */
+  lowTraffic: boolean;
+  /** When a spent plan gets traffic again by itself (monthly reset of an annual plan, else its end). */
+  refillAt: string | null;
+  /** What happens at expiresAt, for a paid plan that renews: null otherwise. */
+  renewal: {
+    priceUsdt: number;
+    /** Name of the cheaper plan it renews into, if one was scheduled. */
+    nextPlanName: string | null;
+    /** How much the balance is short of the renewal; 0 when covered. */
+    shortfallUsdt: number;
+  } | null;
   tariffId: string | null;
   /** The catalogue's name, else the id capitalised; null only without a subscription. */
   planName: string | null;
@@ -43,6 +66,11 @@ export interface PlanSummary {
 
 const NONE: PlanSummary = {
   hasSubscription: false,
+  exhausted: false,
+  inactiveReason: null,
+  lowTraffic: false,
+  refillAt: null,
+  renewal: null,
   tariffId: null,
   planName: null,
   monthlyPriceUsdt: 0,
@@ -55,21 +83,58 @@ const NONE: PlanSummary = {
 };
 
 export function planSummary(
-  profile: { hasActiveSubscription: boolean; subscription?: PlanSubscription | null } | null | undefined,
+  profile:
+    | {
+        hasActiveSubscription: boolean;
+        subscription?: PlanSubscription | null;
+        inactiveReason?: InactiveReason | null;
+        balanceUsdtMicro?: number;
+      }
+    | null
+    | undefined,
   tariffs: PlanTariff[] | null | undefined,
 ): PlanSummary {
-  const sub = profile?.hasActiveSubscription ? profile.subscription : null;
-  if (!sub || !sub.tariffId) return NONE;
+  if (!profile) return NONE;
+  const raw = profile.subscription;
+  // A plan that ran out of traffic still comes back (status EXHAUSTED) and
+  // is still theirs; older servers only ever sent a working one.
+  const sub = raw && raw.tariffId && (profile.hasActiveSubscription || raw.status === 'EXHAUSTED') ? raw : null;
+  const reason: InactiveReason | null = profile.hasActiveSubscription
+    ? null
+    : (profile.inactiveReason ?? (sub ? null : 'NONE'));
+  if (!sub) return { ...NONE, inactiveReason: reason };
 
-  const tariff = tariffs?.find((tf) => tf.id.toLowerCase() === sub.tariffId.toLowerCase()) ?? null;
+  const findTariff = (id: string | null | undefined) =>
+    id ? tariffs?.find((tf) => tf.id.toLowerCase() === id.toLowerCase()) ?? null : null;
+  const tariff = findTariff(sub.tariffId);
   const monthlyPriceUsdt = tariff ? tariff.monthlyPriceUsdtMicro / 1_000_000 : 0;
   const trafficPercent =
     sub.trafficLimitBytes > 0
       ? Math.max(0, Math.min(100, Math.round((100 * sub.trafficUsedBytes) / sub.trafficLimitBytes)))
       : 0;
+  const exhausted = sub.status === 'EXHAUSTED';
+  const expiresAt = sub.noExpiry ? null : sub.expiresAt;
+
+  let renewal: PlanSummary['renewal'] = null;
+  if (!exhausted && expiresAt && sub.autoRenew && (sub.renewalPriceUsdtMicro ?? 0) > 0) {
+    const price = (sub.renewalPriceUsdtMicro ?? 0) / 1_000_000;
+    const balance = (profile.balanceUsdtMicro ?? 0) / 1_000_000;
+    const next = findTariff(sub.nextTariffId);
+    renewal = {
+      priceUsdt: price,
+      nextPlanName: sub.nextTariffId ? next?.name ?? sub.nextTariffId : null,
+      shortfallUsdt: Math.max(0, Math.round((price - balance) * 100) / 100),
+    };
+  }
 
   return {
     hasSubscription: true,
+    exhausted,
+    inactiveReason: reason,
+    lowTraffic: !exhausted && sub.trafficLimitBytes > 0 && trafficPercent >= 90,
+    refillAt:
+      sub.trafficResetAt && expiresAt && sub.trafficResetAt < expiresAt ? sub.trafficResetAt : expiresAt,
+    renewal,
     tariffId: sub.tariffId,
     planName: tariff?.name?.trim() ? tariff.name : sub.tariffId.charAt(0).toUpperCase() + sub.tariffId.slice(1),
     monthlyPriceUsdt,
@@ -78,6 +143,6 @@ export function planSummary(
     trafficUsedBytes: sub.trafficUsedBytes,
     trafficLimitBytes: sub.trafficLimitBytes,
     trafficPercent,
-    expiresAt: sub.noExpiry ? null : sub.expiresAt,
+    expiresAt,
   };
 }

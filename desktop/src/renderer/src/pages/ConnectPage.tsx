@@ -3,6 +3,8 @@ import type { ConnectionState } from '../../../shared/connectionState';
 import type { RegionInfo, UserProfile } from '../types';
 import type { RussianRoutingMode } from '../../../shared/xrayConfigFactory';
 import { t } from '../i18n';
+import { planSummary } from '../../../shared/planSummary';
+import { inactiveReasonText } from '../planText';
 import { regionKeyFor } from '../../../shared/regionKey';
 import type { FailureReason } from '../../../shared/failureReason';
 
@@ -196,13 +198,15 @@ export default function ConnectPage({
   const openBilling = async () => {
     setBillingError(null);
     try {
-      await window.vpnApi.openWebHandoff('/');
+      await window.vpnApi.openWebHandoff('/#tariffs');
     } catch (e) {
       setBillingError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const sub = profile?.subscription;
+  // Why nothing works, when it doesn't — see shared/planSummary.ts.
+  const plan = planSummary(profile, null);
   const usedGb = sub ? sub.trafficUsedBytes / 1024 ** 3 : 0;
   const limitGb = sub ? sub.trafficLimitBytes / 1024 ** 3 : 0;
   const percent = limitGb > 0 ? Math.min(100, (usedGb / limitGb) * 100) : 0;
@@ -440,7 +444,9 @@ export default function ConnectPage({
           ) : (
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-white/80">{t.noSubscription}</p>
+                <p className="text-xs font-medium text-white/80">
+                  {inactiveReasonText(plan.inactiveReason, plan.refillAt) ?? t.noSubscription}
+                </p>
                 {billingError && <p className="text-xs text-state-error mt-0.5">{billingError}</p>}
               </div>
               {!isGuest && (

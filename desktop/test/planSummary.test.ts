@@ -56,4 +56,38 @@ describe('planSummary', () => {
     expect(planSummary({ hasActiveSubscription: false, subscription: sub() }, tariffs).hasSubscription).toBe(false);
     expect(planSummary(null, tariffs).hasSubscription).toBe(false);
   });
+
+  it('keeps a plan that ran out of traffic, with why and when traffic returns', () => {
+    const plan = planSummary(
+      {
+        hasActiveSubscription: false,
+        inactiveReason: 'TRAFFIC_USED_UP',
+        subscription: sub({ status: 'EXHAUSTED', trafficUsedBytes: 100, trafficResetAt: '2026-10-01T00:00:00Z' }),
+      },
+      tariffs,
+    );
+    expect(plan).toMatchObject({ hasSubscription: true, exhausted: true, inactiveReason: 'TRAFFIC_USED_UP', lowTraffic: false });
+    expect(plan.refillAt).toBe('2026-10-01T00:00:00Z');
+  });
+
+  it('says why there is no plan', () => {
+    const plan = planSummary({ hasActiveSubscription: false, inactiveReason: 'EXPIRED', subscription: null }, tariffs);
+    expect(plan).toMatchObject({ hasSubscription: false, inactiveReason: 'EXPIRED' });
+  });
+
+  it('flags 90% of the quota used', () => {
+    expect(planSummary({ hasActiveSubscription: true, subscription: sub({ trafficUsedBytes: 92 }) }, tariffs).lowTraffic).toBe(true);
+  });
+
+  it('tells a renewal the balance won\'t cover, and into which plan', () => {
+    const plan = planSummary(
+      {
+        hasActiveSubscription: true,
+        balanceUsdtMicro: 500_000,
+        subscription: sub({ autoRenew: true, renewalPriceUsdtMicro: 2_000_000, nextTariffId: 'trial' }),
+      },
+      tariffs,
+    );
+    expect(plan.renewal).toEqual({ priceUsdt: 2, nextPlanName: 'Пробный', shortfallUsdt: 1.5 });
+  });
 });

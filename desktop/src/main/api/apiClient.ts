@@ -39,9 +39,21 @@ export interface UserProfile {
    */
   isGuest: boolean;
   hasActiveSubscription: boolean;
+  /** Why no plan works right now; null/absent while one does (older servers never send it). */
+  inactiveReason?: 'TRIAL_USED_UP' | 'TRAFFIC_USED_UP' | 'EXPIRED' | 'NONE' | null;
   subscription?: {
     id: number;
     tariffId: string;
+    /** EXHAUSTED: out of traffic, but still the paid plan until expiresAt. */
+    status?: 'ACTIVE' | 'EXHAUSTED';
+    /** Annual plans: when the next month's traffic arrives. */
+    trafficResetAt?: string | null;
+    /** Renewed from the balance at expiresAt… */
+    autoRenew?: boolean;
+    /** …into this cheaper plan, if one was scheduled. */
+    nextTariffId?: string | null;
+    /** …for this much. */
+    renewalPriceUsdtMicro?: number;
     trafficUsedBytes: number;
     trafficLimitBytes: number;
     expiresAt: string;
@@ -177,6 +189,37 @@ export class ApiClient {
     const resp = await this.post<AuthResponse>(
       'api/v1/auth/login',
       { email, password, deviceUuid: this.tokenStore.getOrCreateDeviceUuid() },
+      false
+    );
+    this.tokenStore.saveSession(resp.token, resp.userId, false);
+    return resp;
+  }
+
+  /**
+   * Signs in with a one-time code from the Telegram bot (/login) or the web
+   * dashboard — the only way into this app for an account made in Telegram,
+   * which has no password. Sends the deviceUuid like login() so this
+   * install's trial account folds into it.
+   */
+  async loginWithCode(code: string): Promise<AuthResponse> {
+    const resp = await this.post<AuthResponse>(
+      'api/v1/auth/code',
+      { code, deviceUuid: this.tokenStore.getOrCreateDeviceUuid() },
+      false
+    );
+    this.tokenStore.saveSession(resp.token, resp.userId, false);
+    return resp;
+  }
+
+  /** Sends a reset code to the account's Telegram/email; the same answer whether or not it exists. */
+  async requestPasswordReset(email: string): Promise<void> {
+    await this.post('api/v1/auth/password-reset/request', { email }, false);
+  }
+
+  async confirmPasswordReset(email: string, code: string, newPassword: string): Promise<AuthResponse> {
+    const resp = await this.post<AuthResponse>(
+      'api/v1/auth/password-reset/confirm',
+      { email, code, newPassword },
       false
     );
     this.tokenStore.saveSession(resp.token, resp.userId, false);

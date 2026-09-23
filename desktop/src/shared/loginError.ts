@@ -4,7 +4,14 @@
  * "Error invoking remote method 'auth:login': ApiError: …" — neither belongs
  * on a sign-in form. Same buckets as the Android client's LoginError.
  */
-export type LoginErrorKind = 'INVALID_CREDENTIALS' | 'EMAIL_TAKEN' | 'PASSWORD_TOO_SHORT' | 'ACCOUNT_BLOCKED' | 'NETWORK' | 'GENERIC';
+export type LoginErrorKind =
+  | 'INVALID_CREDENTIALS'
+  | 'EMAIL_TAKEN'
+  | 'PASSWORD_TOO_SHORT'
+  | 'ACCOUNT_BLOCKED'
+  | 'CODE_INVALID'
+  | 'NETWORK'
+  | 'GENERIC';
 
 export function classifyLoginError(message: string): LoginErrorKind {
   const m = message.toLowerCase();
@@ -12,6 +19,8 @@ export function classifyLoginError(message: string): LoginErrorKind {
   if (m.includes('already registered')) return 'EMAIL_TAKEN';
   if (m.includes('at least 6')) return 'PASSWORD_TOO_SHORT';
   if (m.includes('suspended') || m.includes('blocked')) return 'ACCOUNT_BLOCKED';
+  // A sign-in or password-reset code that is mistyped, used or older than 10 minutes.
+  if (m.includes('wrong or has expired')) return 'CODE_INVALID';
   if (m.includes('network_error') || m.includes('fetch failed')) return 'NETWORK';
   return 'GENERIC';
 }

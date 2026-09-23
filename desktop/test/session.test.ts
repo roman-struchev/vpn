@@ -53,6 +53,7 @@ describe('classifyLoginError', () => {
     expect(classifyLoginError(ipc('Email already registered'))).toBe('EMAIL_TAKEN');
     expect(classifyLoginError(ipc('Password must be at least 6 characters'))).toBe('PASSWORD_TOO_SHORT');
     expect(classifyLoginError(ipc('Account is suspended or blocked'))).toBe('ACCOUNT_BLOCKED');
+    expect(classifyLoginError(ipc('The code is wrong or has expired. Get a new one.'))).toBe('CODE_INVALID');
     expect(classifyLoginError('TypeError: fetch failed')).toBe('NETWORK');
     expect(classifyLoginError('something odd')).toBe('GENERIC');
   });

@@ -80,9 +80,17 @@ public class GuestMergeService {
         // (which one renews? which traffic counter is "the" counter?), so if
         // the target already has one, the guest's is left behind and deleted
         // with the rest of the guest row below.
-        boolean targetHasActiveSubscription =
-                subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(targetUserId, "ACTIVE").isPresent();
-        if (!targetHasActiveSubscription) {
+        // Nor when the target has a paid plan that ran out of traffic
+        // (EXHAUSTED — still its plan until the period ends; a trial on top
+        // would hide it), or has had a trial of its own: one trial per
+        // account, however many devices it signs in from.
+        boolean targetHasPlan =
+                subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(targetUserId, "ACTIVE").isPresent()
+                        || subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(targetUserId, "EXHAUSTED")
+                                .filter(sub -> sub.getCurrentPeriodEnd().isAfter(java.time.Instant.now()))
+                                .isPresent();
+        boolean targetUsedTrial = subscriptionRepository.existsByUserIdAndTariffId(targetUserId, "trial");
+        if (!targetHasPlan && !targetUsedTrial) {
             subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(guest.getId(), "ACTIVE")
                     .ifPresent(sub -> {
                         sub.setUser(target);
