@@ -27,6 +27,12 @@ export interface UserProfile {
     expiresAt: string;
     /** No real end date — the server still sends a far-future expiresAt, which read as "2126". */
     noExpiry?: boolean;
+    /** Renewed from the balance when the period ends. Absent on an older server. */
+    autoRenew?: boolean;
+    /** Cheaper plan scheduled to start when the period ends (null = same plan renews). */
+    nextTariffId?: string | null;
+    /** What that renewal will charge the balance. */
+    renewalPriceUsdtMicro?: number;
   } | null;
 }
 

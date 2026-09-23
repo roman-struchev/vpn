@@ -223,6 +223,20 @@ export const api = {
     return res.json();
   },
 
+  /** Schedules a cheaper plan from the end of the paid period; null cancels it. */
+  async scheduleNextTariff(tariffId: string | null): Promise<any> {
+    const res = await fetch('/api/v1/user/billing/next-tariff', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ tariffId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Plan change failed' }));
+      throw new Error(err.error || 'Plan change failed');
+    }
+    return res.json();
+  },
+
   async purchaseSubscription(tariffId: string, isAnnual: boolean): Promise<any> {
     const res = await fetch('/api/v1/user/billing/purchase', {
       method: 'POST',

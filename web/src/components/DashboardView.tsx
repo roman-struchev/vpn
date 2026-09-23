@@ -325,12 +325,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
+  const handleScheduleSwitch = async (tariffId: string | null) => {
+    setPurchaseError(null);
+    setPurchaseShortfallMicro(null);
+    setPurchasingTariffId(tariffId ?? sub?.nextTariffId ?? null);
+    try {
+      await api.scheduleNextTariff(tariffId);
+      onRefreshUser();
+    } catch (err: any) {
+      setPurchaseError(err.message);
+    } finally {
+      setPurchasingTariffId(null);
+    }
+  };
+
   // Defensive: the server sends null when there's no active subscription, but
   // don't trust a bare truthiness check on `user.subscription` alone — an
   // object present without a tariffId crashed this whole view with
   // "Cannot read properties of undefined (reading 'toUpperCase')" below.
   const sub = user.subscription && user.subscription.tariffId ? user.subscription : null;
   const currentTariff = sub ? tariffs.find((tf) => tf.id === sub.tariffId) ?? null : null;
+  // A paid plan with a real end date: other plans are a switch, not a second
+  // purchase. Cheaper ones wait for the end of the period (buying one now
+  // would throw away what is left of this one), pricier ones start at once.
+  const paidCurrentTariff =
+    sub && currentTariff && currentTariff.monthlyPriceUsdtMicro > 0 && !sub.noExpiry ? currentTariff : null;
+  const periodEndDate = sub ? new Date(sub.expiresAt).toLocaleDateString() : '';
+  // Renewal is paid from the balance; when it's short the VPN just stops at
+  // the end of the period, so say so while there's still time to top up.
+  const renewalPriceMicro = sub?.renewalPriceUsdtMicro ?? 0;
+  const renewalShortfallMicro =
+    paidCurrentTariff && sub?.autoRenew ? Math.max(0, renewalPriceMicro - user.balanceUsdtMicro) : 0;
+  const affordableCheaperTariff =
+    renewalShortfallMicro > 0 && !sub?.nextTariffId
+      ? [...tariffs]
+          .filter(
+            (tf) =>
+              tf.id.toLowerCase() !== 'trial' &&
+              tf.monthlyPriceUsdtMicro > 0 &&
+              tf.monthlyPriceUsdtMicro < paidCurrentTariff!.monthlyPriceUsdtMicro &&
+              tf.monthlyPriceUsdtMicro <= user.balanceUsdtMicro,
+          )
+          .sort((a, b) => b.monthlyPriceUsdtMicro - a.monthlyPriceUsdtMicro)[0] ?? null
+      : null;
+  const usd = (micro: number) => (micro / 1_000_000).toFixed(2);
+  const nextTariffName = sub?.nextTariffId
+    ? tariffs.find((tf) => tf.id === sub.nextTariffId)?.name ?? sub.nextTariffId
+    : null;
   const usedGb = sub ? sub.trafficUsedBytes / (1024 * 1024 * 1024) : 0;
   const limitGb = sub ? sub.trafficLimitBytes / (1024 * 1024 * 1024) : 0;
   const trafficPercent = limitGb > 0 ? Math.min(100, Math.round((usedGb / limitGb) * 100)) : 0;
@@ -386,6 +427,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <p className="text-xs text-slate-400 mt-1">
                 {t.expiresAt}: {sub.noExpiry ? t.expiresNever : formatExpiresAt(sub.expiresAt)}
               </p>
+            )}
+            {renewalShortfallMicro > 0 && (
+              <div
+                data-testid="renewal-shortfall"
+                className="mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2 flex-wrap"
+              >
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-[12rem] space-y-1">
+                  <p>
+                    {t.renewalShortfall
+                      .replace('{date}', periodEndDate)
+                      .replace('{price}', usd(renewalPriceMicro))
+                      .replace('{balance}', usd(user.balanceUsdtMicro))
+                      .replace('{shortfall}', usd(renewalShortfallMicro))}
+                  </p>
+                  {affordableCheaperTariff && (
+                    <p className="text-amber-200/80">
+                      {t.renewalShortfallCheaper
+                        .replace('{plan}', affordableCheaperTariff.name)
+                        .replace('{date}', periodEndDate)}
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => {
+                    setInvoiceAmount(String(Math.max(1, Math.ceil(renewalShortfallMicro / 1_000_000))));
+                    setOpenTopUp(true);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 font-bold whitespace-nowrap"
+                >
+                  {t.topUp}
+                </button>
+              </div>
             )}
           </div>
 
@@ -583,6 +657,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             // stale "Активировать бесплатно" button never invites a click that can only
             // ever fail, without implying anything is wrong with the plan they're on.
             const isExpiredTrial = isTrial && !isCurrent && user.hasUsedTrial;
+            const isSwitch = !!paidCurrentTariff && !isCurrent && !isTrial;
+            const isDowngrade =
+              isSwitch && tariff.monthlyPriceUsdtMicro < paidCurrentTariff!.monthlyPriceUsdtMicro;
+            const isScheduled = isDowngrade && sub?.nextTariffId === tariff.id;
+            const busy = purchasingTariffId === tariff.id;
 
             return (
               <div
@@ -633,24 +712,59 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <div className="mt-4 w-full py-2 rounded-lg text-center text-xs font-semibold text-emerald-400 border border-emerald-500/30 bg-emerald-500/5">
                     {t.trialActiveLabel}
                   </div>
-                ) : isExpiredTrial ? (
+                ) : isExpiredTrial || (isTrial && paidCurrentTariff) ? (
+                  // Activating the trial over a running paid plan would replace
+                  // it on the spot (the server refuses that too).
                   <div className="mt-4 w-full py-2 rounded-lg text-center text-xs font-semibold text-slate-500 border border-dark-800">
-                    {t.trialAlreadyUsed}
+                    {isExpiredTrial ? t.trialAlreadyUsed : t.trialNotWithPaid}
+                  </div>
+                ) : isScheduled ? (
+                  <div className="mt-4">
+                    <div className="w-full py-2 rounded-lg text-center text-xs font-semibold text-brand-500 border border-brand-500/30">
+                      {t.switchScheduled.replace('{date}', periodEndDate)}
+                    </div>
+                    <button
+                      onClick={() => handleScheduleSwitch(null)}
+                      disabled={busy}
+                      className="mt-2 w-full text-[11px] text-slate-400 hover:text-slate-200 underline"
+                    >
+                      {busy ? 'Processing...' : t.cancelSwitch}
+                    </button>
                   </div>
                 ) : (
-                  <button
-                    onClick={() => handlePurchase(tariff.id)}
-                    disabled={purchasingTariffId === tariff.id}
-                    className="mt-4 w-full py-2 rounded-lg bg-dark-800 hover:bg-brand-500 hover:text-dark-950 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
-                  >
-                    {purchasingTariffId === tariff.id
-                      ? 'Processing...'
-                      : isCurrent
-                        ? t.renewPlan
-                        : price === 0
-                          ? t.activateFree
-                          : t.buyWithBalance}
-                  </button>
+                  <div className="mt-4">
+                    <button
+                      onClick={() => (isDowngrade ? handleScheduleSwitch(tariff.id) : handlePurchase(tariff.id))}
+                      disabled={busy}
+                      className="w-full py-2 rounded-lg bg-dark-800 hover:bg-brand-500 hover:text-dark-950 text-xs font-semibold text-slate-200 transition-colors border border-dark-700"
+                    >
+                      {busy
+                        ? 'Processing...'
+                        : isCurrent
+                          ? paidCurrentTariff
+                            ? t.renewNow
+                            : t.renewPlan
+                          : isDowngrade
+                            ? t.switchFrom.replace('{date}', periodEndDate)
+                            : isSwitch
+                              ? t.switchNow
+                              : price === 0
+                                ? t.activateFree
+                                : t.buyWithBalance}
+                    </button>
+                    {isCurrent && paidCurrentTariff && sub?.autoRenew && renewalShortfallMicro === 0 && (
+                      <p className="mt-2 text-[11px] text-slate-400 text-center">
+                        {nextTariffName
+                          ? t.autoRenewInto.replace('{date}', periodEndDate).replace('{plan}', nextTariffName)
+                          : t.autoRenewOn.replace('{date}', periodEndDate)}
+                      </p>
+                    )}
+                    {isSwitch && (
+                      <p className="mt-2 text-[11px] text-slate-500 text-center">
+                        {isDowngrade ? t.switchFromHint : t.switchNowHint}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             );
