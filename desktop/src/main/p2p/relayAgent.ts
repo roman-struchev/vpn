@@ -35,7 +35,21 @@ interface RelaySession {
   bytesRelayed: number;
   lastReportedBytes: number;
   reportTimer: NodeJS.Timeout | null;
+  /** Candidates that arrived before the offer's remote description was set — see handleIncomingSignal. */
+  pendingIce?: { candidate: string; sdpMid: string }[];
+  remoteDescriptionSet?: boolean;
 }
+
+/**
+ * A client fires its offer and its candidates as separate requests at once,
+ * so candidates routinely arrive before the offer — or while it is still
+ * being checked (the destination lookup is async). Added then, they were
+ * rejected and lost, and they are exactly what NAT traversal needs. Held
+ * here instead, bounded, and applied once the remote description is set.
+ */
+const MAX_EARLY_ICE_PER_SESSION = 32;
+const MAX_EARLY_ICE_SESSIONS = 500;
+const EARLY_ICE_TTL_MS = 30_000;
 
 /**
  * The relay-agent side of P2P relay mode (docs/research/
@@ -63,6 +77,7 @@ export class RelayAgent extends EventEmitter {
   private relayExpiresAtEpochMs: number | null = null;
 
   private readonly sessions = new Map<string, RelaySession>();
+  private readonly earlyIce = new Map<string, { at: number; candidates: { candidate: string; sdpMid: string }[] }>();
 
   constructor(
     private readonly grpcTarget: string,
@@ -212,11 +227,49 @@ export class RelayAgent extends EventEmitter {
       }
 
       session.peer.setRemoteDescription(envelope.sdp, 'offer' as DescriptionType);
+      session.remoteDescriptionSet = true;
       this.wireDataChannelHandlers(sessionId, session, allowedIp, envelope.targetPort);
+      const early = this.earlyIce.get(sessionId)?.candidates ?? [];
+      this.earlyIce.delete(sessionId);
+      for (const ice of [...early, ...(session.pendingIce ?? [])]) {
+        this.addCandidate(session, ice.candidate, ice.sdpMid);
+      }
+      session.pendingIce = [];
     } else if (envelope.kind === 'ice') {
-      session?.peer.addRemoteCandidate(envelope.candidate, envelope.sdpMid);
+      if (!session) {
+        this.bufferEarlyIce(sessionId, envelope.candidate, envelope.sdpMid);
+      } else if (!session.remoteDescriptionSet) {
+        session.pendingIce = session.pendingIce ?? [];
+        if (session.pendingIce.length < MAX_EARLY_ICE_PER_SESSION) {
+          session.pendingIce.push({ candidate: envelope.candidate, sdpMid: envelope.sdpMid });
+        }
+      } else {
+        this.addCandidate(session, envelope.candidate, envelope.sdpMid);
+      }
     }
     // 'answer' never arrives here — this peer is always the answerer (docs §8.1), never the offerer.
+  }
+
+  private addCandidate(session: RelaySession, candidate: string, sdpMid: string): void {
+    try {
+      session.peer.addRemoteCandidate(candidate, sdpMid);
+    } catch {
+      // one unusable candidate is not a reason to drop the session
+    }
+  }
+
+  private bufferEarlyIce(sessionId: string, candidate: string, sdpMid: string): void {
+    const now = Date.now();
+    for (const [id, entry] of this.earlyIce) {
+      if (now - entry.at > EARLY_ICE_TTL_MS) this.earlyIce.delete(id);
+    }
+    let entry = this.earlyIce.get(sessionId);
+    if (!entry) {
+      if (this.earlyIce.size >= MAX_EARLY_ICE_SESSIONS) return;
+      entry = { at: now, candidates: [] };
+      this.earlyIce.set(sessionId, entry);
+    }
+    if (entry.candidates.length < MAX_EARLY_ICE_PER_SESSION) entry.candidates.push({ candidate, sdpMid });
   }
 
   private createSession(sessionId: string): RelaySession {

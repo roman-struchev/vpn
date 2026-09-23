@@ -80,6 +80,14 @@ export class RelaySession {
   }
 
   /** Handles one signaling envelope addressed to this session (offer carries the ACL-checked target; ice is trickled either direction). */
+  /**
+   * Candidates that arrive while the offer is still being checked (the ACL
+   * lookup below is async): added before the remote description they were
+   * rejected and lost. Applied right after it instead.
+   */
+  private remoteDescriptionSet = false;
+  private pendingIce: SignalEnvelope[] = [];
+
   async handleSignal(envelope: SignalEnvelope): Promise<void> {
     if (this.closed) return;
 
@@ -101,8 +109,16 @@ export class RelaySession {
       this.targetIp = acl.resolvedIp!;
       this.targetPort = envelope.targetPort;
       this.peer.setRemoteDescription(envelope.sdp, 'offer');
+      this.remoteDescriptionSet = true;
+      const pending = this.pendingIce;
+      this.pendingIce = [];
+      for (const ice of pending) await this.handleSignal(ice);
     } else if (envelope.kind === 'ice') {
       if (!envelope.candidate) return;
+      if (!this.remoteDescriptionSet) {
+        if (this.pendingIce.length < 32) this.pendingIce.push(envelope);
+        return;
+      }
       try {
         this.peer.addRemoteCandidate(envelope.candidate, envelope.sdpMid || '0');
       } catch (err) {

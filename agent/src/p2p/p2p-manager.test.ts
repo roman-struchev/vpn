@@ -36,15 +36,39 @@ describe('P2pManager', () => {
     expect(manager.activeSessionCount).toBe(1);
   });
 
-  it('drops the signal and creates no session when the first message for an unknown session is not "offer"', async () => {
+  it('holds an ICE candidate that overtakes its offer, and applies it right after the offer', async () => {
+    // A client fires its offer and candidates as separate requests at once,
+    // so a candidate routinely arrives first; dropping it lost exactly the
+    // candidates NAT traversal needs.
     const { factory, created } = fakeFactory();
     const manager = new P2pManager({ sendSignalToServer: vi.fn(), reportTraffic: vi.fn() }, factory);
 
     const icePayload = Buffer.from(JSON.stringify({ kind: 'ice', candidate: 'candidate:1...', sdpMid: '0' }), 'utf-8');
     await manager.handleIncomingSignal('sess-2', icePayload);
-
     expect(created).toHaveLength(0);
     expect(manager.activeSessionCount).toBe(0);
+
+    const offerPayload = Buffer.from(
+      JSON.stringify({ kind: 'offer', sdp: 'v=0...', targetHost: '203.0.113.5', targetPort: 443 }),
+      'utf-8'
+    );
+    await manager.handleIncomingSignal('sess-2', offerPayload);
+
+    expect(created).toHaveLength(1);
+    const kinds = created[0].handleSignal.mock.calls.map((c: unknown[]) => (c[0] as { kind: string }).kind);
+    expect(kinds).toEqual(['offer', 'ice']);
+  });
+
+  it('never creates a session from ICE alone', async () => {
+    const { factory, created } = fakeFactory();
+    const manager = new P2pManager({ sendSignalToServer: vi.fn(), reportTraffic: vi.fn() }, factory);
+    for (let i = 0; i < 100; i++) {
+      await manager.handleIncomingSignal(
+        'sess-ice-only',
+        Buffer.from(JSON.stringify({ kind: 'ice', candidate: `candidate:${i}`, sdpMid: '0' }), 'utf-8')
+      );
+    }
+    expect(created).toHaveLength(0);
   });
 
   it('routes a second signal for the same session_id to the existing session, not a new one', async () => {
