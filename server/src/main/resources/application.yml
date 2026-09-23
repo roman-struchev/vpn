@@ -43,6 +43,16 @@ vpn:
   # production domain — switch back once that's live again.
   public:
     web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:http://217.216.79.46:8080}
+  # Telegram username users are sent to for help (bot, subscription header,
+  # every client's "Support" link).
+  support:
+    telegram: ${VPN_SUPPORT_TELEGRAM:struchev}
+  # Sender for password-reset emails (MailService). Mail itself is off until
+  # SMTP is configured through the standard Spring variables: SPRING_MAIL_HOST,
+  # SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD. Without it a
+  # reset code only reaches accounts with Telegram linked.
+  mail:
+    from: ${VPN_MAIL_FROM:}
   # Client -> web SSO handoff exchange-code lifetime (WebHandoffService).
   # Deliberately short: the code is single-use and only needs to survive the
   # few seconds between a client opening the browser and the web app's first

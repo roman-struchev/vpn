@@ -98,7 +98,8 @@ class UserControllerTest {
                 antiEnumerationService,
                 telegramLinkService,
                 promoCodeService,
-                agentStreamService
+                agentStreamService,
+                new com.vpn.server.service.CurrentPlanService(subscriptionRepository)
         );
         when(auth.getPrincipal()).thenReturn(10L);
     }
@@ -464,5 +465,51 @@ class UserControllerTest {
         assertEquals("Subscription Basic (Monthly)", body.get(0).description());
         assertEquals("DEPOSIT", body.get(1).type());
         assertEquals(5_000_000L, body.get(1).amountUsdtMicro());
+    }
+
+    @Test
+    void testProfileKeepsAPaidPlanThatRanOutOfTrafficAndSaysWhy() {
+        User user = new User();
+        user.setId(10L);
+        user.setEmail("user@example.com");
+        com.vpn.server.entity.Tariff pro = new com.vpn.server.entity.Tariff();
+        pro.setId("pro");
+        pro.setMonthlyPriceUsdtMicro(2_000_000L);
+        com.vpn.server.entity.Subscription spent = new com.vpn.server.entity.Subscription();
+        spent.setId(5L);
+        spent.setUser(user);
+        spent.setTariff(pro);
+        spent.setStatus("EXHAUSTED");
+        spent.setTrafficUsedBytes(100L);
+        spent.setTrafficLimitBytes(100L);
+        spent.setCurrentPeriodEnd(java.time.Instant.now().plus(9, java.time.temporal.ChronoUnit.DAYS));
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.empty());
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "EXHAUSTED"))
+                .thenReturn(Optional.of(spent));
+
+        Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
+
+        assertEquals(false, body.get("hasActiveSubscription"));
+        assertEquals("TRAFFIC_USED_UP", body.get("inactiveReason"));
+        Map<?, ?> sub = (Map<?, ?>) body.get("subscription");
+        assertEquals("EXHAUSTED", sub.get("status"));
+        assertEquals("pro", sub.get("tariffId"));
+        assertTrue(((String) body.get("subscriptionUrl"))
+                .endsWith("/api/v1/subscription/export/" + user.getSubscriptionToken()));
+    }
+
+    @Test
+    void testProfileTellsAnExpiredPlanFromANeverBoughtOne() {
+        User user = new User();
+        user.setId(10L);
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.existsByUserIdAndStatus(10L, "EXPIRED")).thenReturn(true);
+
+        Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
+        assertEquals("EXPIRED", body.get("inactiveReason"));
+        assertNull(body.get("subscription"));
     }
 }

@@ -21,7 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -56,11 +56,18 @@ class TelegramBotServiceTest {
     // actually create/consume codes instead of stubbing an opaque service.
     private final TelegramLinkService telegramLinkService = new TelegramLinkService();
 
+    @SuppressWarnings("unchecked")
+    private final org.springframework.beans.factory.ObjectProvider<com.vpn.server.grpc.AgentStreamServiceImpl> agentStreamProvider =
+            mock(org.springframework.beans.factory.ObjectProvider.class);
+
+    private com.vpn.server.service.CurrentPlanService currentPlanService;
+
     private TelegramBotService botService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @BeforeEach
     void setUp() {
+        currentPlanService = new com.vpn.server.service.CurrentPlanService(subscriptionRepository);
         botService = new TelegramBotService(
                 userRepository,
                 subscriptionRepository,
@@ -69,7 +76,10 @@ class TelegramBotServiceTest {
                 exportService,
                 deviceManagementService,
                 billingService,
-                telegramLinkService
+                telegramLinkService,
+                currentPlanService,
+                new com.vpn.server.service.OneTimeCodeService(),
+                agentStreamProvider
         );
         botService.setBotToken("mock");
     }
@@ -341,5 +351,77 @@ class TelegramBotServiceTest {
         // and this user already has an account with no need to create one).
         verify(userRepository, never()).findByReferralCode(anyString());
         verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void statusGivesTheSubscriptionUrlAndAReadableDateNotOneKey() {
+        User user = new User();
+        user.setId(70L);
+        com.vpn.server.entity.Tariff pro = new com.vpn.server.entity.Tariff();
+        pro.setId("pro");
+        pro.setName("Pro");
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setTrafficUsedBytes(0L);
+        sub.setTrafficLimitBytes(100L * 1024 * 1024 * 1024);
+        sub.setCurrentPeriodEnd(java.time.Instant.parse("2026-10-23T10:00:00Z"));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(70L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        TelegramBotService spyBot = spy(botService);
+
+        spyBot.sendVpnStatus(1L, user);
+
+        org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(spyBot).sendTextMessage(eq(1L), text.capture(), any());
+        assertTrue(text.getValue().contains("/api/v1/subscription/export/" + user.getSubscriptionToken()));
+        assertTrue(text.getValue().contains("23 октября 2026"));
+        assertFalse(text.getValue().contains("добавьте устройство"));
+        verify(exportService, never()).exportVlessLinks(anyLong());
+    }
+
+    @Test
+    void plansMenuSchedulesACheaperPlanInsteadOfSellingIt() {
+        User user = new User();
+        user.setId(71L);
+        user.setBalanceUsdtMicro(0L);
+        com.vpn.server.entity.Tariff basic = new com.vpn.server.entity.Tariff();
+        basic.setId("basic"); basic.setName("Basic"); basic.setIsActive(true);
+        basic.setMonthlyPriceUsdtMicro(1_000_000L); basic.setTrafficQuotaBytes(20L << 30); basic.setMaxDevices(2);
+        com.vpn.server.entity.Tariff pro = new com.vpn.server.entity.Tariff();
+        pro.setId("pro"); pro.setName("Pro"); pro.setIsActive(true);
+        pro.setMonthlyPriceUsdtMicro(2_000_000L); pro.setTrafficQuotaBytes(100L << 30); pro.setMaxDevices(5);
+        Subscription sub = new Subscription();
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(java.time.Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS));
+        when(tariffRepository.findAll()).thenReturn(java.util.List.of(basic, pro));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(71L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        TelegramBotService spyBot = spy(botService);
+
+        spyBot.sendPlansMenu(1L, user);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<java.util.Map<String, Object>> kb = org.mockito.ArgumentCaptor.forClass(java.util.Map.class);
+        verify(spyBot).sendTextMessage(eq(1L), anyString(), kb.capture());
+        String buttons = kb.getValue().toString();
+        assertTrue(buttons.contains("callback_data=next:basic"), buttons);
+        assertTrue(buttons.contains("callback_data=buy:pro"), buttons);
+        assertTrue(buttons.contains("Продлить Pro"), buttons);
+    }
+
+    @Test
+    void loginCommandHandsOutAnAppCode() {
+        User user = new User();
+        user.setId(72L);
+        TelegramBotService spyBot = spy(botService);
+
+        spyBot.sendAppLoginCode(1L, user);
+
+        org.mockito.ArgumentCaptor<String> text = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(spyBot).sendTextMessage(eq(1L), text.capture(), any());
+        assertTrue(text.getValue().matches("(?s).*<code>[A-Z2-9]{4}-[A-Z2-9]{4}</code>.*"), text.getValue());
     }
 }

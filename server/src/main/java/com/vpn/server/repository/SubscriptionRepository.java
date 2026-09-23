@@ -15,6 +15,7 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     Optional<Subscription> findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(Long userId, String status);
     List<Subscription> findByUserId(Long userId);
     boolean existsByUserIdAndTariffId(Long userId, String tariffId);
+    boolean existsByUserIdAndStatus(Long userId, String status);
     
     // Excludes a subscription still covered by an active admin-granted
     // temporary tariff (see Subscription#isExpired) — otherwise a user given

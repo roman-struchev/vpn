@@ -40,6 +40,7 @@ public class UserController {
     private final TelegramLinkService telegramLinkService;
     private final com.vpn.server.service.PromoCodeService promoCodeService;
     private final com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService;
+    private final com.vpn.server.service.CurrentPlanService currentPlanService;
 
     public UserController(
             UserRepository userRepository,
@@ -53,7 +54,8 @@ public class UserController {
             AntiEnumerationService antiEnumerationService,
             TelegramLinkService telegramLinkService,
             com.vpn.server.service.PromoCodeService promoCodeService,
-            com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService
+            com.vpn.server.grpc.AgentStreamServiceImpl agentStreamService,
+            com.vpn.server.service.CurrentPlanService currentPlanService
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -67,6 +69,7 @@ public class UserController {
         this.telegramLinkService = telegramLinkService;
         this.promoCodeService = promoCodeService;
         this.agentStreamService = agentStreamService;
+        this.currentPlanService = currentPlanService;
     }
 
 
@@ -82,7 +85,9 @@ public class UserController {
         Long userId = (Long) auth.getPrincipal();
         User user = userRepository.findById(userId).orElseThrow();
 
-        Optional<Subscription> sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
+        // A plan that ran out of traffic is still shown (status EXHAUSTED) —
+        // see CurrentPlanService. hasActiveSubscription stays "does it work".
+        Optional<Subscription> sub = currentPlanService.currentPlan(userId);
 
         // Map.of() can't hold a null value, so an absent subscription used to
         // serialize as "subscription":{} instead of null. Every client reads
@@ -124,7 +129,14 @@ public class UserController {
         // AuthController#upgrade and GuestMergeService for what happens when
         // they do.
         response.put("isGuest", user.getPasswordHash() == null && user.getTelegramId() == null && user.getGoogleSub() == null);
-        response.put("hasActiveSubscription", sub.isPresent());
+        response.put("hasActiveSubscription", sub.filter(s -> "ACTIVE".equals(s.getStatus())).isPresent());
+        // Why nothing works right now, so each client can say the right
+        // thing and offer the right step: TRIAL_USED_UP, TRAFFIC_USED_UP,
+        // EXPIRED, NONE — null while a plan works.
+        response.put("inactiveReason", currentPlanService.inactiveReason(userId, sub.orElse(null)));
+        // Auto-updating link for third-party clients (the only way in on
+        // iOS/Windows today) — see CurrentPlanService#subscriptionUrl.
+        response.put("subscriptionUrl", currentPlanService.subscriptionUrl(user));
         // So the client can hide/disable the trial tariff's action button once
         // it's been used — the trial is one-shot (see BillingService.
         // purchaseOrRenewSubscription), but the client has no other way to know
@@ -135,6 +147,9 @@ public class UserController {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", s.getId());
             m.put("tariffId", s.getEffectiveTariff().getId());
+            m.put("status", s.getStatus());
+            // When a spent annual plan gets its next month of traffic.
+            m.put("trafficResetAt", s.getTrafficResetAt() != null ? s.getTrafficResetAt().toString() : null);
             m.put("trafficUsedBytes", s.getTrafficUsedBytes());
             m.put("trafficLimitBytes", s.getTrafficLimitBytes());
             m.put("expiresAt", s.getEffectiveExpiresAt().toString());

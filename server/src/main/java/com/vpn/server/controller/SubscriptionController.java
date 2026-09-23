@@ -19,14 +19,17 @@ public class SubscriptionController {
     private final SubscriptionExportService exportService;
     private final UserRepository userRepository;
     private final AntiEnumerationService antiEnumerationService;
+    private final com.vpn.server.service.CurrentPlanService currentPlanService;
 
     public SubscriptionController(
             SubscriptionExportService exportService,
             UserRepository userRepository,
-            AntiEnumerationService antiEnumerationService) {
+            AntiEnumerationService antiEnumerationService,
+            com.vpn.server.service.CurrentPlanService currentPlanService) {
         this.exportService = exportService;
         this.userRepository = userRepository;
         this.antiEnumerationService = antiEnumerationService;
+        this.currentPlanService = currentPlanService;
     }
 
     /**
@@ -51,13 +54,33 @@ public class SubscriptionController {
 
         try {
             String encodedLinks = exportService.exportVlessSubscription(user.getId());
+            // Read by v2rayTun/Hiddify/Happ to show the plan's traffic and
+            // end date, a profile name and where to get help. The traffic
+            // used to be a hardcoded "100 GB, never expires" for everyone.
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"subscription.txt\"")
-                    .header("Subscription-Userinfo", "upload=0; download=0; total=107374182400; expire=0")
+                    .header("Subscription-Userinfo", userInfo(currentPlanService.currentPlan(user.getId()).orElse(null)))
+                    .header("Profile-Title", "base64:" + java.util.Base64.getEncoder()
+                            .encodeToString("Aura VPN".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                    .header("Profile-Update-Interval", "6")
+                    .header("Support-Url", currentPlanService.supportUrl())
+                    .header("Profile-Web-Page-Url", currentPlanService.webBaseUrl())
                     .body(encodedLinks);
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
         }
+    }
+
+    static String userInfo(com.vpn.server.entity.Subscription sub) {
+        if (sub == null) {
+            return "upload=0; download=0; total=0; expire=0";
+        }
+        long expire = sub.getOverrideTariff() == null && sub.hasNoExpiry()
+                ? 0
+                : sub.getEffectiveExpiresAt().getEpochSecond();
+        return "upload=0; download=" + sub.getTrafficUsedBytes()
+                + "; total=" + sub.getTrafficLimitBytes()
+                + "; expire=" + expire;
     }
 
     private String clientIp(HttpServletRequest request) {

@@ -43,6 +43,9 @@ public class TelegramBotService {
     private final DeviceManagementService deviceManagementService;
     private final BillingService billingService;
     private final TelegramLinkService telegramLinkService;
+    private final CurrentPlanService currentPlanService;
+    private final OneTimeCodeService oneTimeCodeService;
+    private final org.springframework.beans.factory.ObjectProvider<com.vpn.server.grpc.AgentStreamServiceImpl> agentStream;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
     private final HttpClient httpClient;
@@ -64,7 +67,10 @@ public class TelegramBotService {
             SubscriptionExportService exportService,
             DeviceManagementService deviceManagementService,
             BillingService billingService,
-            TelegramLinkService telegramLinkService
+            TelegramLinkService telegramLinkService,
+            CurrentPlanService currentPlanService,
+            OneTimeCodeService oneTimeCodeService,
+            org.springframework.beans.factory.ObjectProvider<com.vpn.server.grpc.AgentStreamServiceImpl> agentStream
     ) {
         this.userRepository = userRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -74,6 +80,9 @@ public class TelegramBotService {
         this.deviceManagementService = deviceManagementService;
         this.billingService = billingService;
         this.telegramLinkService = telegramLinkService;
+        this.currentPlanService = currentPlanService;
+        this.oneTimeCodeService = oneTimeCodeService;
+        this.agentStream = agentStream;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -154,6 +163,12 @@ public class TelegramBotService {
             sendReferralInfo(chatId, user);
         } else if (text.equalsIgnoreCase("/diag")) {
             sendDiagnosticInfo(chatId);
+        } else if (text.equalsIgnoreCase("/plans") || text.equalsIgnoreCase("/tariffs")) {
+            sendPlansMenu(chatId, user);
+        } else if (text.equalsIgnoreCase("/login")) {
+            sendAppLoginCode(chatId, user);
+        } else if (text.equalsIgnoreCase("/support") || text.equalsIgnoreCase("/help")) {
+            sendSupport(chatId);
         } else {
             sendWelcomeMessage(chatId, user);
         }
@@ -184,6 +199,16 @@ public class TelegramBotService {
             sendReferralInfo(chatId, user);
         } else if ("cmd_diag".equals(data)) {
             sendDiagnosticInfo(chatId);
+        } else if ("cmd_plans".equals(data)) {
+            sendPlansMenu(chatId, user);
+        } else if ("cmd_login".equals(data)) {
+            sendAppLoginCode(chatId, user);
+        } else if ("cmd_support".equals(data)) {
+            sendSupport(chatId);
+        } else if (data.startsWith("buy:")) {
+            buyPlan(chatId, user, data.substring("buy:".length()));
+        } else if (data.startsWith("next:")) {
+            schedulePlan(chatId, user, data.substring("next:".length()));
         }
     }
 
@@ -324,7 +349,7 @@ public class TelegramBotService {
         if (existingTelegramUser.isPresent() && !existingTelegramUser.get().getId().equals(targetUser.getId())) {
             sendTextMessage(chatId,
                     "⚠️ <b>Этот Telegram-аккаунт уже привязан к другому аккаунту.</b>\n\n" +
-                    "Если это ошибка, обратитесь в поддержку.",
+                    "Если это ошибка, напишите в поддержку: /support",
                     null);
             return;
         }
@@ -375,11 +400,16 @@ public class TelegramBotService {
                                 Map.of("text", "💳 Баланс & Stars", "callback_data", "cmd_balance")
                         ),
                         List.of(
+                                Map.of("text", "📦 Тарифы", "callback_data", "cmd_plans"),
+                                Map.of("text", "📱 Войти в приложении", "callback_data", "cmd_login")
+                        ),
+                        List.of(
                                 Map.of("text", "👥 Рефералка (15%)", "callback_data", "cmd_ref"),
                                 Map.of("text", "🔍 Диагностика", "callback_data", "cmd_diag")
                         ),
                         List.of(
-                                Map.of("text", "🌐 Открыть веб-кабинет", "web_app", Map.of("url", miniAppUrl))
+                                Map.of("text", "🌐 Открыть веб-кабинет", "web_app", Map.of("url", miniAppUrl)),
+                                Map.of("text", "💬 Поддержка", "url", currentPlanService.supportUrl())
                         )
                 )
         );
@@ -387,41 +417,133 @@ public class TelegramBotService {
         sendTextMessage(chatId, text, keyboard);
     }
 
-    private void sendVpnStatus(long chatId, User user) {
-        Optional<Subscription> subOpt = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE");
+    private static final java.time.format.DateTimeFormatter HUMAN_DATE =
+            java.time.format.DateTimeFormatter.ofPattern("d MMMM yyyy", java.util.Locale.forLanguageTag("ru"))
+                    .withZone(java.time.ZoneId.of("Europe/Moscow"));
 
-        if (subOpt.isEmpty() || subOpt.get().isExpired()) {
-            String text = "⚠️ <b>У вас нет активной подписки</b>\n\n" +
-                    "Пополните баланс в меню /balance или перейдите в веб-кабинет для выбора тарифа.";
-            sendTextMessage(chatId, text, null);
+    public void sendVpnStatus(long chatId, User user) {
+        Subscription sub = currentPlanService.currentPlan(user.getId()).orElse(null);
+        String reason = currentPlanService.inactiveReason(user.getId(), sub);
+
+        StringBuilder sb = new StringBuilder();
+        if (sub == null) {
+            sb.append(CurrentPlanService.EXPIRED.equals(reason)
+                    ? "⚠️ <b>Срок тарифа закончился</b>\n\n"
+                    : CurrentPlanService.TRIAL_USED_UP.equals(reason)
+                            ? "⚠️ <b>Пробный трафик закончился</b>\n\n"
+                            : "⚠️ <b>У вас нет тарифа</b>\n\n");
+            sb.append("Выберите тариф — он оплачивается с баланса: /plans");
+            sendTextMessage(chatId, sb.toString(), plansButton());
             return;
         }
 
-        Subscription sub = subOpt.get();
         double usedGb = sub.getTrafficUsedBytes() / (1024.0 * 1024 * 1024);
         double limitGb = sub.getTrafficLimitBytes() / (1024.0 * 1024 * 1024);
+        boolean noExpiry = sub.getOverrideTariff() == null && sub.hasNoExpiry();
 
-        List<String> links;
-        try {
-            links = exportService.exportVlessLinks(user.getId());
-        } catch (Exception e) {
-            links = List.of();
+        sb.append("🛡 <b>Ваш тариф: ").append(sub.getEffectiveTariff().getName()).append("</b>\n\n");
+        if (CurrentPlanService.TRIAL_USED_UP.equals(reason)) {
+            sb.append("⛔️ Пробный трафик закончился — выберите тариф: /plans\n");
+        } else if (CurrentPlanService.TRAFFIC_USED_UP.equals(reason)) {
+            sb.append("⛔️ Трафик закончился. Новый придёт <b>")
+                    .append(HUMAN_DATE.format(TrafficNotifier.nextRefill(sub)))
+                    .append("</b>, или купите тариф заново сейчас: /plans\n");
         }
+        sb.append(noExpiry
+                ? "⏳ Без ограничения по времени\n"
+                : "⏳ Действует до: <b>" + HUMAN_DATE.format(sub.getEffectiveExpiresAt()) + "</b>\n");
+        sb.append(String.format(java.util.Locale.US, "📊 Трафик: <b>%.2f из %.0f ГБ</b>\n\n", usedGb, limitGb));
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("🛡 <b>Ваша подписка: ").append(sub.getEffectiveTariff().getName()).append("</b>\n\n");
-        sb.append("⏳ Действует до: <b>").append(sub.getEffectiveExpiresAt()).append("</b>\n");
-        sb.append(String.format("📊 Трафик: <b>%.2f / %.0f GB</b>\n\n", usedGb, limitGb));
-
-        if (!links.isEmpty()) {
-            sb.append("🔑 <b>Ваша ссылка для подключения (VLESS):</b>\n\n");
-            sb.append("<code>").append(links.get(0)).append("</code>\n\n");
-            sb.append("<i>Скопируйте ссылку и импортируйте в v2rayTun, Hiddify, Happ или v2rayNG.</i>");
-        } else {
-            sb.append("<i>Для генерации ключей добавьте устройство в кабинете.</i>");
-        }
+        // The auto-updating subscription URL, not one vless:// key: a single
+        // key points at one node and silently stops working with it.
+        sb.append("🔑 <b>Ссылка-подписка для v2rayTun, Hiddify, Happ:</b>\n")
+                .append("<code>").append(currentPlanService.subscriptionUrl(user)).append("</code>\n")
+                .append("<i>Добавьте её в клиенте как подписку (не как ключ) — список серверов будет обновляться сам.</i>\n\n")
+                .append("Или скачайте наше приложение и войдите по коду: /login");
 
         sendTextMessage(chatId, sb.toString(), null);
+    }
+
+    private Map<String, Object> plansButton() {
+        return Map.of("inline_keyboard", List.of(List.of(
+                Map.of("text", "📦 Выбрать тариф", "callback_data", "cmd_plans"))));
+    }
+
+    /**
+     * Plans with a button each, bought from the balance by the same rules as
+     * on the web: the current plan renews, a pricier one starts now, a
+     * cheaper one is scheduled for the end of the paid period.
+     */
+    public void sendPlansMenu(long chatId, User user) {
+        Subscription sub = currentPlanService.currentPlan(user.getId()).orElse(null);
+        boolean paidRunning = sub != null && "ACTIVE".equals(sub.getStatus())
+                && sub.getTariff().getMonthlyPriceUsdtMicro() != null && sub.getTariff().getMonthlyPriceUsdtMicro() > 0;
+        StringBuilder sb = new StringBuilder(String.format(java.util.Locale.US,
+                "📦 <b>Тарифы</b> · баланс <b>$%.2f</b>\n\n", user.getBalanceUsdtMicro() / 1_000_000.0));
+        List<List<Map<String, Object>>> rows = new java.util.ArrayList<>();
+        for (com.vpn.server.entity.Tariff t : tariffRepository.findAll()) {
+            if (!Boolean.TRUE.equals(t.getIsActive()) || "trial".equalsIgnoreCase(t.getId())) continue;
+            long price = t.getMonthlyPriceUsdtMicro() == null ? 0 : t.getMonthlyPriceUsdtMicro();
+            String priceText = String.format(java.util.Locale.US, "$%.2f", price / 1_000_000.0);
+            sb.append("• <b>").append(t.getName()).append("</b> — ").append(priceText).append(" в месяц, ")
+                    .append(t.getTrafficQuotaBytes() / (1024L * 1024 * 1024)).append(" ГБ, устройств: ").append(t.getMaxDevices()).append("\n");
+            boolean isCurrent = sub != null && sub.getTariff().getId().equalsIgnoreCase(t.getId());
+            String label;
+            String data;
+            if (isCurrent && paidRunning) {
+                label = "🔁 Продлить " + t.getName() + " · " + priceText;
+                data = "buy:" + t.getId();
+            } else if (paidRunning && price < sub.getTariff().getMonthlyPriceUsdtMicro()) {
+                label = "⏭ " + t.getName() + " с " + HUMAN_DATE.format(sub.getCurrentPeriodEnd());
+                data = "next:" + t.getId();
+            } else {
+                label = (paidRunning ? "⬆️ Перейти на " : "✅ ") + t.getName() + " · " + priceText;
+                data = "buy:" + t.getId();
+            }
+            rows.add(List.of(Map.of("text", label, "callback_data", data)));
+        }
+        rows.add(List.of(Map.of("text", "💳 Пополнить баланс", "callback_data", "cmd_balance")));
+        sb.append("\nОплата с баланса, продление — автоматически в конце месяца.");
+        sendTextMessage(chatId, sb.toString(), Map.of("inline_keyboard", rows));
+    }
+
+    private void buyPlan(long chatId, User user, String tariffId) {
+        try {
+            Subscription sub = billingService.purchaseOrRenewSubscription(user.getId(), tariffId, false);
+            com.vpn.server.grpc.AgentStreamServiceImpl stream = agentStream.getIfAvailable();
+            if (stream != null) stream.pushConfigSyncToAll();
+            sendTextMessage(chatId, "✅ Готово: тариф «" + sub.getTariff().getName() + "» до <b>"
+                    + HUMAN_DATE.format(sub.getCurrentPeriodEnd()) + "</b>. Подключение: /vpn", null);
+        } catch (InsufficientBalanceException e) {
+            sendTextMessage(chatId, String.format(java.util.Locale.US,
+                    "Не хватает <b>$%.2f</b> на балансе. Пополните и нажмите ещё раз.", e.getShortfallUsdtMicro() / 1_000_000.0),
+                    Map.of("inline_keyboard", List.of(List.of(Map.of("text", "💳 Пополнить баланс", "callback_data", "cmd_balance")))));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            sendTextMessage(chatId, "Не получилось: " + e.getMessage(), null);
+        }
+    }
+
+    private void schedulePlan(long chatId, User user, String tariffId) {
+        try {
+            Subscription sub = billingService.scheduleNextTariff(user.getId(), tariffId);
+            sendTextMessage(chatId, "⏭ Перейдёте на «" + sub.getNextTariff().getName() + "» "
+                    + HUMAN_DATE.format(sub.getCurrentPeriodEnd()) + ". Сейчас ничего не списано.", null);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            sendTextMessage(chatId, "Не получилось: " + e.getMessage(), null);
+        }
+    }
+
+    /** A code to sign in to the Android/desktop app as this Telegram account. */
+    public void sendAppLoginCode(long chatId, User user) {
+        String code = oneTimeCodeService.createLoginCode(user.getId());
+        sendTextMessage(chatId, "📱 Код для входа в приложение: <code>" + code + "</code>\n\n"
+                + "В приложении нажмите «Войти по коду из Telegram» и введите его. Код действует 10 минут и работает один раз.\n"
+                + "Скачать приложение: " + currentPlanService.webBaseUrl(), null);
+    }
+
+    private void sendSupport(long chatId) {
+        sendTextMessage(chatId, "💬 Поддержка: " + currentPlanService.supportUrl().replace("https://t.me/", "@")
+                + "\nНапишите, что случилось, и с какого устройства — ответим там.", null);
     }
 
     private void sendBalanceMenu(long chatId, User user) {

@@ -36,6 +36,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-security'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // Password-reset codes by email; only active when spring.mail.host is set (MailService).
+    implementation 'org.springframework.boot:spring-boot-starter-mail'
 
     // Database & Flyway.
     // Spring Boot 4.x moved Flyway's Spring autoconfiguration out of the
