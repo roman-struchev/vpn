@@ -21,6 +21,7 @@ const vpnApi = {
   logout: () => ipcRenderer.invoke('auth:logout'),
 
   getProfile: () => ipcRenderer.invoke('profile:get'),
+  getTariffs: () => ipcRenderer.invoke('tariffs:list'),
 
   getRegions: () => ipcRenderer.invoke('regions:list'),
   pingSelectedRegion: (): Promise<number | null> => ipcRenderer.invoke('regions:ping'),

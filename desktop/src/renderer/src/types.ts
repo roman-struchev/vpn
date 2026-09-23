@@ -30,6 +30,15 @@ export interface UserProfile {
   };
 }
 
+export interface TariffInfo {
+  id: string;
+  name: string;
+  monthlyPriceUsdtMicro: number;
+  annualPriceUsdtMicro: number;
+  trafficQuotaBytes: number;
+  maxDevices: number;
+}
+
 export interface RegionInfo {
   region: string;
   nodeCount: number;

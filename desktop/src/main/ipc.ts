@@ -57,6 +57,7 @@ export function registerIpcHandlers(
   });
 
   ipcMain.handle('profile:get', () => apiClient.getProfile().catch(rethrowTagged));
+  ipcMain.handle('tariffs:list', () => apiClient.getTariffs());
 
   ipcMain.handle('regions:list', () => apiClient.getRegions());
   ipcMain.handle('regions:ping', () => apiClient.pingSelectedRegion(apiClient.getSelectedRegion()));

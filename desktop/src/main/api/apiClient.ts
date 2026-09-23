@@ -50,6 +50,16 @@ export interface UserProfile {
   };
 }
 
+/** GET /user/tariffs — the catalogue that turns a subscription's bare tariffId into a name, price and device allowance. */
+export interface TariffInfo {
+  id: string;
+  name: string;
+  monthlyPriceUsdtMicro: number;
+  annualPriceUsdtMicro: number;
+  trafficQuotaBytes: number;
+  maxDevices: number;
+}
+
 export interface DeviceDto {
   id: number;
   deviceName: string;
@@ -242,6 +252,10 @@ export class ApiClient {
     // Authoritative, and what decides how an expired session is handled.
     if (profile) this.tokenStore.setDeviceAccount(Boolean(profile.isGuest));
     return profile;
+  }
+
+  async getTariffs(): Promise<TariffInfo[]> {
+    return this.get<TariffInfo[]>('api/v1/user/tariffs');
   }
 
   async getDevices(): Promise<DeviceDto[]> {

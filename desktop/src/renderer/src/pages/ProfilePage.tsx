@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import P2pRelaySection from '../components/P2pRelaySection';
-import type { DeviceDto, UserProfile } from '../types';
+import type { DeviceDto, TariffInfo, UserProfile } from '../types';
 import { t } from '../i18n';
+import { planSummary } from '../../../shared/planSummary';
+
+function formatBytes(bytes: number): string {
+  const gb = bytes / 1024 ** 3;
+  return gb >= 1 ? `${gb.toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+}
 
 export default function ProfilePage({
   onLoggedOut,
@@ -13,6 +19,9 @@ export default function ProfilePage({
   isGuest?: boolean;
 }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  // Best-effort: without it the plan card falls back to the tariff id and
+  // drops the device allowance rather than showing nothing.
+  const [tariffs, setTariffs] = useState<TariffInfo[] | null>(null);
   // null until the first answer. An empty array is a claim — "you have no
   // devices" — and making it before asking is how this list came to say
   // that and then contradict itself a moment later.
@@ -31,6 +40,7 @@ export default function ProfilePage({
 
   const reload = () => {
     window.vpnApi.getProfile().then(setProfile).catch(() => undefined);
+    window.vpnApi.getTariffs().then(setTariffs).catch(() => undefined);
     reloadDevices();
   };
 
@@ -49,10 +59,13 @@ export default function ProfilePage({
     onLoggedOut();
   };
 
+  // Lands on the plans themselves (the web dashboard scrolls to #tariffs),
+  // like the Android app's "Change plan" — the top of the dashboard left the
+  // user hunting for the section they were sent to.
   const openBilling = async () => {
     setBillingError(null);
     try {
-      await window.vpnApi.openWebHandoff('/');
+      await window.vpnApi.openWebHandoff('/#tariffs');
     } catch (e) {
       setBillingError(e instanceof Error ? e.message : String(e));
     }
@@ -63,6 +76,9 @@ export default function ProfilePage({
     // Temporarily pointed at the test server (217.216.79.46:8080) instead of the
     // vpn.struchev.site production domain — switch back once that's live again.
     (profile?.referralCode ? `http://217.216.79.46:8080/?ref=${profile.referralCode}` : '');
+
+  const plan = planSummary(profile, tariffs);
+  const planName = plan.tariffId?.toLowerCase() === 'trial' ? t.tariffTrial : plan.planName;
 
   const copyReferral = async () => {
     if (!referralLink) return;
@@ -111,19 +127,51 @@ export default function ProfilePage({
 
   return (
     <div className="flex flex-col gap-4 px-6 py-5">
-      {/* Profile & Subscription Info */}
+      {/* Account & plan — the same card as the Android app's account tab */}
       <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4">
-        <div className="min-w-0">
-          <h1 className="text-sm font-semibold text-white truncate">{profile?.email ?? '—'}</h1>
-          <p className="mt-0.5 text-xs text-white/50">
-            {t.balance}: <span className="font-medium text-white/80">{profile ? (profile.balanceUsdtMicro / 1_000_000).toFixed(2) : '—'} USDT</span>
-          </p>
-        </div>
+        <h1 className="text-sm font-semibold text-white truncate">{profile?.email ?? '—'}</h1>
+        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-white/50">{t.planTitle}</p>
+        <p className="mt-1 text-sm font-semibold text-white" data-testid="plan-name">
+          {!profile
+            ? '—'
+            : !plan.hasSubscription
+              ? t.planNone
+              : plan.isFree
+                ? t.planFree.replace('%s', planName ?? '')
+                : t.planPaid.replace('%s', planName ?? '').replace('%s', plan.monthlyPriceUsdt.toFixed(2))}
+        </p>
+        {plan.hasSubscription && (
+          <>
+            <p className="mt-2 text-xs text-white/60">
+              {plan.trafficLimitBytes > 0
+                ? t.planTraffic
+                    .replace('%s', formatBytes(plan.trafficUsedBytes))
+                    .replace('%s', formatBytes(plan.trafficLimitBytes))
+                : t.planTrafficUnlimited.replace('%s', formatBytes(plan.trafficUsedBytes))}
+            </p>
+            {plan.trafficLimitBytes > 0 && (
+              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-dark-800">
+                <div className="h-full rounded-full bg-brand-500" style={{ width: `${plan.trafficPercent}%` }} />
+              </div>
+            )}
+            <p className="mt-2 text-xs text-white/60">
+              {plan.expiresAt
+                ? t.planExpiry.replace('%s', new Date(plan.expiresAt).toLocaleDateString())
+                : t.planNoExpiry}
+            </p>
+          </>
+        )}
+        <p className="mt-2 text-xs text-white/60">
+          {t.balance}:{' '}
+          <span className="font-medium text-white/80">
+            {profile ? (profile.balanceUsdtMicro / 1_000_000).toFixed(2) : '—'} USDT
+          </span>
+        </p>
         <button
           className="mt-3 w-full rounded-xl border border-dark-750 bg-dark-800 px-3 py-1.5 text-xs font-medium text-white/90 hover:bg-dark-750 transition-colors"
           onClick={() => void openBilling()}
         >
-          {t.manageBilling}
+          {profile && !plan.hasSubscription ? t.choosePlan : t.changePlan}
         </button>
         {billingError && <p className="mt-2 text-xs text-state-error">{billingError}</p>}
       </div>
@@ -132,7 +180,13 @@ export default function ProfilePage({
       <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-white/70">{t.devicesTitle}</h2>
-          <span className="text-[11px] text-white/40">{devices?.length ?? '—'}</span>
+          <span className="text-[11px] text-white/40" data-testid="device-count">
+            {devices == null
+              ? '—'
+              : plan.maxDevices != null
+                ? t.devicesCount.replace('%s', String(devices.length)).replace('%s', String(plan.maxDevices))
+                : devices.length}
+          </span>
         </div>
         <p className="text-[11px] text-white/45 mb-3 leading-relaxed">{t.thisDeviceAutoAdded}</p>
 
@@ -162,36 +216,30 @@ export default function ProfilePage({
         {deviceError && <p className="mt-2 text-xs text-state-error">{deviceError}</p>}
       </div>
 
-      {/* Referral Program */}
+      {/* Referral Program — laid out like the Android app's: what it earned,
+          the code people read out loud, and one button. The full URL is not
+          printed; copying it is all anyone does with it. */}
       <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-white/70 mb-2">{t.referralLink}</p>
-        <div className="flex items-center gap-2">
-          <input
-            readOnly
-            value={referralLink}
-            onFocus={(e) => e.currentTarget.select()}
-            className="min-w-0 flex-1 select-text rounded-xl border border-dark-750 bg-dark-800 px-3 py-2 text-xs text-white/80 outline-none"
-          />
-          <button
-            type="button"
-            onClick={copyReferral}
-            disabled={!referralLink}
-            className="rounded-xl border border-dark-750 bg-dark-800 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-dark-750 disabled:opacity-40 transition-colors"
-          >
-            {copied ? t.copied : t.copy}
-          </button>
-        </div>
-        <p className="mt-1.5 text-[11px] text-white/40">
-          {t.referralCodeLabel}: <span className="font-mono text-white/70">{profile?.referralCode ?? '—'}</span>
-        </p>
         {/* Always rendered, with dashes until it is known: appearing only
             once loaded grew the card and shifted everything below it. */}
-        <p className="mt-2.5 rounded-xl bg-dark-800/80 border border-dark-750/50 px-3 py-2 text-xs text-brand-400 font-medium">
+        <p className="rounded-xl bg-dark-800/80 border border-dark-750/50 px-3 py-2 text-xs text-brand-400 font-medium">
           {t.referralStats
             .replace('%s', profile ? String(profile.referralCount ?? 0) : '—')
             .replace('%s', profile ? ((profile.referralEarningsUsdtMicro ?? 0) / 1_000_000).toFixed(2) : '—')}
         </p>
+        <p className="mt-2 text-[11px] text-white/40">
+          {t.referralCodeLabel}: <span className="select-text font-mono text-white/70">{profile?.referralCode ?? '—'}</span>
+        </p>
         <p className="mt-2 text-[11px] leading-relaxed text-white/45">{t.referralDesc}</p>
+        <button
+          type="button"
+          onClick={copyReferral}
+          disabled={!referralLink}
+          className="mt-3 w-full rounded-xl border border-dark-750 bg-dark-800 px-3 py-1.5 text-xs font-semibold text-white/80 hover:bg-dark-750 disabled:opacity-40 transition-colors"
+        >
+          {copied ? t.referralLinkCopied : t.referralCopyLink}
+        </button>
       </div>
 
       {/* P2P Relay Mode */}
