@@ -131,18 +131,27 @@ public class UserController {
         // that from just the *current* subscription (which may by now be a
         // different, paid tariff, or none at all if the trial expired).
         response.put("hasUsedTrial", subscriptionRepository.existsByUserIdAndTariffId(userId, "trial"));
-        response.put("subscription", sub.map(s -> Map.of(
-                "id", s.getId(),
-                "tariffId", s.getEffectiveTariff().getId(),
-                "trafficUsedBytes", s.getTrafficUsedBytes(),
-                "trafficLimitBytes", s.getTrafficLimitBytes(),
-                "expiresAt", s.getEffectiveExpiresAt().toString(),
-                // Trial has no real time limit (traffic quota is the only cap) —
-                // true only when no temporary tariff override is masking it with
-                // a real near-term expiry. Lets clients show "no time limit"
-                // instead of the ~100-years-out sentinel date.
-                "noExpiry", s.getOverrideTariff() == null && s.hasNoExpiry()
-        )).orElse(null));
+        response.put("subscription", sub.map(s -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", s.getId());
+            m.put("tariffId", s.getEffectiveTariff().getId());
+            m.put("trafficUsedBytes", s.getTrafficUsedBytes());
+            m.put("trafficLimitBytes", s.getTrafficLimitBytes());
+            m.put("expiresAt", s.getEffectiveExpiresAt().toString());
+            // Trial has no real time limit (traffic quota is the only cap) —
+            // true only when no temporary tariff override is masking it with
+            // a real near-term expiry. Lets clients show "no time limit"
+            // instead of the ~100-years-out sentinel date.
+            m.put("noExpiry", s.getOverrideTariff() == null && s.hasNoExpiry());
+            // What happens when the period ends: renewed from the balance
+            // (autoRenew), into nextTariffId if a cheaper plan was scheduled.
+            m.put("autoRenew", Boolean.TRUE.equals(s.getAutoRenew()));
+            m.put("nextTariffId", s.getNextTariff() != null ? s.getNextTariff().getId() : null);
+            // What that renewal will charge, so a client can warn ahead when
+            // the balance is short (RenewalNotifier does the same in Telegram).
+            m.put("renewalPriceUsdtMicro", s.getRenewalPriceUsdtMicro());
+            return m;
+        }).orElse(null));
 
         return ResponseEntity.ok(response);
     }
@@ -222,6 +231,25 @@ public class UserController {
                 "status", invoice.getStatus(),
                 "expiresAt", invoice.getExpiresAt().toString()
         ));
+    }
+
+    /** Schedules (or with a null tariffId cancels) a move to a cheaper plan at the end of the paid period. */
+    @PostMapping("/billing/next-tariff")
+    public ResponseEntity<?> scheduleNextTariff(
+            Authentication auth,
+            @RequestBody Map<String, Object> req) {
+        Long userId = (Long) auth.getPrincipal();
+        Object tariffId = req.get("tariffId");
+        try {
+            Subscription sub = billingService.scheduleNextTariff(userId, tariffId != null ? String.valueOf(tariffId) : null);
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("status", "SUCCESS");
+            body.put("nextTariffId", sub.getNextTariff() != null ? sub.getNextTariff().getId() : null);
+            body.put("effectiveAt", sub.getCurrentPeriodEnd().toString());
+            return ResponseEntity.ok(body);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping("/billing/purchase")

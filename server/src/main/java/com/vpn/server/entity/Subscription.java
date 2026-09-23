@@ -60,6 +60,18 @@ public class Subscription {
     @Column(name = "override_previous_traffic_limit_bytes")
     private Long overridePreviousTrafficLimitBytes;
 
+    // Plan to auto-renew into when this period ends, set by a scheduled move
+    // to a cheaper plan (BillingService#scheduleNextTariff). Null = renew the
+    // same plan.
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "next_tariff_id")
+    private Tariff nextTariff;
+
+    // When the "balance won't cover the renewal" heads-up went out for this
+    // period (RenewalNotifier). Null = not yet.
+    @Column(name = "renewal_reminder_sent_at")
+    private Instant renewalReminderSentAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt = Instant.now();
 
@@ -106,6 +118,24 @@ public class Subscription {
 
     public Long getOverridePreviousTrafficLimitBytes() { return overridePreviousTrafficLimitBytes; }
     public void setOverridePreviousTrafficLimitBytes(Long bytes) { this.overridePreviousTrafficLimitBytes = bytes; }
+
+    public Tariff getNextTariff() { return nextTariff; }
+    public void setNextTariff(Tariff nextTariff) { this.nextTariff = nextTariff; }
+
+    /** The plan auto-renewal should buy when this period ends. */
+    public Tariff getRenewalTariff() {
+        return nextTariff != null ? nextTariff : tariff;
+    }
+
+    /** What auto-renewal will charge the balance when this period ends. */
+    public long getRenewalPriceUsdtMicro() {
+        Tariff t = getRenewalTariff();
+        Long price = Boolean.TRUE.equals(isAnnual) ? t.getAnnualPriceUsdtMicro() : t.getMonthlyPriceUsdtMicro();
+        return price != null ? price : 0L;
+    }
+
+    public Instant getRenewalReminderSentAt() { return renewalReminderSentAt; }
+    public void setRenewalReminderSentAt(Instant renewalReminderSentAt) { this.renewalReminderSentAt = renewalReminderSentAt; }
 
     /** The tariff that should actually govern device limits/server pool/plan gating right now. */
     public Tariff getEffectiveTariff() {

@@ -258,6 +258,20 @@ public class BillingService {
             throw new IllegalStateException("Trial has already been used on this account. Choose a paid plan to continue.");
         }
 
+        Instant now = Instant.now();
+        Optional<Subscription> existingSub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
+        Subscription liveSub = existingSub.filter(s -> s.getCurrentPeriodEnd().isAfter(now)).orElse(null);
+
+        // Switching starts the new plan at once and drops what is left of the
+        // current one. For a cheaper plan that means paying to get less, so it
+        // is refused here and done through scheduleNextTariff instead.
+        if (liveSub != null && "trial".equalsIgnoreCase(tariff.getId()) && isPaid(liveSub.getTariff())) {
+            throw new IllegalStateException("The trial can't replace a paid plan that is still running.");
+        }
+        if (liveSub != null && isDowngrade(liveSub.getTariff(), tariff)) {
+            throw new IllegalStateException("A cheaper plan starts when the current one ends: schedule the change instead of buying it now.");
+        }
+
         long price = isAnnual ? tariff.getAnnualPriceUsdtMicro() : tariff.getMonthlyPriceUsdtMicro();
 
         if (price > 0) {
@@ -278,14 +292,20 @@ public class BillingService {
             balanceEntryRepository.save(entry);
         }
 
-        Instant now = Instant.now();
         Instant periodStart = now;
+        Tariff carriedNextTariff = null;
 
-        Optional<Subscription> existingSub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE");
-        if (existingSub.isPresent() && existingSub.get().getCurrentPeriodEnd().isAfter(now)) {
-            Subscription oldSub = existingSub.get();
+        if (liveSub != null) {
+            Subscription oldSub = liveSub;
             if (oldSub.getTariff() != null && oldSub.getTariff().getId().equalsIgnoreCase(tariffId)) {
                 periodStart = oldSub.getCurrentPeriodEnd();
+                // The new row queued after it renews from here on. Left on,
+                // the old row would auto-renew too when it ends and charge the
+                // same period a second time.
+                carriedNextTariff = oldSub.getNextTariff();
+                oldSub.setAutoRenew(false);
+                oldSub.setNextTariff(null);
+                subscriptionRepository.save(oldSub);
             } else {
                 // Switching or upgrading tariff (e.g. from trial to pro): new plan takes effect immediately
                 oldSub.setStatus("SUPERSEDED");
@@ -316,8 +336,52 @@ public class BillingService {
         sub.setCurrentPeriodEnd(periodEnd);
         sub.setTrafficUsedBytes(0L);
         sub.setTrafficLimitBytes(tariff.getTrafficQuotaBytes());
+        sub.setNextTariff(carriedNextTariff);
 
         return subscriptionRepository.save(sub);
+    }
+
+    /**
+     * Schedules a move to a cheaper plan from the end of the current paid
+     * period: nothing is charged now, auto-renewal buys {@code tariffId}
+     * instead of the current plan. A null or the current plan's id cancels a
+     * scheduled move.
+     */
+    @Transactional
+    public Subscription scheduleNextTariff(Long userId, String tariffId) {
+        Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
+                .filter(s -> s.getCurrentPeriodEnd().isAfter(Instant.now()))
+                .orElseThrow(() -> new IllegalStateException("No active subscription to schedule a plan change for."));
+
+        if (tariffId == null || tariffId.isBlank() || tariffId.equalsIgnoreCase(sub.getTariff().getId())) {
+            sub.setNextTariff(null);
+            return subscriptionRepository.save(sub);
+        }
+
+        Tariff next = tariffRepository.findById(tariffId)
+                .orElseThrow(() -> new IllegalArgumentException("Tariff not found: " + tariffId));
+        if (!isDowngrade(sub.getTariff(), next)) {
+            throw new IllegalStateException("Only a move to a cheaper paid plan is scheduled; a pricier plan can be bought now.");
+        }
+        sub.setNextTariff(next);
+        sub.setAutoRenew(true);
+        return subscriptionRepository.save(sub);
+    }
+
+    /** A paid plan to a cheaper paid plan. The trial is never a target: it is one-shot. */
+    private static boolean isDowngrade(Tariff current, Tariff target) {
+        if (current == null || target == null || "trial".equalsIgnoreCase(target.getId())) {
+            return false;
+        }
+        return isPaid(current) && isPaid(target) && monthlyPrice(target) < monthlyPrice(current);
+    }
+
+    private static boolean isPaid(Tariff tariff) {
+        return tariff != null && monthlyPrice(tariff) > 0;
+    }
+
+    private static long monthlyPrice(Tariff tariff) {
+        return tariff.getMonthlyPriceUsdtMicro() != null ? tariff.getMonthlyPriceUsdtMicro() : 0L;
     }
 
     @Transactional

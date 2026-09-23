@@ -25,17 +25,20 @@ public class QuotaEnforcementTask {
     private final CryptoInvoiceRepository cryptoInvoiceRepository;
     private final AgentStreamServiceImpl agentStreamService;
     private final com.vpn.server.service.BillingService billingService;
+    private final com.vpn.server.service.RenewalNotifier renewalNotifier;
 
     public QuotaEnforcementTask(
             SubscriptionRepository subscriptionRepository,
             CryptoInvoiceRepository cryptoInvoiceRepository,
             AgentStreamServiceImpl agentStreamService,
-            com.vpn.server.service.BillingService billingService
+            com.vpn.server.service.BillingService billingService,
+            com.vpn.server.service.RenewalNotifier renewalNotifier
     ) {
         this.subscriptionRepository = subscriptionRepository;
         this.cryptoInvoiceRepository = cryptoInvoiceRepository;
         this.agentStreamService = agentStreamService;
         this.billingService = billingService;
+        this.renewalNotifier = renewalNotifier;
     }
 
     @Scheduled(fixedDelay = 60000, initialDelay = 10000)
@@ -50,13 +53,17 @@ public class QuotaEnforcementTask {
             boolean renewed = false;
             if (Boolean.TRUE.equals(sub.getAutoRenew()) && sub.getTariff() != null && !"trial".equalsIgnoreCase(sub.getTariff().getId())) {
                 try {
+                    // A scheduled move to a cheaper plan takes effect here.
                     billingService.purchaseOrRenewSubscription(
                             sub.getUser().getId(),
-                            sub.getTariff().getId(),
+                            sub.getRenewalTariff().getId(),
                             Boolean.TRUE.equals(sub.getIsAnnual())
                     );
                     renewed = true;
                     log.info("Subscription {} for user {} successfully auto-renewed", sub.getId(), sub.getUser().getId());
+                } catch (com.vpn.server.service.InsufficientBalanceException e) {
+                    log.info("Auto-renewal failed for user {} (sub {}): {}", sub.getUser().getId(), sub.getId(), e.getMessage());
+                    renewalNotifier.notifyRenewalFailed(sub, e);
                 } catch (Exception e) {
                     log.info("Auto-renewal failed for user {} (sub {}): {}", sub.getUser().getId(), sub.getId(), e.getMessage());
                 }
@@ -97,6 +104,9 @@ public class QuotaEnforcementTask {
             subscriptionRepository.save(sub);
             stateChanged = true;
         }
+
+        // 3b. Warn ahead about renewals the balance won't cover
+        renewalNotifier.remindUpcomingShortfalls(now);
 
         // 4. Mark expired crypto invoices
         List<CryptoInvoice> expiredInvoices = cryptoInvoiceRepository.findByStatusAndExpiresAtBefore("PENDING", now);

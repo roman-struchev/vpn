@@ -31,6 +31,13 @@ public interface SubscriptionRepository extends JpaRepository<Subscription, Long
     @Query("SELECT s FROM Subscription s WHERE s.overrideTariff IS NOT NULL AND s.overrideExpiresAt <= :now")
     List<Subscription> findExpiredTariffOverrides(@Param("now") Instant now);
 
+    // Paid plans that will try to auto-renew before :until and haven't had
+    // their low-balance heads-up yet (RenewalNotifier).
+    @Query("SELECT s FROM Subscription s WHERE s.status = 'ACTIVE' AND s.autoRenew = true "
+            + "AND s.currentPeriodEnd > :now AND s.currentPeriodEnd <= :until "
+            + "AND s.renewalReminderSentAt IS NULL AND LOWER(s.tariff.id) <> 'trial'")
+    List<Subscription> findRenewalsDueBefore(@Param("now") Instant now, @Param("until") Instant until);
+
     long countByStatus(String status);
 
     @Query("SELECT COALESCE(SUM(s.trafficUsedBytes), 0) FROM Subscription s")

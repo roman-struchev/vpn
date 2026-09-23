@@ -461,4 +461,122 @@ class BillingServiceTest {
         assertEquals(initialEnd, renewed.getCurrentPeriodStart());
         assertEquals("ACTIVE", activePro.getStatus()); // Not superseded
     }
+
+    private static Tariff paidTariff(String id, long monthlyMicro) {
+        Tariff t = new Tariff();
+        t.setId(id);
+        t.setName(id);
+        t.setMonthlyPriceUsdtMicro(monthlyMicro);
+        t.setAnnualPriceUsdtMicro(monthlyMicro * 10);
+        t.setTrafficQuotaBytes(100L * 1024 * 1024 * 1024);
+        return t;
+    }
+
+    private Subscription activeSub(User user, Tariff tariff, Instant end) {
+        Subscription sub = new Subscription();
+        sub.setId(70L);
+        sub.setUser(user);
+        sub.setTariff(tariff);
+        sub.setStatus("ACTIVE");
+        sub.setAutoRenew(true);
+        sub.setCurrentPeriodStart(Instant.now().minus(5, java.time.temporal.ChronoUnit.DAYS));
+        sub.setCurrentPeriodEnd(end);
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(user.getId(), "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(i -> i.getArgument(0));
+        return sub;
+    }
+
+    @Test
+    void testBuyingCheaperPlanOverPaidOneIsRefusedWithoutCharging() {
+        User user = new User();
+        user.setId(20L);
+        user.setBalanceUsdtMicro(10_000_000L);
+        Tariff max = paidTariff("max", 5_000_000L);
+        Tariff mid = paidTariff("mid", 3_000_000L);
+        when(userRepository.findById(20L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("mid")).thenReturn(Optional.of(mid));
+        Subscription current = activeSub(user, max, Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS));
+
+        assertThrows(IllegalStateException.class, () -> billingService.purchaseOrRenewSubscription(20L, "mid", false));
+
+        assertEquals(10_000_000L, user.getBalanceUsdtMicro());
+        assertEquals("ACTIVE", current.getStatus());
+        verify(balanceEntryRepository, never()).save(any());
+    }
+
+    @Test
+    void testCheaperPlanIsScheduledForTheEndOfThePeriod() {
+        User user = new User();
+        user.setId(21L);
+        user.setBalanceUsdtMicro(10_000_000L);
+        Tariff max = paidTariff("max", 5_000_000L);
+        Tariff mid = paidTariff("mid", 3_000_000L);
+        when(tariffRepository.findById("mid")).thenReturn(Optional.of(mid));
+        Instant end = Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS);
+        Subscription current = activeSub(user, max, end);
+
+        Subscription scheduled = billingService.scheduleNextTariff(21L, "mid");
+
+        assertSame(current, scheduled);
+        assertEquals("mid", current.getNextTariff().getId());
+        assertEquals("max", current.getTariff().getId());
+        assertEquals(end, current.getCurrentPeriodEnd());
+        assertEquals("mid", current.getRenewalTariff().getId());
+        assertEquals(10_000_000L, user.getBalanceUsdtMicro());
+
+        billingService.scheduleNextTariff(21L, null);
+        assertNull(current.getNextTariff());
+        assertEquals("max", current.getRenewalTariff().getId());
+    }
+
+    @Test
+    void testPricierPlanCannotBeScheduled() {
+        User user = new User();
+        user.setId(22L);
+        Tariff mid = paidTariff("mid", 3_000_000L);
+        Tariff max = paidTariff("max", 5_000_000L);
+        when(tariffRepository.findById("max")).thenReturn(Optional.of(max));
+        activeSub(user, mid, Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS));
+
+        assertThrows(IllegalStateException.class, () -> billingService.scheduleNextTariff(22L, "max"));
+    }
+
+    @Test
+    void testManualRenewalStopsTheOldRowFromAutoRenewingAgain() {
+        User user = new User();
+        user.setId(23L);
+        user.setBalanceUsdtMicro(10_000_000L);
+        Tariff max = paidTariff("max", 5_000_000L);
+        Tariff mid = paidTariff("mid", 3_000_000L);
+        when(userRepository.findById(23L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("max")).thenReturn(Optional.of(max));
+        Subscription current = activeSub(user, max, Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS));
+        current.setNextTariff(mid);
+
+        Subscription renewed = billingService.purchaseOrRenewSubscription(23L, "max", false);
+
+        assertFalse(current.getAutoRenew());
+        assertNull(current.getNextTariff());
+        assertTrue(renewed.getAutoRenew());
+        assertEquals("mid", renewed.getNextTariff().getId());
+        assertEquals(5_000_000L, user.getBalanceUsdtMicro());
+    }
+
+    @Test
+    void testTrialCannotReplaceARunningPaidPlan() {
+        User user = new User();
+        user.setId(24L);
+        Tariff pro = paidTariff("pro", 2_000_000L);
+        Tariff trial = new Tariff();
+        trial.setId("trial");
+        trial.setMonthlyPriceUsdtMicro(0L);
+        trial.setAnnualPriceUsdtMicro(0L);
+        when(userRepository.findById(24L)).thenReturn(Optional.of(user));
+        when(tariffRepository.findById("trial")).thenReturn(Optional.of(trial));
+        Subscription current = activeSub(user, pro, Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS));
+
+        assertThrows(IllegalStateException.class, () -> billingService.purchaseOrRenewSubscription(24L, "trial", false));
+        assertEquals("ACTIVE", current.getStatus());
+    }
 }

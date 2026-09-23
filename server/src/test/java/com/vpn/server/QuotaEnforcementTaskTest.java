@@ -37,6 +37,9 @@ class QuotaEnforcementTaskTest {
     @Mock
     private com.vpn.server.service.BillingService billingService;
 
+    @Mock
+    private com.vpn.server.service.RenewalNotifier renewalNotifier;
+
     private QuotaEnforcementTask quotaEnforcementTask;
 
     @BeforeEach
@@ -45,7 +48,8 @@ class QuotaEnforcementTaskTest {
                 subscriptionRepository,
                 cryptoInvoiceRepository,
                 agentStreamService,
-                billingService
+                billingService,
+                renewalNotifier
         );
     }
 
@@ -153,5 +157,68 @@ class QuotaEnforcementTaskTest {
         verify(subscriptionRepository).save(expired);
         // Since it was renewed, stateChanged is false (user is still subscribed)
         verify(agentStreamService, never()).pushConfigSyncToAll();
+    }
+
+    @Test
+    void testAutoRenewalBuysTheScheduledCheaperPlan() {
+        User user = new User();
+        user.setId(31L);
+
+        com.vpn.server.entity.Tariff max = new com.vpn.server.entity.Tariff();
+        max.setId("max");
+        com.vpn.server.entity.Tariff mid = new com.vpn.server.entity.Tariff();
+        mid.setId("mid");
+
+        Subscription expired = new Subscription();
+        expired.setId(4L);
+        expired.setUser(user);
+        expired.setTariff(max);
+        expired.setNextTariff(mid);
+        expired.setStatus("ACTIVE");
+        expired.setAutoRenew(true);
+        expired.setIsAnnual(false);
+        expired.setCurrentPeriodEnd(Instant.now().minus(1, ChronoUnit.HOURS));
+
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class)))
+                .thenReturn(List.of(expired));
+        when(subscriptionRepository.findQuotaExceededSubscriptions())
+                .thenReturn(Collections.emptyList());
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        verify(billingService).purchaseOrRenewSubscription(31L, "mid", false);
+    }
+
+    @Test
+    void testFailedAutoRenewalForLackOfBalanceTellsTheUser() {
+        User user = new User();
+        user.setId(32L);
+        com.vpn.server.entity.Tariff max = new com.vpn.server.entity.Tariff();
+        max.setId("max");
+
+        Subscription expired = new Subscription();
+        expired.setId(5L);
+        expired.setUser(user);
+        expired.setTariff(max);
+        expired.setStatus("ACTIVE");
+        expired.setAutoRenew(true);
+        expired.setIsAnnual(false);
+        expired.setCurrentPeriodEnd(Instant.now().minus(1, ChronoUnit.HOURS));
+
+        com.vpn.server.service.InsufficientBalanceException shortfall =
+                new com.vpn.server.service.InsufficientBalanceException(5_000_000L, 1_000_000L);
+        when(billingService.purchaseOrRenewSubscription(32L, "max", false)).thenThrow(shortfall);
+        when(subscriptionRepository.findExpiredSubscriptions(any(Instant.class))).thenReturn(List.of(expired));
+        when(subscriptionRepository.findQuotaExceededSubscriptions()).thenReturn(Collections.emptyList());
+        when(cryptoInvoiceRepository.findByStatusAndExpiresAtBefore(eq("PENDING"), any(Instant.class)))
+                .thenReturn(Collections.emptyList());
+
+        quotaEnforcementTask.runEnforcement();
+
+        assertEquals("EXPIRED", expired.getStatus());
+        verify(renewalNotifier).notifyRenewalFailed(expired, shortfall);
+        verify(agentStreamService).pushConfigSyncToAll();
     }
 }
