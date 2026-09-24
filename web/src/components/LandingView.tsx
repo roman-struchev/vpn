@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowRight,
   Check,
@@ -15,6 +15,12 @@ import { DownloadApp } from './DownloadApp';
 interface LandingViewProps {
   lang: Lang;
   tariffs: Tariff[];
+  /**
+   * Arrived via <origin>/#tariffs signed out — the "traffic is running out"
+   * Telegram message, or a client handoff whose code had expired. The plans
+   * here are #pricing, so the browser's own anchor jump never finds them.
+   */
+  scrollToPricing?: boolean;
   /**
    * Called with the clicked tariff's id when a visitor uses a specific plan
    * card's "Choose Plan" button, so that choice survives signup instead of
@@ -78,10 +84,16 @@ const FlowWire: React.FC = () => (
 export const LandingView: React.FC<LandingViewProps> = ({
   lang,
   tariffs,
+  scrollToPricing,
   onGetStarted,
 }) => {
   const t = translations[lang];
   const [isAnnual, setIsAnnual] = useState(false);
+
+  useEffect(() => {
+    if (!scrollToPricing) return;
+    document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [scrollToPricing]);
 
   const steps = [
     { title: t.step1Title, desc: t.step1Desc },

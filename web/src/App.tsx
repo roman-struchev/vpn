@@ -261,6 +261,7 @@ export function App() {
             <LandingView
               lang={lang}
               tariffs={tariffs}
+              scrollToPricing={scrollToTariffs}
               onGetStarted={(tariffId) => {
                 setSelectedTariffId(tariffId ?? null);
                 setIsAuthOpen(true);
