@@ -102,6 +102,13 @@ if ! xattr -cr "${INSTALL_DIR}/${APP_NAME}" 2>/dev/null; then
     sudo xattr -cr "${INSTALL_DIR}/${APP_NAME}"
 fi
 
+# An in-place replace keeps the bundle path, so LaunchServices/Dock keep the
+# icon they cached for the previous build (e.g. the stock Electron one from
+# before the app had its own) — bump the mtime and re-register to refresh it.
+touch "${INSTALL_DIR}/${APP_NAME}" 2>/dev/null || true
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
+    -f "${INSTALL_DIR}/${APP_NAME}" >/dev/null 2>&1 || true
+
 if [ -n "$MANAGED" ]; then
     echo "==> Done. Aura VPN will relaunch itself."
 else
