@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { Lang } from '../i18n';
 
 export type LegalDoc = 'privacy' | 'terms';
@@ -18,13 +18,12 @@ interface Content {
 
 // Long-form prose lives here, not in i18n.ts, for the same reason as
 // P2pRelayTermsPage: a document, not UI chrome. Written to match what the
-// code actually stores (see docs/ARCHITECTURE.md, docs/DIAGNOSTICS.md) and
-// marked as a draft until a lawyer has read it.
+// code actually stores (see docs/ARCHITECTURE.md, docs/DIAGNOSTICS.md).
 const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
   privacy: {
     ru: {
       title: 'Политика конфиденциальности',
-      updated: 'Черновик от 2026-09-24',
+      updated: 'Редакция от 2026-09-24',
       intro:
         'Здесь описано, какие данные Aura VPN хранит, зачем и как их удалить. Коротко: мы не записываем, какие сайты вы открываете, и не храним содержимое трафика.',
       sections: [
@@ -71,7 +70,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
     },
     en: {
       title: 'Privacy Policy',
-      updated: 'Draft of 2026-09-24',
+      updated: 'Revision of 2026-09-24',
       intro:
         'What Aura VPN stores, why, and how to delete it. In short: we do not record which sites you visit and do not store the contents of your traffic.',
       sections: [
@@ -97,7 +96,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
   terms: {
     ru: {
       title: 'Условия использования',
-      updated: 'Черновик от 2026-09-24',
+      updated: 'Редакция от 2026-09-24',
       intro:
         'Пользуясь Aura VPN, вы соглашаетесь с этими условиями. Пожалуйста, прочитайте раздел об оплате.',
       sections: [
@@ -141,7 +140,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
     },
     en: {
       title: 'Terms of Use',
-      updated: 'Draft of 2026-09-24',
+      updated: 'Revision of 2026-09-24',
       intro: 'By using Aura VPN you agree to these terms. Please read the payment section.',
       sections: [
         { heading: '1. The service', body: ['Aura VPN provides a secure internet connection. We work to keep it available but cannot guarantee it during blocking, network shutdowns, or other events outside our control.'] },
@@ -171,14 +170,6 @@ export const LegalPage: React.FC<{ doc: LegalDoc; lang: Lang; onBack: () => void
         <ArrowLeft className="w-4 h-4" />
         {lang === 'ru' ? 'Назад' : 'Back'}
       </button>
-      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex gap-2">
-        <AlertTriangle className="w-4 h-4 shrink-0" />
-        <span>
-          {lang === 'ru'
-            ? 'Черновик. Документ будет уточнён после юридической проверки.'
-            : 'Draft. This document will be revised after legal review.'}
-        </span>
-      </div>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">{c.title}</h1>
         <p className="text-xs text-slate-500 mt-1">{c.updated}</p>
