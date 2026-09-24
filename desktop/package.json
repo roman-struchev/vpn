@@ -2,7 +2,7 @@
   "name": "vpn-desktop",
   "private": true,
   "version": "0.1.0",
-  "description": "Aura VPN desktop client (Windows/macOS) — system-proxy MVP, Electron + React",
+  "description": "Aura VPN desktop client (Windows/macOS) \u2014 system-proxy MVP, Electron + React",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
@@ -71,6 +71,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "../scripts/install-mac.sh",
+        "to": "install-mac.sh"
       }
     ],
     "publish": {

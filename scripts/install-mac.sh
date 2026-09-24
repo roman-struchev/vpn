@@ -16,10 +16,21 @@ set -euo pipefail
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/roman-struchev/vpn/main/scripts/install-mac.sh | sh
+#
+# Also the macOS half of the in-app updater (desktop/src/main/autoUpdater.ts):
+# electron-updater's own macOS installer (Squirrel.Mac) refuses unsigned
+# apps, so the app runs this copy of the script — bundled in its Resources,
+# not fetched from raw.githubusercontent.com, which is often blocked exactly
+# where this app is used — with:
+#   AURA_VPN_MANAGED_RELAUNCH=1  the app relaunches itself afterwards: don't
+#                                quit or `open` it, and never prompt (no sudo)
+#   AURA_VPN_INSTALL_DIR=<dir>   where the running app actually lives
+# and https_proxy set to its own tunnel when the VPN is up.
 
 REPO="roman-struchev/vpn"
 APP_NAME="Aura VPN.app"
-INSTALL_DIR="/Applications"
+INSTALL_DIR="${AURA_VPN_INSTALL_DIR:-/Applications}"
+MANAGED="${AURA_VPN_MANAGED_RELAUNCH:-}"
 
 if [ "$(uname -s)" != "Darwin" ]; then
     echo "ERROR: this installer is for macOS only." >&2
@@ -54,7 +65,12 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 DMG_PATH="${TMP_DIR}/${DMG_NAME}"
 
 echo "==> [2/5] Downloading ${DMG_NAME}..."
-curl -fsSL -o "$DMG_PATH" "$DMG_URL"
+if [ -n "$MANAGED" ]; then
+    # The meter (on stderr) is what the app turns into a percentage.
+    curl -fL --progress-bar -o "$DMG_PATH" "$DMG_URL"
+else
+    curl -fsSL -o "$DMG_PATH" "$DMG_URL"
+fi
 
 echo "==> [3/5] Mounting disk image..."
 MOUNT_POINT=$(hdiutil attach "$DMG_PATH" -nobrowse -readonly | awk -F'\t' '/\/Volumes\// {print $NF; exit}')
@@ -64,12 +80,20 @@ if [ -z "$MOUNT_POINT" ] || [ ! -d "${MOUNT_POINT}/${APP_NAME}" ]; then
 fi
 
 echo "==> [4/5] Installing into ${INSTALL_DIR}..."
-if [ -d "${INSTALL_DIR}/${APP_NAME}" ]; then
-    rm -rf "${INSTALL_DIR:?}/${APP_NAME}"
+# Replacing a running bundle is fine on macOS (the live process keeps its
+# open files); in managed mode the app relaunches into the new one itself.
+if [ -n "$MANAGED" ] && [ ! -w "$INSTALL_DIR" ]; then
+    # No terminal to answer a sudo prompt: it would hang the update forever.
+    echo "ERROR: no write access to ${INSTALL_DIR}; update from the Terminal instead." >&2
+    hdiutil detach "$MOUNT_POINT" -quiet || true
+    exit 2
 fi
-if ! cp -R "${MOUNT_POINT}/${APP_NAME}" "$INSTALL_DIR" 2>/dev/null; then
+if [ -d "${INSTALL_DIR}/${APP_NAME}" ]; then
+    rm -rf "${INSTALL_DIR:?}/${APP_NAME}" 2>/dev/null || sudo rm -rf "${INSTALL_DIR:?}/${APP_NAME}"
+fi
+if ! ditto "${MOUNT_POINT}/${APP_NAME}" "${INSTALL_DIR}/${APP_NAME}" 2>/dev/null; then
     echo "    No write access to ${INSTALL_DIR} without sudo — retrying with sudo..."
-    sudo cp -R "${MOUNT_POINT}/${APP_NAME}" "$INSTALL_DIR"
+    sudo ditto "${MOUNT_POINT}/${APP_NAME}" "${INSTALL_DIR}/${APP_NAME}"
 fi
 hdiutil detach "$MOUNT_POINT" -quiet
 
@@ -78,4 +102,8 @@ if ! xattr -cr "${INSTALL_DIR}/${APP_NAME}" 2>/dev/null; then
     sudo xattr -cr "${INSTALL_DIR}/${APP_NAME}"
 fi
 
-echo "==> Done. Launch it from ${INSTALL_DIR}/${APP_NAME} or Spotlight (⌘Space → \"Aura VPN\")."
+if [ -n "$MANAGED" ]; then
+    echo "==> Done. Aura VPN will relaunch itself."
+else
+    echo "==> Done. Launch it from ${INSTALL_DIR}/${APP_NAME} or Spotlight (⌘Space → \"Aura VPN\")."
+fi

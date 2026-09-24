@@ -11,6 +11,7 @@ import { RelayManager } from './p2p/relayManager';
 import { createSystemProxyManager } from './proxy/systemProxy';
 import { createAppTray, type TrayHandle } from './tray';
 import { VpnController } from './vpn/vpnController';
+import { HTTP_PORT } from '../shared/xrayConfigFactory';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -129,7 +130,12 @@ app.whenReady().then(() => {
   }
 
   registerIpcHandlers(mainWindow, apiClient, vpnController, tokenStore, relayManager);
-  initAutoUpdater();
+  initAutoUpdater({
+    send: (channel, payload) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+    },
+    tunnelProxyPort: () => (vpnController?.getState() === 'CONNECTED' ? HTTP_PORT : null),
+  });
   trayHandle = createAppTray(vpnController, showMainWindow);
 
   powerMonitor.on('suspend', () => {

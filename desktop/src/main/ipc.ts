@@ -7,6 +7,7 @@ import type { RelayManager } from './p2p/relayManager';
 import type { RelayMode } from './p2p/relayAgent';
 import type { VpnController } from './vpn/vpnController';
 import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
+import { applyUpdate, currentUpdateNotice } from './autoUpdater';
 
 // Electron's ipcMain.handle only ever forwards a rejected handler's `message`
 // string to the renderer (not the class/prototype, not any custom properties
@@ -81,6 +82,11 @@ export function registerIpcHandlers(
   // opening a link in the system browser — e.g. the web dashboard's billing
   // page — has to be proxied through the main process, same as the
   // setWindowOpenHandler in main/index.ts uses for in-app link clicks.
+  // In-app updates (see autoUpdater.ts): the banner asks for the current
+  // notice on mount, since a notice sent before the window loaded is gone.
+  ipcMain.handle('update:get', () => currentUpdateNotice());
+  ipcMain.handle('update:apply', () => applyUpdate());
+
   ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url));
 
   // Seamless client->web SSO handoff (see WEB_HANDOFF_RESEARCH.md): mints a

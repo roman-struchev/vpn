@@ -3,10 +3,9 @@
 Electron + React + TypeScript, system-proxy MVP (docs/PLAN.md §5): xray-core
 runs as a local child process exposing SOCKS5/HTTP on `127.0.0.1`, and the OS
 proxy settings are pointed at it. No TUN driver, no admin rights, no code
-signing — so `electron-updater` auto-update keeps working unsigned, same
-scheme as the reference `aurapad` project (`electron-builder` +
+signing. Updates follow the reference `aurapad` project (`electron-builder` +
 `electron-updater`, `publish: provider: github`, `mac.notarize: false`, NSIS
-on Windows).
+on Windows) — see "Updates" below for how that works unsigned on macOS.
 
 Standalone npm project (like `agent/` and `web/`) — not part of the root
 Gradle build.
@@ -147,8 +146,23 @@ Same server contract as `web/src/api.ts` and the Android client:
   `127.0.0.1:10808` (SOCKS5).
 - Authentication supports Email/password, Google Sign-In (loopback OAuth on `http://127.0.0.1:*`),
   and 1-click anonymous device trial (`POST /api/v1/auth/device`).
-- Auto-update is wired but unverified against a real GitHub Releases feed
-  (no release has been published yet).
+- Updates (`src/main/autoUpdater.ts`, banner `renderer/src/components/UpdateBanner.tsx`):
+  checked on launch and every 4 hours against GitHub Releases.
+  - **Windows / AppImage:** electron-updater downloads it and installs on restart.
+  - **macOS:** electron-updater's installer (Squirrel.Mac) refuses unsigned
+    apps and needs a .zip we don't publish, so it only *finds* the update.
+    The banner's button runs `scripts/install-mac.sh` — bundled into the app
+    (`extraResources`), not fetched from raw.githubusercontent.com, which is
+    often blocked where this app is used — with `AURA_VPN_MANAGED_RELAUNCH=1`
+    and `AURA_VPN_INSTALL_DIR` set to wherever the app lives (and through the
+    tunnel's local proxy when the VPN is up). It swaps the bundle in place;
+    the app then relaunches itself through the normal quit (VPN disconnected,
+    system proxy off first).
+  - Verified end to end (2026-09-24): a packaged 0.1.0 found 0.1.25, showed
+    the banner, updated itself and relaunched as 0.1.25.
+  - Builds up to v0.1.25 carry the old updater, which could not install on
+    macOS — those installs need one manual update (the install script or the
+    DMG); from then on it is automatic.
 - Telemetry reports (`submitTelemetry`) carry a real `nodeId`, resolved by
   matching the currently-active node's host against
   `RoutingConfigResponse.nodes[].publicIp`. Successful connects report `TUNNEL_UP`

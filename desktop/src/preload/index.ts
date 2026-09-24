@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type { FailureReason } from '../shared/failureReason';
+import type { UpdateNotice, UpdateProgress } from '../shared/updatePlan';
 import type { ConnectionState } from '../shared/connectionState';
 import type { RussianRoutingMode } from '../shared/xrayConfigFactory';
 
@@ -86,6 +87,23 @@ const vpnApi = {
     const listener = (_e: unknown, reason: FailureReason | null) => callback(reason);
     ipcRenderer.on('vpn:failure', listener);
     return () => ipcRenderer.removeListener('vpn:failure', listener);
+  },
+  /** An app update the banner offers — see main/autoUpdater.ts. */
+  getUpdateNotice: (): Promise<UpdateNotice | null> => ipcRenderer.invoke('update:get'),
+  applyUpdate: (): Promise<void> => ipcRenderer.invoke('update:apply'),
+  onUpdateAvailable: (callback: (notice: UpdateNotice) => void) => {
+    const listener = (_e: unknown, notice: UpdateNotice) => callback(notice);
+    ipcRenderer.on('update:available', listener);
+    return () => {
+      ipcRenderer.removeListener('update:available', listener);
+    };
+  },
+  onUpdateProgress: (callback: (progress: UpdateProgress) => void) => {
+    const listener = (_e: unknown, progress: UpdateProgress) => callback(progress);
+    ipcRenderer.on('update:progress', listener);
+    return () => {
+      ipcRenderer.removeListener('update:progress', listener);
+    };
   },
   /** The session ran out and could not be renewed: the user has to sign in again. */
   onSessionExpired: (callback: () => void) => {
