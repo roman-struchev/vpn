@@ -10,22 +10,15 @@ import {
   QrCode,
   Sparkles,
   Receipt,
-  Globe,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Lang, translations } from '../i18n';
-import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo } from '../types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry } from '../types';
 import { api } from '../api';
 import { copyToClipboard } from '../utils/clipboard';
 import { DownloadApp } from './DownloadApp';
 import { P2pRelaySection } from './P2pRelaySection';
 import { AccountSection } from './AccountSection';
-
-const REGION_LOAD_DOT: Record<RegionInfo['loadLevel'], string> = {
-  LOW: 'bg-emerald-400',
-  MEDIUM: 'bg-amber-400',
-  HIGH: 'bg-red-400',
-};
 
 // Subscriptions actually expire at an exact instant, not "sometime that day" —
 // a bare date ("04.12.2027") reads as if it's good until midnight/end-of-day,
@@ -72,7 +65,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [links, setLinks] = useState<string[]>([]);
-  const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedReferral, setCopiedReferral] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -145,18 +137,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const loadData = async () => {
     try {
-      const [devs, vlessLinks, invoices, balanceEntries, regionList] = await Promise.all([
+      const [devs, vlessLinks, invoices, balanceEntries] = await Promise.all([
         api.getDevices(),
         api.getSubscriptionLinks(),
         api.getInvoiceHistory(),
         api.getBalanceHistory(),
-        api.getRegions(),
       ]);
       setDevices(devs);
       setLinks(vlessLinks);
       setInvoiceHistory(invoices);
       setBalanceHistory(balanceEntries);
-      setRegions(regionList);
     } catch (err) {
       console.error('Failed to load dashboard data', err);
     }
@@ -626,43 +616,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           actually connect" is the natural next question at this point in the page. */}
       <DownloadApp lang={lang} compact />
 
-      {/* Available Regions — read-only/informational: the web dashboard never
-          establishes a tunnel itself, so it has no reason to let a user pin a
-          region here (that choice lives in the Desktop/Android region picker,
-          which actually feeds it into node selection). Just a glance at where
-          nodes are and how busy they are. */}
-      {regions.length > 0 && (
-        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-          <h2 className="text-lg font-bold tracking-tight flex items-center gap-2 mb-1">
-            <Globe className="w-5 h-5 text-brand-500" />
-            <span>{t.regionsTitle}</span>
-          </h2>
-          <p className="text-xs text-slate-500 mb-4">{t.regionsHint}</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {regions.map((r) => (
-              // Keyed on the row's own key, not the region: the same country
-              // appears twice when it has both our servers and P2P exits.
-              <div key={r.key ?? r.region} className="flex items-center justify-between px-4 py-3 rounded-xl bg-dark-900 border border-dark-800">
-                <div>
-                  <p className="text-sm font-semibold">
-                    {r.region}
-                    {r.p2p && (
-                      <span className="ml-1.5 align-middle text-[10px] font-semibold text-brand-400">{t.regionP2pBadge}</span>
-                    )}
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    {r.nodeCount} {r.p2p ? t.regionPeerCountSuffix : t.regionNodeCountSuffix}
-                  </p>
-                </div>
-                <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                  <span className={`w-2 h-2 rounded-full ${REGION_LOAD_DOT[r.loadLevel]}`} />
-                  {r.loadLevel === 'HIGH' ? t.regionLoadHigh : r.loadLevel === 'MEDIUM' ? t.regionLoadMedium : t.regionLoadLow}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Tariffs Selection / Change — kept right under the subscription banner
           (was much further down, past the entire Devices section): this is
@@ -845,7 +798,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Referral */}
+      {/* Referral and P2P share a row on wide screens — each is a short
+          card that used to stretch across the whole page. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
           <h3 className="font-bold text-base mb-2 flex items-center gap-2">
             <Share2 className="w-4 h-4 text-brand-500" />
@@ -887,28 +842,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             )}
           </div>
           {user.referralCount !== undefined && (
-            <div className="mt-3 grid grid-cols-2 gap-2 text-center">
-              <div className="p-2.5 rounded-xl bg-dark-900 border border-dark-800">
-                <span className="block text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-                  {lang === 'ru' ? 'Друзей' : 'Friends'}
-                </span>
-                <span className="text-base font-bold text-white mt-0.5 block">
-                  {user.referralCount}
-                </span>
-              </div>
-              <div className="p-2.5 rounded-xl bg-dark-900 border border-dark-800">
-                <span className="block text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
-                  {lang === 'ru' ? 'Заработано' : 'Earned'}
-                </span>
-                <span className="text-base font-bold text-brand-400 mt-0.5 block">
+            <div className="mt-3 flex items-center gap-4 text-xs text-slate-500">
+              <span>
+                {lang === 'ru' ? 'Друзей' : 'Friends'}:{' '}
+                <span className="font-bold text-white">{user.referralCount}</span>
+              </span>
+              <span>
+                {lang === 'ru' ? 'Заработано' : 'Earned'}:{' '}
+                <span className="font-bold text-brand-400">
                   ${((user.referralEarningsUsdtMicro || 0) / 1_000_000).toFixed(2)}
                 </span>
-              </div>
+              </span>
             </div>
           )}
         </div>
 
-      <P2pRelaySection lang={lang} />
+        <P2pRelaySection lang={lang} />
+      </div>
 
       <AccountSection lang={lang} user={user} onChanged={onRefreshUser} onDeleted={() => onLogout?.()} />
 

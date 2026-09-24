@@ -101,6 +101,20 @@ export const DownloadApp: React.FC<DownloadAppProps> = ({ lang, compact }) => {
   const loaded = release !== undefined;
   const failed = loaded && release === null;
 
+  const installNotes = (
+    <>
+      <div className="mt-3">
+        <p className="mb-1.5 text-[11px] font-semibold text-slate-400">{t.downloadMacTerminalLabel}</p>
+        <CopyCommand command={MAC_INSTALL_COMMAND} label={t.downloadCopyCommand} copiedLabel={t.copied} />
+        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">{t.downloadMacTerminalHint}</p>
+      </div>
+
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
+        {t.downloadUnsignedHint}
+      </p>
+    </>
+  );
+
   const body = (
     <>
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -139,15 +153,18 @@ export const DownloadApp: React.FC<DownloadAppProps> = ({ lang, compact }) => {
         </p>
       )}
 
-      <div className="mt-3">
-        <p className="mb-1.5 text-[11px] font-semibold text-slate-400">{t.downloadMacTerminalLabel}</p>
-        <CopyCommand command={MAC_INSTALL_COMMAND} label={t.downloadCopyCommand} copiedLabel={t.copied} />
-        <p className="mt-1.5 text-[11px] leading-relaxed text-slate-500">{t.downloadMacTerminalHint}</p>
-      </div>
-
-      <p className="mt-3 text-[11px] leading-relaxed text-slate-500">
-        {t.downloadUnsignedHint}
-      </p>
+      {compact ? (
+        // A signed-in user has usually installed the app already, so on the
+        // dashboard the install notes stay folded instead of taking half the card.
+        <details className="mt-3 group">
+          <summary className={`cursor-pointer select-none text-[11px] font-semibold text-slate-400 hover:text-slate-300 ${focusRing}`}>
+            {t.downloadInstallHelp}
+          </summary>
+          {installNotes}
+        </details>
+      ) : (
+        installNotes
+      )}
 
       {!compact && (
         <p className="mt-4 text-[11px] leading-relaxed text-slate-500">

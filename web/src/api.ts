@@ -1,4 +1,4 @@
-import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, RegionInfo, P2pRelayStatus } from './types';
+import { UserProfile, Tariff, Device, CryptoInvoice, InvoiceHistoryEntry, BalanceHistoryEntry, P2pRelayStatus } from './types';
 
 const TOKEN_KEY = 'vpn_auth_token';
 
@@ -329,20 +329,6 @@ export const api = {
     return data.links || [];
   },
 
-  /**
-   * Read-only informational listing (the web dashboard doesn't itself
-   * establish a tunnel, so it never sends `region` — that's a desktop/Android
-   * region-picker concern) — just lets a user glance at where nodes are and
-   * how busy they are before switching to a native client.
-   */
-  async getRegions(): Promise<RegionInfo[]> {
-    const res = await fetch('/api/v1/user/regions', {
-      headers: getAuthHeaders(),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.regions || [];
-  },
 
   /**
    * P2P relay consent/credit status (docs/research/P2P_RELAY_FEASIBILITY.md
