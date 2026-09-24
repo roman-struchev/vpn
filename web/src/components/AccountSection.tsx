@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { KeyRound, LifeBuoy, Smartphone, Trash2, UserCog } from 'lucide-react';
+import React, { useState } from 'react';
+import { KeyRound, Smartphone, Trash2, UserCog } from 'lucide-react';
 import { Lang, translations } from '../i18n';
 import { UserProfile } from '../types';
 import { api } from '../api';
-import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 /**
  * Everything about getting into this account and leaving it:
@@ -11,7 +10,6 @@ import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
  *   in Telegram, which has no password);
  * - email + password: change it, or add it to a Telegram/Google account so a
  *   forgotten password can be reset and the apps can be used with it;
- * - support;
  * - deleting the account (Google Play requires a way to do it).
  */
 export const AccountSection: React.FC<{
@@ -34,14 +32,6 @@ export const AccountSection: React.FC<{
 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  // The apps send people here for things only the site does (deleting the
-  // account): <site>/#account lands on this section, not the top of the page.
-  useEffect(() => {
-    if (window.location.hash.startsWith('#account')) {
-      document.getElementById('account')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  }, []);
 
   const getCode = async () => {
     setCodeError(null);
@@ -141,11 +131,7 @@ export const AccountSection: React.FC<{
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-dark-800">
-        <a href={SUPPORT_URL} target="_blank" rel="noreferrer"
-          className="inline-flex items-center gap-2 text-xs text-slate-300 hover:text-white">
-          <LifeBuoy className="w-4 h-4 text-brand-500" />
-          {t.supportLabel}: <span className="text-brand-500">{SUPPORT_HANDLE}</span>
-        </a>
+        <span />
         {!confirmDelete ? (
           <button onClick={() => setConfirmDelete(true)}
             className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-red-400">

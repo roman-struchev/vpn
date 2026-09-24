@@ -158,7 +158,6 @@ Google (`POST /api/v1/auth/google` принимает `idToken`, который 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
 | `VPN_PUBLIC_WEB_BASE_URL` | `https://vpn.struchev.site` | Публичный URL веб-кабинета для реферальных ссылок и SSO Handoff (`vpn.web.base-url`) |
-| `VPN_SUPPORT_TELEGRAM` | `struchev` | Telegram-аккаунт поддержки: бот (`/support`), заголовок `Support-Url` ссылки-подписки |
 | `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD` | пусто | SMTP для кодов сброса пароля на почту. Без него код приходит только в привязанный Telegram |
 | `VPN_MAIL_FROM` | пусто | Адрес отправителя писем (`MailService`) |
 | `VPN_WEB_HANDOFF_TTL_SECONDS` | `60` | Срок жизни одноразового кода для бесшовного перехода из мобильного/десктопного клиента в веб-биллинг (`vpn.web-handoff.ttl-seconds`) |

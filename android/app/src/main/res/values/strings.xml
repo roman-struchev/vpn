@@ -190,7 +190,7 @@
     <string name="reset_send_code">Прислать код</string>
     <string name="reset_code_hint">Код из 6 цифр</string>
     <string name="reset_new_password_hint">Новый пароль (от 6 символов)</string>
-    <string name="reset_code_sent">Если %1$s — ваш аккаунт, код уже отправлен. Введите его и новый пароль. Код не пришёл — поддержка @struchev.</string>
+    <string name="reset_code_sent">Если %1$s — ваш аккаунт, код уже отправлен. Введите его и новый пароль.</string>
     <string name="reset_save">Сохранить и войти</string>
     <string name="plan_inactive_trial_used_up">Пробный гигабайт закончился — выберите тариф</string>
     <string name="plan_inactive_traffic_used_up">Трафик закончился. Новый придёт %1$s — или купите тариф заново сейчас</string>
@@ -200,8 +200,6 @@
     <string name="plan_renewal_into">С %1$s — тариф «%2$s», с баланса</string>
     <string name="plan_renewal_short">%1$s продление спишет $%2$.2f — на балансе не хватает $%3$.2f. Пополните, иначе VPN отключится</string>
     <string name="profile_top_up">Пополнить баланс</string>
-    <string name="profile_row_support">Поддержка · @struchev</string>
     <string name="profile_row_privacy">Политика конфиденциальности</string>
     <string name="profile_row_terms">Условия использования</string>
-    <string name="profile_delete_account">Удалить аккаунт</string>
 </resources>

@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Lang, translations } from '../i18n';
 import { api } from '../api';
-import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 // Google Identity Services client ID (see web/src/vite-env.d.ts for how to
 // set VITE_GOOGLE_CLIENT_ID). Left blank in dev/CI on purpose — the button
@@ -226,12 +225,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               {loading ? '...' : resetStep === 'email' ? t.resetSendCode : t.resetSave}
             </button>
           </form>
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            {t.resetNoCodeHint}{' '}
-            <a href={SUPPORT_URL} target="_blank" rel="noreferrer" className="text-brand-500 hover:underline">
-              {SUPPORT_HANDLE}
-            </a>
-          </p>
           <div className="text-center pt-2 border-t border-dark-800">
             <button
               onClick={() => {

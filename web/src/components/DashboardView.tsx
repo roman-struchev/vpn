@@ -6,7 +6,6 @@ import {
   Check,
   Trash2,
   AlertCircle,
-  HelpCircle,
   Share2,
   QrCode,
   Sparkles,
@@ -846,9 +845,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Referral & Diagnostics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Referral */}
+      {/* Referral */}
         <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
           <h3 className="font-bold text-base mb-2 flex items-center gap-2">
             <Share2 className="w-4 h-4 text-brand-500" />
@@ -910,19 +907,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           )}
         </div>
-
-
-        {/* Diagnostics */}
-        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-800">
-          <h3 className="font-bold text-base mb-2 flex items-center gap-2">
-            <HelpCircle className="w-4 h-4 text-brand-500" />
-            <span>{t.diagnostics}</span>
-          </h3>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            {t.diagnosticsText}
-          </p>
-        </div>
-      </div>
 
       <P2pRelaySection lang={lang} />
 

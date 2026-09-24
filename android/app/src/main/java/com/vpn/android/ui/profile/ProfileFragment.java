@@ -68,13 +68,8 @@ public class ProfileFragment extends Fragment {
                 startActivity(com.vpn.android.ui.settings.SettingsActivity.intent(requireContext())));
         binding.p2pRelayButton.setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), P2pRelaySettingsActivity.class)));
-        binding.supportButton.setOnClickListener(v -> openUrl(SUPPORT_URL));
         binding.privacyButton.setOnClickListener(v -> openUrl(webUrl("/#privacy")));
         binding.termsButton.setOnClickListener(v -> openUrl(webUrl("/#terms")));
-        // Deleting happens on the site, signed in via the handoff, where the
-        // balance it forfeits is shown before confirming.
-        binding.deleteAccountButton.setOnClickListener(v ->
-                WebHandoffLauncher.launch(requireContext(), apiClient, binding.getRoot(), "/#account"));
 
         deviceAdapter = new DeviceAdapter(this::confirmRevoke);
         binding.devicesList.setLayoutManager(new LinearLayoutManager(requireContext()));
@@ -275,8 +270,6 @@ public class ProfileFragment extends Fragment {
      * and an account with no plan at all gets a "choose a plan" state instead
      * of a card full of blanks.
      */
-    private static final String SUPPORT_URL = "https://t.me/struchev";
-
     private static String webUrl(String path) {
         String base = BuildConfig.WEB_BASE_URL == null ? "" : BuildConfig.WEB_BASE_URL.trim();
         while (base.endsWith("/")) base = base.substring(0, base.length() - 1);

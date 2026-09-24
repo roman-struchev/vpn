@@ -4,7 +4,6 @@ import type { DeviceDto, TariffInfo, UserProfile } from '../types';
 import { t } from '../i18n';
 import { planSummary } from '../../../shared/planSummary';
 import { inactiveReasonText } from '../planText';
-import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 function formatBytes(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -282,20 +281,13 @@ export default function ProfilePage({
       {/* P2P Relay Mode */}
       <P2pRelaySection />
 
-      {/* Help & account — support, the documents, deleting the account (done
-          on the web dashboard, where the balance it forfeits is shown). */}
+      {/* The documents. Deleting the account is on the site only. */}
       <div className="rounded-2xl border border-dark-800/80 bg-dark-900 p-4 flex flex-col gap-2 text-xs">
-        <button className="text-left text-white/80 hover:text-white" onClick={() => void window.vpnApi.openExternal(SUPPORT_URL)}>
-          {t.supportLabel}: <span className="text-brand-400">{SUPPORT_HANDLE}</span>
-        </button>
         <button className="text-left text-white/60 hover:text-white" onClick={() => void openWeb('/#privacy')}>
           {t.privacyPolicy}
         </button>
         <button className="text-left text-white/60 hover:text-white" onClick={() => void openWeb('/#terms')}>
           {t.termsOfUse}
-        </button>
-        <button className="text-left text-white/40 hover:text-state-error" onClick={() => void openWeb('/#account')}>
-          {t.deleteAccountOnWeb}
         </button>
       </div>
 

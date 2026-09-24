@@ -32,7 +32,6 @@ test.describe('Plan states, subscription link, account', () => {
     const exportRes = await page.request.get(new URL(profile.subscriptionUrl).pathname);
     expect(exportRes.headers()['subscription-userinfo']).toContain('total=107374182400');
     expect(exportRes.headers()['subscription-userinfo']).not.toContain('expire=0');
-    expect(exportRes.headers()['support-url']).toBe('https://t.me/struchev');
 
     // Low traffic warning at 90%+.
     sql(`UPDATE subscriptions SET traffic_used_bytes = traffic_limit_bytes / 100 * 95

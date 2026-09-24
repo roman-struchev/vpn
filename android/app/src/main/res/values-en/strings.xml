@@ -180,7 +180,7 @@
     <string name="reset_send_code">Send code</string>
     <string name="reset_code_hint">6-digit code</string>
     <string name="reset_new_password_hint">New password (6+ characters)</string>
-    <string name="reset_code_sent">If %1$s is your account, a code is on its way. Enter it with a new password. No code? Support: @struchev.</string>
+    <string name="reset_code_sent">If %1$s is your account, a code is on its way. Enter it with a new password.</string>
     <string name="reset_save">Save and sign in</string>
     <string name="plan_inactive_trial_used_up">Your free gigabyte is used up — choose a plan</string>
     <string name="plan_inactive_traffic_used_up">Out of traffic. New traffic arrives %1$s — or buy the plan again now</string>
@@ -190,8 +190,6 @@
     <string name="plan_renewal_into">From %1$s: %2$s, from your balance</string>
     <string name="plan_renewal_short">On %1$s renewal charges $%2$.2f — your balance is $%3$.2f short. Top up, or the VPN stops</string>
     <string name="profile_top_up">Top up balance</string>
-    <string name="profile_row_support">Support · @struchev</string>
     <string name="profile_row_privacy">Privacy Policy</string>
     <string name="profile_row_terms">Terms of Use</string>
-    <string name="profile_delete_account">Delete account</string>
 </resources>

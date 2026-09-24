@@ -33,9 +33,6 @@ public class CurrentPlanService {
     @Value("${vpn.public.web-base-url:https://vpn.struchev.site}")
     private String publicWebBaseUrl = "https://vpn.struchev.site";
 
-    @Value("${vpn.support.telegram:struchev}")
-    private String supportTelegram = "struchev";
-
     public CurrentPlanService(SubscriptionRepository subscriptionRepository) {
         this.subscriptionRepository = subscriptionRepository;
     }
@@ -73,11 +70,6 @@ public class CurrentPlanService {
      */
     public String subscriptionUrl(User user) {
         return webBaseUrl() + "/api/v1/subscription/export/" + user.getSubscriptionToken();
-    }
-
-    /** Where a user asks for help: the support Telegram account. */
-    public String supportUrl() {
-        return "https://t.me/" + supportTelegram.trim().replaceFirst("^@", "");
     }
 
     public String webBaseUrl() {

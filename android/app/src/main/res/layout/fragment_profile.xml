@@ -253,21 +253,6 @@
             android:background="?attr/colorOutlineVariant" />
 
         <TextView
-            android:id="@+id/supportButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:paddingTop="14dp"
-            android:paddingBottom="14dp"
-            android:text="@string/profile_row_support"
-            android:textAppearance="?attr/textAppearanceBodyLarge" />
-
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="?attr/colorOutlineVariant" />
-
-        <TextView
             android:id="@+id/privacyButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -305,19 +290,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="4dp"
-            android:text="@string/profile_logout" />
-
-        <!-- Google Play requires a way to delete the account from the app;
-             it opens the site's Account section, where the balance it
-             forfeits is shown before confirming. -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/deleteAccountButton"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
             android:layout_marginBottom="24dp"
-            android:textColor="?android:attr/textColorSecondary"
-            android:text="@string/profile_delete_account" />
+            android:text="@string/profile_logout" />
     </LinearLayout>
 </ScrollView>

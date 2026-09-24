@@ -1,7 +1,6 @@
 import React from 'react';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { Lang } from '../i18n';
-import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 export type LegalDoc = 'privacy' | 'terms';
 
@@ -66,7 +65,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
         },
         {
           heading: '6. Контакты',
-          body: ['Вопросы о данных — в поддержку в Telegram: ' + SUPPORT_HANDLE + '.'],
+          body: ['Вопросы о данных — через ссылку «Поддержка» внизу страницы.'],
         },
       ],
     },
@@ -91,7 +90,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
         { heading: '3. Why', body: ['To provide the VPN, count traffic and payments, protect the account, and fix bugs. Data is not sold or shared for advertising.'] },
         { heading: '4. Third parties', body: ['Telegram (sign-in, notifications, Stars payments), Google (sign-in), the TRON and Ethereum networks (USDT payments — public by nature), GitHub (app downloads).'] },
         { heading: '5. Deletion', body: ['Delete your account in the web dashboard (Account section). Email, password, Telegram and Google links, devices and keys are removed; the subscription link stops working. Payment records remain in anonymised form for accounting. Any remaining balance is forfeited.'] },
-        { heading: '6. Contact', body: ['Questions about your data: support on Telegram, ' + SUPPORT_HANDLE + '.'] },
+        { heading: '6. Contact', body: ['Questions about your data: use the Support link at the bottom of the page.'] },
       ],
     },
   },
@@ -136,7 +135,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
         },
         {
           heading: '6. Поддержка',
-          body: ['Поддержка — в Telegram: ' + SUPPORT_HANDLE + '.'],
+          body: ['Ссылка «Поддержка» — внизу страницы.'],
         },
       ],
     },
@@ -158,7 +157,7 @@ const DOCS: Record<LegalDoc, Record<Lang, Content>> = {
         },
         { heading: '4. Rules', body: ['Do not use the service for attacks, spam, malware or other unlawful activity, or share your subscription link with others. Violations may lead to the account being blocked.', 'You are responsible for complying with the laws of the country you are in.'] },
         { heading: '5. Account', body: ['You can delete your account at any time in the dashboard; any remaining balance is forfeited.'] },
-        { heading: '6. Support', body: ['Support on Telegram: ' + SUPPORT_HANDLE + '.'] },
+        { heading: '6. Support', body: ['The Support link is at the bottom of the page.'] },
       ],
     },
   },
@@ -193,11 +192,6 @@ export const LegalPage: React.FC<{ doc: LegalDoc; lang: Lang; onBack: () => void
           ))}
         </section>
       ))}
-      <p className="text-sm text-slate-400">
-        <a href={SUPPORT_URL} target="_blank" rel="noreferrer" className="text-brand-500 hover:underline">
-          {SUPPORT_HANDLE}
-        </a>
-      </p>
     </div>
   );
 };

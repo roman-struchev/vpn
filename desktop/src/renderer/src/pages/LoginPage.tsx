@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { t } from '../i18n';
 import { classifyLoginError } from '../../../shared/loginError';
-import { SUPPORT_HANDLE, SUPPORT_URL } from '../support';
 
 /** The server's English prose (behind Electron's IPC prefix) as a message in the app's language. */
 function loginErrorText(e: unknown): string {
@@ -169,12 +168,6 @@ export default function LoginPage({
         >
           {mode === 'code' ? t.login : resetSent ? t.resetSave : t.resetSendCode}
         </button>
-        <p className="text-center text-[11px] text-white/40">
-          {t.needHelp}{' '}
-          <button className="text-brand-500 hover:underline" onClick={() => void window.vpnApi.openExternal(SUPPORT_URL)}>
-            {SUPPORT_HANDLE}
-          </button>
-        </p>
         {error && <p className="text-center text-sm text-state-error">{error}</p>}
       </div>
     );

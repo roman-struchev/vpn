@@ -167,8 +167,6 @@ public class TelegramBotService {
             sendPlansMenu(chatId, user);
         } else if (text.equalsIgnoreCase("/login")) {
             sendAppLoginCode(chatId, user);
-        } else if (text.equalsIgnoreCase("/support") || text.equalsIgnoreCase("/help")) {
-            sendSupport(chatId);
         } else {
             sendWelcomeMessage(chatId, user);
         }
@@ -203,8 +201,6 @@ public class TelegramBotService {
             sendPlansMenu(chatId, user);
         } else if ("cmd_login".equals(data)) {
             sendAppLoginCode(chatId, user);
-        } else if ("cmd_support".equals(data)) {
-            sendSupport(chatId);
         } else if (data.startsWith("buy:")) {
             buyPlan(chatId, user, data.substring("buy:".length()));
         } else if (data.startsWith("next:")) {
@@ -348,8 +344,7 @@ public class TelegramBotService {
         Optional<User> existingTelegramUser = userRepository.findByTelegramId(telegramId);
         if (existingTelegramUser.isPresent() && !existingTelegramUser.get().getId().equals(targetUser.getId())) {
             sendTextMessage(chatId,
-                    "⚠️ <b>Этот Telegram-аккаунт уже привязан к другому аккаунту.</b>\n\n" +
-                    "Если это ошибка, напишите в поддержку: /support",
+                    "⚠️ <b>Этот Telegram-аккаунт уже привязан к другому аккаунту.</b>",
                     null);
             return;
         }
@@ -408,8 +403,7 @@ public class TelegramBotService {
                                 Map.of("text", "🔍 Диагностика", "callback_data", "cmd_diag")
                         ),
                         List.of(
-                                Map.of("text", "🌐 Открыть веб-кабинет", "web_app", Map.of("url", miniAppUrl)),
-                                Map.of("text", "💬 Поддержка", "url", currentPlanService.supportUrl())
+                                Map.of("text", "🌐 Открыть веб-кабинет", "web_app", Map.of("url", miniAppUrl))
                         )
                 )
         );
@@ -539,11 +533,6 @@ public class TelegramBotService {
         sendTextMessage(chatId, "📱 Код для входа в приложение: <code>" + code + "</code>\n\n"
                 + "В приложении нажмите «Войти по коду из Telegram» и введите его. Код действует 10 минут и работает один раз.\n"
                 + "Скачать приложение: " + currentPlanService.webBaseUrl(), null);
-    }
-
-    private void sendSupport(long chatId) {
-        sendTextMessage(chatId, "💬 Поддержка: " + currentPlanService.supportUrl().replace("https://t.me/", "@")
-                + "\nНапишите, что случилось, и с какого устройства — ответим там.", null);
     }
 
     private void sendBalanceMenu(long chatId, User user) {
