@@ -118,6 +118,12 @@ export function App() {
   };
 
   useEffect(() => {
+    const onHashChange = () => {
+      setShowAdmin(window.location.hash.startsWith('#admin'));
+      setShowP2pTerms(window.location.hash.startsWith('#p2p-terms'));
+      setLegalDoc(legalFromHash());
+      if (legalFromHash()) window.scrollTo(0, 0);
+    };
     (async () => {
       if (handoff) {
         try {
@@ -134,6 +140,10 @@ export function App() {
         // outcome — it's single-use, so leaving it there just risks a
         // confusing "expired code" retry on refresh.
         history.replaceState(null, '', handoff.next);
+        // replaceState fires no hashchange, and the pages above were picked
+        // from the URL as it was before (no hash) — so next=/#privacy used to
+        // land on the dashboard instead of the policy.
+        onHashChange();
       }
       // `loading` is already true (initial state) at this point, so the
       // loading screen below covers the handoff exchange too — no separate
@@ -141,12 +151,6 @@ export function App() {
       await initApp();
     })();
 
-    const onHashChange = () => {
-      setShowAdmin(window.location.hash.startsWith('#admin'));
-      setShowP2pTerms(window.location.hash.startsWith('#p2p-terms'));
-      setLegalDoc(legalFromHash());
-      if (legalFromHash()) window.scrollTo(0, 0);
-    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);

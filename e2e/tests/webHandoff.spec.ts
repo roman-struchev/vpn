@@ -123,4 +123,31 @@ test.describe('Client -> web SSO handoff', () => {
       await freshPage.close();
     });
   });
+
+  test('a "next" pointing at a hash page (the clients\' Privacy/Terms links) opens that page, not the dashboard', async ({ page }) => {
+    await registerAndLogin(page, uniqueEmail());
+    const token = await page.evaluate(() => localStorage.getItem('vpn_auth_token'));
+
+    for (const [hash, title] of [
+      ['#privacy', 'Политика конфиденциальности'],
+      ['#terms', 'Условия использования'],
+    ] as const) {
+      const mintRes = await page.request.post('/api/v1/auth/web-handoff', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(mintRes.ok(), await mintRes.text()).toBeTruthy();
+      const { code } = await mintRes.json();
+
+      const freshPage = await page.context().browser()!.newPage();
+      await freshPage.goto(`/?handoff_code=${code}&next=${encodeURIComponent('/' + hash)}`);
+
+      // The URL switched to /#privacy via replaceState (no hashchange), and
+      // the page used to stay on the dashboard it had picked before that.
+      await expect(freshPage.getByRole('heading', { level: 1, name: title })).toBeVisible({ timeout: 10_000 });
+      expect(new URL(freshPage.url()).hash).toBe(hash);
+      await expect(freshPage.getByText('Нет активной подписки')).toHaveCount(0);
+
+      await freshPage.close();
+    }
+  });
 });
