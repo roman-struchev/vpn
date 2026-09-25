@@ -58,6 +58,11 @@ export function registerIpcHandlers(
   });
   ipcMain.handle('auth:logout', async () => {
     void vpn.disconnect();
+    // Relay mode belongs to the account that turned it on. Logging out only
+    // cleared its saved mode, so the running agent kept relaying — and being
+    // credited to — the previous account until the app quit, with the
+    // login item it enables still set. OFF stops both.
+    await relayManager.setMode('OFF', null).catch((err) => console.warn('[p2p relay] stop on logout failed', err));
     await apiClient.logout();
   });
 
