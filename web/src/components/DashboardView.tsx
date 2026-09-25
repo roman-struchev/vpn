@@ -24,9 +24,9 @@ import { AccountSection } from './AccountSection';
 // a bare date ("04.12.2027") reads as if it's good until midnight/end-of-day,
 // when it might really lapse at 09:14. Showing the time removes that
 // ambiguity for every client that renders this same expiresAt value.
-function formatExpiresAt(iso: string): string {
+function formatExpiresAt(iso: string, locale: string): string {
   const d = new Date(iso);
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+  return `${d.toLocaleDateString(locale)} ${d.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 interface DashboardViewProps {
@@ -62,6 +62,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   highlightTariffId,
 }) => {
   const t = translations[lang];
+  // Dates follow the site's language, not the browser's: a Russian page
+  // in an English browser used to say "10/24/2026 09:44 PM".
+  const locale = lang === 'ru' ? 'ru-RU' : 'en-US';
 
   const [devices, setDevices] = useState<Device[]>([]);
   const [links, setLinks] = useState<string[]>([]);
@@ -352,7 +355,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     sub && !isExhausted && currentTariff && currentTariff.monthlyPriceUsdtMicro > 0 && !sub.noExpiry
       ? currentTariff
       : null;
-  const periodEndDate = sub ? new Date(sub.expiresAt).toLocaleDateString() : '';
+  const periodEndDate = sub ? new Date(sub.expiresAt).toLocaleDateString(locale) : '';
   // Renewal is paid from the balance; when it's short the VPN just stops at
   // the end of the period, so say so while there's still time to top up.
   const renewalPriceMicro = sub?.renewalPriceUsdtMicro ?? 0;
@@ -380,7 +383,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // When a spent plan gets traffic again by itself: an annual plan's next
   // month, else the end of the period (renewal).
   const refillDate = sub
-    ? new Date(sub.trafficResetAt && sub.trafficResetAt < sub.expiresAt ? sub.trafficResetAt : sub.expiresAt).toLocaleDateString()
+    ? new Date(sub.trafficResetAt && sub.trafficResetAt < sub.expiresAt ? sub.trafficResetAt : sub.expiresAt).toLocaleDateString(locale)
     : '';
   const cheapestPaidMicro = tariffs
     .filter((tf) => tf.monthlyPriceUsdtMicro > 0)
@@ -451,7 +454,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
             {sub && (
               <p className="text-xs text-slate-400 mt-1">
-                {t.expiresAt}: {sub.noExpiry ? t.expiresNever : formatExpiresAt(sub.expiresAt)}
+                {t.expiresAt}: {sub.noExpiry ? t.expiresNever : formatExpiresAt(sub.expiresAt, locale)}
+                {sub.overrideExpiresAt && (
+                  <span className="block text-amber-300/80">
+                    {t.temporaryPlanUntil.replace('{plan}', sub.tariffId.toUpperCase())} {formatExpiresAt(sub.overrideExpiresAt, locale)}
+                  </span>
+                )}
               </p>
             )}
             {inactiveMessage && (
@@ -494,7 +502,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-[12rem] space-y-1">
                   <p>
-                    {t.renewalShortfall
+                    {/* With a cheaper plan scheduled, the charge is that plan's
+                        price — say so, or $1 under a Pro badge reads as a mistake. */}
+                    {(nextTariffName ? t.renewalShortfallInto.replace('{plan}', nextTariffName) : t.renewalShortfall)
                       .replace('{date}', periodEndDate)
                       .replace('{price}', usd(renewalPriceMicro))
                       .replace('{balance}', usd(user.balanceUsdtMicro))
@@ -595,7 +605,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="flex items-baseline gap-2 min-w-0 truncate">
                   <h4 className="text-xs font-semibold truncate">{d.deviceName}</h4>
                   <span className="text-[10px] uppercase tracking-wider text-slate-500 whitespace-nowrap">
-                    {d.platform} · {new Date(d.createdAt).toLocaleDateString()}
+                    {d.platform} · {new Date(d.createdAt).toLocaleDateString(locale)}
                   </span>
                 </div>
                 <button
@@ -887,7 +897,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </span>
                       <span className="text-slate-500 ml-2 truncate">{entry.description}</span>
                     </div>
-                    <span className="text-slate-500 shrink-0">{new Date(entry.createdAt).toLocaleDateString()}</span>
+                    <span className="text-slate-500 shrink-0">{new Date(entry.createdAt).toLocaleDateString(locale)}</span>
                   </div>
                 );
               }
@@ -933,7 +943,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <span className="text-slate-500 ml-2">{inv.chain}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-slate-500">{new Date(inv.createdAt).toLocaleDateString()}</span>
+                    <span className="text-slate-500">{new Date(inv.createdAt).toLocaleDateString(locale)}</span>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusClass}`}>
                       {statusLabel}
                     </span>
