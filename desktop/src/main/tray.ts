@@ -1,7 +1,12 @@
-import { app, Menu, nativeImage, Tray } from 'electron';
+import { app, Menu, nativeImage, Notification, Tray, type MenuItemConstructorOptions } from 'electron';
 import path from 'node:path';
 import type { ConnectionState } from '../shared/connectionState';
+import type { ApiClient } from './api/apiClient';
+import type { RelayMode } from './p2p/relayAgent';
+import { RELAY_UNSUPPORTED_PREFIX, type RelayManager } from './p2p/relayManager';
 import type { VpnController } from './vpn/vpnController';
+
+const HOUR_MS = 60 * 60 * 1000;
 
 const APP_NAME = 'Aura VPN'; // matches the BrowserWindow title set in index.ts
 
@@ -60,6 +65,18 @@ const L = {
     disconnect: 'Отключить',
     open: (name: string) => `Открыть ${name}`,
     quit: 'Выйти',
+    p2pOff: 'P2P-раздача: выключена',
+    p2pAlways: 'P2P-раздача: включена всегда',
+    p2pUntil: (time: string) => `P2P-раздача: включена до ${time}`,
+    p2pUnsupported: 'P2P-раздача: не поддерживается в этой сети',
+    p2pSetOff: 'Выключить',
+    p2p1h: 'На 1 час',
+    p2p8h: 'На 8 часов',
+    p2pSetAlways: 'Всегда',
+    p2pInApp: 'Включить P2P-раздачу в приложении…',
+    p2pUnsupportedTitle: 'С этой сети раздача не поддерживается',
+    p2pUnsupportedBody:
+      'Провайдер не пропускает прямые подключения к устройству. С другой сети — например, домашнего Wi‑Fi — раздача может работать.',
   },
   en: {
     status: {
@@ -74,6 +91,18 @@ const L = {
     disconnect: 'Disconnect',
     open: (name: string) => `Open ${name}`,
     quit: 'Quit',
+    p2pOff: 'P2P relaying: off',
+    p2pAlways: 'P2P relaying: always on',
+    p2pUntil: (time: string) => `P2P relaying: on until ${time}`,
+    p2pUnsupported: 'P2P relaying: not supported on this network',
+    p2pSetOff: 'Turn off',
+    p2p1h: 'For 1 hour',
+    p2p8h: 'For 8 hours',
+    p2pSetAlways: 'Always',
+    p2pInApp: 'Turn on P2P relaying in the app…',
+    p2pUnsupportedTitle: 'Relaying isn’t supported on this network',
+    p2pUnsupportedBody:
+      'Your provider doesn’t let direct connections reach this device. On another network — home Wi‑Fi, say — relaying may work.',
   },
 }[LANG];
 
@@ -95,6 +124,50 @@ function loadIcon(state: ConnectionState) {
   return image;
 }
 
+export type TrayStrings = typeof L;
+
+export interface RelayModeView {
+  mode: RelayMode;
+  expiresAtEpochMs: number | null;
+  durationMs: number | null;
+  unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
+}
+
+/** The status line for the relay, also used in the tooltip. */
+export function p2pStatusLine(m: RelayModeView, s: TrayStrings = L): string {
+  if (m.unsupportedNetwork && m.mode === 'OFF') return s.p2pUnsupported;
+  if (m.mode === 'ALWAYS') return s.p2pAlways;
+  if (m.mode === 'TIMED' && m.expiresAtEpochMs) {
+    return s.p2pUntil(new Date(m.expiresAtEpochMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+  }
+  return s.p2pOff;
+}
+
+/**
+ * The relay part of the tray menu: its status, and the same four choices as
+ * the in-app section. Where this account can't relay yet (a guest, or terms
+ * not accepted — the consent belongs in the window), one item opens the app.
+ */
+export function p2pMenuItems(
+  m: RelayModeView,
+  canRelayFromTray: boolean,
+  actions: { setMode: (mode: RelayMode, durationMs?: number) => void; openApp: () => void },
+  s: TrayStrings = L
+): MenuItemConstructorOptions[] {
+  const status: MenuItemConstructorOptions = { label: p2pStatusLine(m, s), enabled: false };
+  if (!canRelayFromTray) {
+    return [status, { label: s.p2pInApp, click: () => actions.openApp() }];
+  }
+  const timed = (hours: number) => m.mode === 'TIMED' && (m.durationMs ?? 0) === hours * HOUR_MS;
+  return [
+    status,
+    { label: s.p2pSetOff, type: 'radio', checked: m.mode === 'OFF', click: () => actions.setMode('OFF') },
+    { label: s.p2p1h, type: 'radio', checked: timed(1), click: () => actions.setMode('TIMED', HOUR_MS) },
+    { label: s.p2p8h, type: 'radio', checked: timed(8), click: () => actions.setMode('TIMED', 8 * HOUR_MS) },
+    { label: s.p2pSetAlways, type: 'radio', checked: m.mode === 'ALWAYS', click: () => actions.setMode('ALWAYS') },
+  ];
+}
+
 export interface TrayHandle {
   tray: Tray;
   destroy: () => void;
@@ -103,9 +176,17 @@ export interface TrayHandle {
 /**
  * @param showMainWindow shows/focuses the main window, creating one if needed (index.ts owns window creation).
  */
-export function createAppTray(vpn: VpnController, showMainWindow: () => void): TrayHandle {
+export function createAppTray(
+  vpn: VpnController,
+  showMainWindow: () => void,
+  relayManager: RelayManager,
+  apiClient: ApiClient
+): TrayHandle {
   let state: ConnectionState = vpn.getState();
   let region: string | null = null;
+  // Whether relaying can be switched from here — refreshed on every menu
+  // open (a guest, a signed-out app, or terms not yet accepted can't).
+  let canRelayFromTray = false;
 
   const tray = new Tray(loadIcon(state));
   applyTooltip();
@@ -125,8 +206,30 @@ export function createAppTray(vpn: VpnController, showMainWindow: () => void): T
     void toggleConnection();
   });
   tray.on('right-click', () => {
-    tray.popUpContextMenu(buildMenu());
+    // A quick status check first, capped so the menu never waits long.
+    void Promise.race([
+      apiClient
+        .getP2pRelayStatus()
+        .then((st) => (canRelayFromTray = !st.isGuest && st.termsAccepted))
+        .catch(() => (canRelayFromTray = false)),
+      new Promise((r) => setTimeout(r, 1500)),
+    ]).then(() => tray.popUpContextMenu(buildMenu()));
   });
+
+  function setRelayMode(mode: RelayMode, durationMs?: number): void {
+    const expiresAt = durationMs ? Date.now() + durationMs : null;
+    relayManager.setMode(mode, expiresAt, durationMs).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.startsWith(RELAY_UNSUPPORTED_PREFIX)) {
+        if (Notification.isSupported()) {
+          new Notification({ title: L.p2pUnsupportedTitle, body: L.p2pUnsupportedBody }).show();
+        }
+        return;
+      }
+      console.warn('[tray] relay mode change failed', err);
+      showMainWindow();
+    });
+  }
 
   function toggleConnection(): Promise<void> {
     return state === 'CONNECTED' || state === 'CONNECTING' || state === 'RECONNECTING'
@@ -136,7 +239,8 @@ export function createAppTray(vpn: VpnController, showMainWindow: () => void): T
 
   function applyTooltip(): void {
     const statusLine = L.status[state];
-    tray.setToolTip(region ? `${APP_NAME} — ${statusLine} (${region})` : `${APP_NAME} — ${statusLine}`);
+    const vpnLine = region ? `${APP_NAME} — ${statusLine} (${region})` : `${APP_NAME} — ${statusLine}`;
+    tray.setToolTip(`${vpnLine}\n${p2pStatusLine(relayManager.getMode())}`);
   }
 
   function buildMenu(): Menu {
@@ -148,6 +252,8 @@ export function createAppTray(vpn: VpnController, showMainWindow: () => void): T
         label: isActive ? L.disconnect : L.connect,
         click: () => void toggleConnection(),
       },
+      { type: 'separator' },
+      ...p2pMenuItems(relayManager.getMode(), canRelayFromTray, { setMode: setRelayMode, openApp: showMainWindow }),
       { type: 'separator' },
       { label: L.open(APP_NAME), click: () => showMainWindow() },
       { type: 'separator' },
@@ -166,12 +272,15 @@ export function createAppTray(vpn: VpnController, showMainWindow: () => void): T
   };
   vpn.on('state', onState);
   vpn.on('region', onRegion);
+  const onRelayMode = (): void => applyTooltip();
+  relayManager.on('modeChanged', onRelayMode);
 
   return {
     tray,
     destroy: () => {
       vpn.off('state', onState);
       vpn.off('region', onRegion);
+      relayManager.off('modeChanged', onRelayMode);
       tray.destroy();
     },
   };
