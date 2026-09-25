@@ -23,6 +23,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG_CONNECT = "connect";
     private static final String TAG_PROFILE = "profile";
+    /** Open on the profile tab — where the P2P relay row is (its notification links here). */
+    public static final String EXTRA_OPEN_PROFILE = "com.vpn.android.extra.OPEN_PROFILE";
 
     private ActivityMainBinding binding;
 
@@ -50,6 +52,21 @@ public class MainActivity extends AppCompatActivity {
             }
             return false;
         });
+        openProfileIfAsked(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        openProfileIfAsked(intent);
+    }
+
+    /** Via the nav, so its selected item and the shown tab agree. */
+    private void openProfileIfAsked(android.content.Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(EXTRA_OPEN_PROFILE, false)) return;
+        intent.removeExtra(EXTRA_OPEN_PROFILE);
+        binding.bottomNav.setSelectedItemId(R.id.nav_profile);
     }
 
     @Override
