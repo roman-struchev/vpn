@@ -34,4 +34,14 @@ class SubscriptionUserInfoTest {
         assertEquals("upload=0; download=123; total=1073741824; expire=0",
                 SubscriptionController.userInfo(sub("trial", Instant.now().plus(36_500, ChronoUnit.DAYS))));
     }
+
+    @Test
+    void aTemporaryTariffOnATrialStillHasNoEndDate() {
+        Subscription s = sub("trial", Instant.now().plus(36_500, ChronoUnit.DAYS));
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        s.setOverrideTariff(pro);
+        s.setOverrideExpiresAt(Instant.now().plus(7, ChronoUnit.DAYS));
+        assertEquals("upload=0; download=123; total=1073741824; expire=0", SubscriptionController.userInfo(s));
+    }
 }

@@ -36,6 +36,8 @@ export interface UserProfile {
     expiresAt: string;
     /** No real end date — the server still sends a far-future expiresAt, which read as "2126". */
     noExpiry?: boolean;
+    /** A temporary (admin-granted) tariff is shown in tariffId until then; the own plan follows. */
+    overrideExpiresAt?: string | null;
     /** Renewed from the balance when the period ends. Absent on an older server. */
     autoRenew?: boolean;
     /** Cheaper plan scheduled to start when the period ends (null = same plan renews). */

@@ -153,11 +153,16 @@ public class UserController {
             m.put("trafficUsedBytes", s.getTrafficUsedBytes());
             m.put("trafficLimitBytes", s.getTrafficLimitBytes());
             m.put("expiresAt", s.getEffectiveExpiresAt().toString());
-            // Trial has no real time limit (traffic quota is the only cap) —
-            // true only when no temporary tariff override is masking it with
-            // a real near-term expiry. Lets clients show "no time limit"
-            // instead of the ~100-years-out sentinel date.
-            m.put("noExpiry", s.getOverrideTariff() == null && s.hasNoExpiry());
+            // Trial has no real time limit (traffic quota is the only cap), so
+            // clients show "no time limit" instead of the ~100-years-out
+            // sentinel date. An override only ever extends access, so it does
+            // not change this — it used to, and a trial with a temporary Pro
+            // showed "until 2126".
+            m.put("noExpiry", s.hasNoExpiry());
+            // When a temporary (admin-granted) tariff ends and the plan falls
+            // back to its own; null when there is none.
+            java.time.Instant overrideEnds = s.getActiveOverrideExpiresAt();
+            m.put("overrideExpiresAt", overrideEnds != null ? overrideEnds.toString() : null);
             // What happens when the period ends: renewed from the balance
             // (autoRenew), into nextTariffId if a cheaper plan was scheduled.
             m.put("autoRenew", Boolean.TRUE.equals(s.getAutoRenew()));

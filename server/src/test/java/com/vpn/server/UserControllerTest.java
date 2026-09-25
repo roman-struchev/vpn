@@ -512,4 +512,57 @@ class UserControllerTest {
         assertEquals("EXPIRED", body.get("inactiveReason"));
         assertNull(body.get("subscription"));
     }
+
+    @Test
+    void testATemporaryTariffOnATrialNeverShowsTheSentinelDate() {
+        User user = new User();
+        user.setId(10L);
+        com.vpn.server.entity.Tariff trial = new com.vpn.server.entity.Tariff();
+        trial.setId("trial");
+        com.vpn.server.entity.Tariff pro = new com.vpn.server.entity.Tariff();
+        pro.setId("pro");
+        java.time.Instant overrideEnds = java.time.Instant.now().plus(7, java.time.temporal.ChronoUnit.DAYS);
+        com.vpn.server.entity.Subscription sub = new com.vpn.server.entity.Subscription();
+        sub.setId(6L);
+        sub.setUser(user);
+        sub.setTariff(trial);
+        sub.setStatus("ACTIVE");
+        sub.setTrafficLimitBytes(100L);
+        sub.setCurrentPeriodEnd(java.time.Instant.now().plus(36_500, java.time.temporal.ChronoUnit.DAYS));
+        sub.setOverrideTariff(pro);
+        sub.setOverrideExpiresAt(overrideEnds);
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+
+        Map<?, ?> body = (Map<?, ?>) userController.getProfile(auth).getBody();
+        Map<?, ?> m = (Map<?, ?>) body.get("subscription");
+        assertEquals("pro", m.get("tariffId"));
+        assertEquals(true, m.get("noExpiry"), "access never ends: the trial underneath has no end");
+        assertEquals(overrideEnds.toString(), m.get("overrideExpiresAt"));
+    }
+
+    @Test
+    void testNoTemporaryTariffMeansNoOverrideDate() {
+        User user = new User();
+        user.setId(10L);
+        com.vpn.server.entity.Tariff basic = new com.vpn.server.entity.Tariff();
+        basic.setId("basic");
+        com.vpn.server.entity.Subscription sub = new com.vpn.server.entity.Subscription();
+        sub.setId(7L);
+        sub.setUser(user);
+        sub.setTariff(basic);
+        sub.setStatus("ACTIVE");
+        sub.setTrafficLimitBytes(100L);
+        sub.setCurrentPeriodEnd(java.time.Instant.now().plus(20, java.time.temporal.ChronoUnit.DAYS));
+
+        when(userRepository.findById(10L)).thenReturn(Optional.of(user));
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(10L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+
+        Map<?, ?> m = (Map<?, ?>) ((Map<?, ?>) userController.getProfile(auth).getBody()).get("subscription");
+        assertEquals(false, m.get("noExpiry"));
+        assertNull(m.get("overrideExpiresAt"));
+    }
 }

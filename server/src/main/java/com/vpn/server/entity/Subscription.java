@@ -198,6 +198,14 @@ public class Subscription {
      * override is meant to extend access, never to cut a still-running real
      * period short, so this is a max, not a plain override).
      */
+    /** When a still-running admin-granted override ends, else null. */
+    public Instant getActiveOverrideExpiresAt() {
+        if (overrideTariff != null && overrideExpiresAt != null && overrideExpiresAt.isAfter(Instant.now())) {
+            return overrideExpiresAt;
+        }
+        return null;
+    }
+
     public Instant getEffectiveExpiresAt() {
         if (overrideTariff != null && overrideExpiresAt != null && overrideExpiresAt.isAfter(currentPeriodEnd)) {
             return overrideExpiresAt;

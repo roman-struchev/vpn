@@ -433,7 +433,7 @@ public class TelegramBotService {
 
         double usedGb = sub.getTrafficUsedBytes() / (1024.0 * 1024 * 1024);
         double limitGb = sub.getTrafficLimitBytes() / (1024.0 * 1024 * 1024);
-        boolean noExpiry = sub.getOverrideTariff() == null && sub.hasNoExpiry();
+        boolean noExpiry = sub.hasNoExpiry();
 
         sb.append("🛡 <b>Ваш тариф: ").append(sub.getEffectiveTariff().getName()).append("</b>\n\n");
         if (CurrentPlanService.TRIAL_USED_UP.equals(reason)) {
