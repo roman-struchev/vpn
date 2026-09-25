@@ -1,4 +1,5 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
+import { execFileSync } from 'node:child_process';
 
 /**
  * Access-control and error-shape checks across account boundaries.
@@ -14,6 +15,13 @@ import { test, expect, APIRequestContext } from '@playwright/test';
  * API-only: no page is opened, so this runs against whatever E2E_BASE_URL
  * points at (the web dev server proxies /api to the same backend).
  */
+
+// The backend directly (server-level answers), not the web dev server.
+const API_URL = process.env.E2E_API_URL || 'http://localhost:8080';
+
+function psql(statement: string): void {
+  execFileSync('docker', ['exec', 'vpn-postgres', 'psql', '-U', 'vpn_user', '-d', 'vpn_db', '-c', statement]);
+}
 
 const uniqueEmail = (tag: string) => `e2e-${tag}-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
 const PASSWORD = 'E2ePassw0rd!';
@@ -141,14 +149,23 @@ test.describe('guest (device-trial) accounts', () => {
   });
 
   test('a guest still gets a working trial: regions and subscription links', async ({ request }) => {
-    const res = await request.post('/api/v1/auth/device', {
-      data: { deviceUuid: `e2e-guest-trial-${Date.now()}`, platform: 'ANDROID' },
-    });
-    const token = (await res.json()).token;
+    // Its own online trial node: the regions list is only as long as the
+    // node table, which in a fresh environment is empty.
+    const hostname = `e2e-trial-node-${Date.now()}`;
+    psql(`INSERT INTO nodes (hostname, public_ip, status, pool, type, region, available_to_trial, available_to_paid, last_heartbeat_at)
+          VALUES ('${hostname}', '198.51.100.77', 'ONLINE', 'trial', 'direct', 'E2E Land', true, true, now())`);
+    try {
+      const res = await request.post('/api/v1/auth/device', {
+        data: { deviceUuid: `e2e-guest-trial-${Date.now()}`, platform: 'ANDROID' },
+      });
+      const token = (await res.json()).token;
 
-    const regions = await request.get('/api/v1/user/regions', { headers: authed(token) });
-    expect(regions.status()).toBe(200);
-    expect((await regions.json()).regions.length, 'a trial must see at least one region').toBeGreaterThan(0);
+      const regions = await request.get('/api/v1/user/regions', { headers: authed(token) });
+      expect(regions.status()).toBe(200);
+      expect((await regions.json()).regions.length, 'a trial must see at least one region').toBeGreaterThan(0);
+    } finally {
+      psql(`DELETE FROM nodes WHERE hostname = '${hostname}'`);
+    }
   });
 });
 
@@ -203,7 +220,9 @@ test.describe('web entry points the clients hand to users', () => {
     const hashForm = await request.get('/');
     expect(hashForm.status()).toBe(200);
 
-    const pathForm = await request.get('/p2p-terms');
+    // The backend itself, not the web dev server in front of it (baseURL),
+    // which answers every path with the app shell.
+    const pathForm = await request.get(`${API_URL}/p2p-terms`);
     expect(pathForm.status(), '/p2p-terms is not a real page — clients must use /#p2p-terms')
       .not.toBe(200);
   });
