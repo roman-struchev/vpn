@@ -37,27 +37,22 @@ public class SubscriptionExportService {
     /**
      * For the *public*, token-based export ({@code /api/v1/subscription/export/{token}}) —
      * consumed by arbitrary third-party clients (v2rayTun, Clash, ...) that
-     * never authenticate as this user, so a leaked/shared link is a real risk
-     * (docs/PLAN.md §1: "subscription-ссылка vless:// — только платным").
-     * Trial stays excluded here. Auto-creates a "Primary Device" placeholder
+     * never authenticate as this user. Open to the trial too (it used to be
+     * paid-only, while the dashboard and the bot offered the link to everyone
+     * — and on iOS it is the only way in); the device limit and the trial's
+     * traffic quota are what bound a shared link. Auto-creates a "Primary Device" placeholder
      * if the user has none — the only way a third-party client can get a
      * working link before ever touching the web dashboard or an app.
      */
     @Transactional
     public List<String> exportVlessLinks(Long userId) {
-        return exportVlessLinks(userId, true, true, null).links();
+        return exportVlessLinks(userId, true, null).links();
     }
 
     /**
      * For the *authenticated* path ({@code GET /api/v1/user/subscription/links})
      * — our own first-party apps (Android/Desktop) and the web dashboard's
-     * "copy link" button. These aren't the "give away a portable link"
-     * scenario PLAN.md's restriction targets: it's a logged-in user fetching
-     * their own credentials to connect through the official app, which is
-     * exactly what a trial is for. Excluding trial here made the native
-     * clients unable to ever connect during a trial at all — reported live:
-     * "Failed to load VPN profile ApiError: Subscription link export is
-     * available for paid plans only" from the Desktop app on a trial account.
+     * "copy link" button: a logged-in user fetching their own credentials.
      *
      * Does NOT auto-create a "Primary Device" placeholder (returns an empty
      * list instead if the user has no devices yet) — DeviceManagementService.
@@ -66,11 +61,11 @@ public class SubscriptionExportService {
      * device-creation paths now, and a silent placeholder here would eat a
      * trial account's one-and-only device slot the instant the dashboard
      * loads, before the user ever gets to actually use it — reproduced live
-     * via the e2e suite once the trial restriction above was lifted.
+     * via the e2e suite.
      */
     @Transactional
     public List<String> exportVlessLinksForOwnApp(Long userId) {
-        return exportVlessLinks(userId, false, false, null).links();
+        return exportVlessLinks(userId, false, null).links();
     }
 
     /**
@@ -87,7 +82,7 @@ public class SubscriptionExportService {
      */
     @Transactional
     public RegionScopedLinks exportVlessLinksForOwnApp(Long userId, String region) {
-        return exportVlessLinks(userId, false, false, region);
+        return exportVlessLinks(userId, false, region);
     }
 
     public record RegionScopedLinks(List<String> links, boolean requestedRegionAvailable) {}
@@ -457,7 +452,7 @@ public class SubscriptionExportService {
         return Math.min(100.0, (mbps / referenceMbps) * 100.0);
     }
 
-    private RegionScopedLinks exportVlessLinks(Long userId, boolean restrictToPaidPlans, boolean autoCreatePrimaryDevice, String region) {
+    private RegionScopedLinks exportVlessLinks(Long userId, boolean autoCreatePrimaryDevice, String region) {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
 
@@ -466,10 +461,6 @@ public class SubscriptionExportService {
         }
 
         Tariff effectiveTariff = sub.getEffectiveTariff();
-
-        if (restrictToPaidPlans && "trial".equalsIgnoreCase(effectiveTariff.getId())) {
-            throw new IllegalStateException("Subscription link export is available for paid plans only");
-        }
 
         if (sub.isExpired()) {
             throw new IllegalStateException("Subscription has expired");
@@ -560,9 +551,13 @@ public class SubscriptionExportService {
         String remark = URLEncoder.encode(node.getRegion() + REMARK_SEPARATOR + node.getHostname(), StandardCharsets.UTF_8)
                 .replace("+", "%20");
 
-        // VLESS + XHTTP + Reality URL
+        // VLESS + XHTTP + Reality URL. fp is explicit: Xray itself falls back to
+        // chrome without it, but third-party clients (Happ, v2rayTun, Hiddify)
+        // each read a missing fp their own way. firefox = TransportPolicy's
+        // default, what our own apps present too (they pass it separately and
+        // ignore this parameter).
         return String.format(
-                "vless://%s@%s:443?encryption=none&security=reality&type=xhttp&path=%%2Fvless-xhttp&sni=%s&pbk=%s&sid=%s#%s",
+                "vless://%s@%s:443?encryption=none&security=reality&type=xhttp&path=%%2Fvless-xhttp&sni=%s&fp=firefox&pbk=%s&sid=%s#%s",
                 uuid.toString(),
                 node.getPublicIp(),
                 sni,

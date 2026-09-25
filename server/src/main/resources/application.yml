@@ -43,6 +43,9 @@ vpn:
   # production domain — switch back once that's live again.
   public:
     web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:http://217.216.79.46:8080}
+    # Support contact, sent as Happ's `support-url` subscription header (its
+    # support button). Same contact as the site footer (web/src/support.ts).
+    support-url: ${VPN_PUBLIC_SUPPORT_URL:https://t.me/struchev}
   # Sender for password-reset emails (MailService). Mail itself is off until
   # SMTP is configured through the standard Spring variables: SPRING_MAIL_HOST,
   # SPRING_MAIL_PORT, SPRING_MAIL_USERNAME, SPRING_MAIL_PASSWORD. Without it a
@@ -84,7 +87,10 @@ vpn:
   # distinct IPs within window-minutes (see AntiEnumerationService).
   anti-enum:
     window-minutes: ${VPN_ANTI_ENUM_WINDOW_MINUTES:60}
-    max-distinct-ips: ${VPN_ANTI_ENUM_MAX_DISTINCT_IPS:5}
+    # 10, not 5: phone on LTE and Wi-Fi, a laptop, the site and Happ already
+    # make five for one ordinary customer, and a rotation kills the link their
+    # third-party client holds until it refetches (profile-update-interval).
+    max-distinct-ips: ${VPN_ANTI_ENUM_MAX_DISTINCT_IPS:10}
   crypto:
     tron-deposit-address: ${VPN_TRON_DEPOSIT_ADDRESS:TXxxDefaultDepositAddressTRC20}
     # Ethereum/Base/Arbitrum/Polygon all use the same 0x address for a given key

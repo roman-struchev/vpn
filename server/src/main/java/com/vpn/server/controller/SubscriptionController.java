@@ -21,6 +21,9 @@ public class SubscriptionController {
     private final AntiEnumerationService antiEnumerationService;
     private final com.vpn.server.service.CurrentPlanService currentPlanService;
 
+    @org.springframework.beans.factory.annotation.Value("${vpn.public.support-url:https://t.me/struchev}")
+    private String supportUrl = "https://t.me/struchev";
+
     public SubscriptionController(
             SubscriptionExportService exportService,
             UserRepository userRepository,
@@ -62,8 +65,12 @@ public class SubscriptionController {
                     .header("Subscription-Userinfo", userInfo(currentPlanService.currentPlan(user.getId()).orElse(null)))
                     .header("Profile-Title", "base64:" + java.util.Base64.getEncoder()
                             .encodeToString("Aura VPN".getBytes(java.nio.charset.StandardCharsets.UTF_8)))
-                    .header("Profile-Update-Interval", "6")
+                    // Hours. 1, not 6: after an anti-enumeration key rotation the
+                    // link a client holds is dead until it refetches.
+                    .header("Profile-Update-Interval", "1")
                     .header("Profile-Web-Page-Url", currentPlanService.webBaseUrl())
+                    // Happ's support button (happ.su dev docs, "support-url").
+                    .header("Support-Url", supportUrl)
                     .body(encodedLinks);
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body("Error: " + e.getMessage());
@@ -74,7 +81,7 @@ public class SubscriptionController {
         if (sub == null) {
             return "upload=0; download=0; total=0; expire=0";
         }
-        long expire = sub.getOverrideTariff() == null && sub.hasNoExpiry()
+        long expire = sub.hasNoExpiry()
                 ? 0
                 : sub.getEffectiveExpiresAt().getEpochSecond();
         return "upload=0; download=" + sub.getTrafficUsedBytes()

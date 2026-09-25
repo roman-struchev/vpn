@@ -119,9 +119,8 @@ test.describe('Real xray-core tunnel (node + client)', () => {
       const profile = await (await page.request.get('/api/v1/user/profile', { headers: authHeaders })).json();
       const userId = profile.id;
 
-      // 2. Give the account enough balance to buy a paid tariff — trial
-      // subscriptions are deliberately excluded from subscription-link export
-      // (SubscriptionExportService), so this test needs a real paid one.
+      // 2. Give the account enough balance to buy a paid tariff (the paid
+      // node pool; the trial's export is covered by happExport.spec.ts).
       await page.request.post(`/api/v1/admin/users/${userId}/balance`, {
         headers: authHeaders,
         data: { amountMicro: 5_000_000, description: 'e2e tunnel test funding' },

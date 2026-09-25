@@ -41,7 +41,7 @@ public class AntiEnumerationService {
     @Value("${vpn.anti-enum.window-minutes:60}")
     private int windowMinutes;
 
-    @Value("${vpn.anti-enum.max-distinct-ips:5}")
+    @Value("${vpn.anti-enum.max-distinct-ips:10}")
     private int maxDistinctIps;
 
     public AntiEnumerationService(
@@ -63,7 +63,13 @@ public class AntiEnumerationService {
         Instant since = Instant.now().minus(windowMinutes, ChronoUnit.MINUTES);
         long distinctIps = accessLogRepository.countDistinctIpsSince(userId, since);
 
-        if (distinctIps > maxDistinctIps) {
+        // Once, on the access that crosses the line — not on every access
+        // after it: that rotated the keys again and again for the rest of the
+        // hour, so the link a Happ/v2rayTun user had just fetched was dead
+        // before they used it, and so was every other device's.
+        boolean newAddress = accessLogRepository.countByUserIdAndIpAddressAndCreatedAtGreaterThanEqual(
+                userId, ipAddress, since) == 1;
+        if (newAddress && distinctIps == maxDistinctIps + 1) {
             rotateDeviceKeys(userId, distinctIps);
         }
     }

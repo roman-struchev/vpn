@@ -23,4 +23,7 @@ public interface SubscriptionAccessLogRepository extends JpaRepository<Subscript
 
     @Query("SELECT COUNT(DISTINCT s.ipAddress) FROM SubscriptionAccessLog s WHERE s.userId = :userId AND s.createdAt >= :since")
     long countDistinctIpsSince(@Param("userId") Long userId, @Param("since") Instant since);
+
+    /** Rows from this address in the window — 1 right after its first one was saved. */
+    long countByUserIdAndIpAddressAndCreatedAtGreaterThanEqual(Long userId, String ipAddress, Instant since);
 }

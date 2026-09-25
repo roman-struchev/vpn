@@ -105,7 +105,10 @@ class SubscriptionExportServiceTest {
     }
 
     @Test
-    void testExportTrialSubscriptionDenied() {
+    void testExportTrialSubscriptionAllowed() {
+        // The dashboard and the Telegram bot hand every plan this link for
+        // v2rayTun/Hiddify/Happ — a trial user got "paid plans only" back.
+        // Trial now works through it too (and it is the only way in on iOS).
         User user = new User();
         user.setId(20L);
 
@@ -117,16 +120,36 @@ class SubscriptionExportServiceTest {
         sub.setUser(user);
         sub.setTariff(trial);
         sub.setStatus("ACTIVE");
-        sub.setCurrentPeriodEnd(Instant.now().plus(7, ChronoUnit.DAYS));
+        sub.setCurrentPeriodEnd(Instant.now().plus(36_500, ChronoUnit.DAYS));
+
+        Device device = new Device();
+        device.setId(210L);
+        device.setUser(user);
+        device.setDeviceName("Primary Device");
+        device.setIsActive(true);
+
+        Node node = new Node();
+        node.setId(2L);
+        node.setHostname("trial-01.vpn.internal");
+        node.setPublicIp("198.51.100.30");
+        node.setRegion("nl-ams");
+        node.setStatus("ONLINE");
+        node.setPool("trial");
+        node.setAvailableToTrial(true);
+        node.setAvailableToPaid(true);
 
         when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(20L, "ACTIVE"))
                 .thenReturn(Optional.of(sub));
+        when(deviceRepository.findByUserIdAndIsActiveTrue(20L)).thenReturn(List.of(device));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of());
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(List.of(node));
+        when(deviceNodeKeyRepository.findByDeviceIdAndNodeId(eq(210L), eq(2L))).thenReturn(Optional.empty());
+        when(deviceNodeKeyRepository.save(any(DeviceNodeKey.class))).thenAnswer(i -> i.getArgument(0));
 
-        // PLAN.md §1: "subscription-ссылка vless:// — только платным" — this
-        // restriction targets the *public*, token-based export for arbitrary
-        // third-party clients.
-        assertThrows(IllegalStateException.class, () ->
-                exportService.exportVlessSubscription(20L));
+        String decoded = new String(Base64.getDecoder().decode(exportService.exportVlessSubscription(20L)),
+                StandardCharsets.UTF_8);
+        assertTrue(decoded.startsWith("vless://"));
+        assertTrue(decoded.contains("198.51.100.30"));
     }
 
     @Test
