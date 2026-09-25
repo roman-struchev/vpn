@@ -7,7 +7,7 @@ import { flushDiagnostics, initDiagnostics, reportError } from './diagnostics';
 import { installDohDispatcher } from './api/dohDispatcher';
 import { TokenStore } from './api/tokenStore';
 import { registerIpcHandlers } from './ipc';
-import { RelayManager } from './p2p/relayManager';
+import { RELAY_UNSUPPORTED_PREFIX, RelayManager } from './p2p/relayManager';
 import { createSystemProxyManager } from './proxy/systemProxy';
 import { createAppTray, type TrayHandle } from './tray';
 import { VpnController } from './vpn/vpnController';
@@ -124,6 +124,8 @@ app.whenReady().then(() => {
   // since setP2pRelayMode is never reachable from LoginPage's UI.
   if (tokenStore.getToken()) {
     void relayManager.resumeIfNeeded().catch((err) => {
+      // Refused because of the network: expected, shown in the relay section.
+      if (err instanceof Error && err.message.startsWith(RELAY_UNSUPPORTED_PREFIX)) return;
       console.warn('[p2p relay] resume failed:', err);
       reportError('p2p-relay', 'RELAY_RESUME_FAILED', 'Could not resume the P2P relay window after launch', err);
     });
@@ -136,7 +138,7 @@ app.whenReady().then(() => {
     },
     tunnelProxyPort: () => (vpnController?.getState() === 'CONNECTED' ? HTTP_PORT : null),
   });
-  trayHandle = createAppTray(vpnController, showMainWindow);
+  trayHandle = createAppTray(vpnController, showMainWindow, relayManager, apiClient);
 
   powerMonitor.on('suspend', () => {
     console.log('System is suspending. Proxy safety active.');

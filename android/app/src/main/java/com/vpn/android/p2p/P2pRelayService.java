@@ -118,6 +118,18 @@ public class P2pRelayService extends Service {
             scheduleExpiryCheck(finalRelayMode, finalRelayExpiresAt);
             try {
                 if (agent == null) {
+                    // Also covers the reboot/sticky restarts, where nobody is
+                    // on the settings screen: a peer nobody can reach is worse
+                    // than none — it gets listed, picked, and times out.
+                    NatCheck.Verdict verdict = NatCheck.check(NatCheck.servers(), 3000);
+                    if (NatCheck.refuses(verdict)) {
+                        Log.w(TAG, "not relaying: this network can't take incoming P2P sessions (" + verdict + ")");
+                        tokenStore.saveP2pRelayUnsupportedNetwork(verdict.name());
+                        notifyUnsupportedNetwork(verdict);
+                        stopRelay();
+                        return;
+                    }
+                    tokenStore.saveP2pRelayUnsupportedNetwork(null);
                     // start() auto-detects+persists the node's own region on
                     // first-ever call (see P2pRelayAgent#start) — nothing to
                     // pass in from here, including on BootReceiver's ALWAYS-
@@ -180,12 +192,48 @@ public class P2pRelayService extends Service {
         stopSelf();
     }
 
+    private void notifyUnsupportedNetwork(NatCheck.Verdict verdict) {
+        if (androidx.core.app.ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED
+                && android.os.Build.VERSION.SDK_INT >= 33) {
+            return;
+        }
+        String text = getString(unsupportedNetworkText(verdict));
+        Notification n = new NotificationCompat.Builder(this, VpnApp.VPN_STATUS_CHANNEL_ID)
+                .setContentTitle(getString(R.string.p2p_relay_unsupported_title))
+                .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setAutoCancel(true)
+                .build();
+        androidx.core.app.NotificationManagerCompat.from(this).notify(NOTIFICATION_ID + 1, n);
+    }
+
+    /** The explanation for a refused network — shared with the settings screen. */
+    public static int unsupportedNetworkText(NatCheck.Verdict verdict) {
+        return verdict == NatCheck.Verdict.NO_UDP
+                ? R.string.p2p_relay_unsupported_no_udp
+                : R.string.p2p_relay_unsupported_symmetric;
+    }
+
     private Notification buildNotification() {
+        // Tapping it opens the account, where relaying is managed; "Turn off"
+        // stops it right from the notification, same as the settings screen's Off.
+        Intent open = new Intent(this, com.vpn.android.ui.MainActivity.class)
+                .putExtra(com.vpn.android.ui.MainActivity.EXTRA_OPEN_PROFILE, true)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        android.app.PendingIntent openPending = android.app.PendingIntent.getActivity(this, 1, open,
+                android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent stop = new Intent(this, P2pRelayService.class).setAction(ACTION_STOP);
+        android.app.PendingIntent stopPending = android.app.PendingIntent.getService(this, 2, stop,
+                android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_UPDATE_CURRENT);
         return new NotificationCompat.Builder(this, VpnApp.VPN_STATUS_CHANNEL_ID)
                 .setContentTitle(getString(R.string.p2p_relay_notification_title))
                 .setContentText(getString(R.string.p2p_relay_notification_text))
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setOngoing(true)
+                .setContentIntent(openPending)
+                .addAction(0, getString(R.string.p2p_relay_notification_stop), stopPending)
                 .build();
     }
 

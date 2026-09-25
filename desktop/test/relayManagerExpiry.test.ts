@@ -18,6 +18,10 @@ vi.mock('../src/main/p2p/relayAgent', () => ({
   }),
 }));
 
+vi.mock('../src/main/p2p/natCheck', () => ({
+  checkNat: vi.fn().mockResolvedValue('OK'),
+}));
+
 vi.mock('../src/main/geoLocale', () => ({
   detectNodeRegion: vi.fn().mockResolvedValue('EU'),
 }));

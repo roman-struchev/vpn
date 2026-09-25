@@ -4,7 +4,11 @@ import os from 'node:os';
 import type { ApiClient } from '../api/apiClient';
 import type { TokenStore } from '../api/tokenStore';
 import { detectNodeRegion } from '../geoLocale';
+import { checkNat, type NatVerdict } from './natCheck';
 import { RelayAgent, type RelayMode } from './relayAgent';
+
+/** What the renderer gets back from a refused setMode — see RelayManager#unsupportedNetwork. */
+export const RELAY_UNSUPPORTED_PREFIX = 'RELAY_UNSUPPORTED_NETWORK:';
 
 const EXPIRY_CHECK_INTERVAL_MS = 30_000;
 
@@ -22,10 +26,17 @@ const EXPIRY_CHECK_INTERVAL_MS = 30_000;
 export class RelayManager extends EventEmitter {
   private agent: RelayAgent | null = null;
   private expiryTimer: NodeJS.Timeout | null = null;
+  /**
+   * Why relaying was refused on this network, until it is switched off or
+   * starts fine: kept rather than only thrown, so a refused resume at launch
+   * (nobody is looking then) still shows up when the screen is opened.
+   */
+  private unsupportedNetwork: Exclude<NatVerdict, 'OK' | 'UNKNOWN'> | null = null;
 
   constructor(
     private readonly apiClient: ApiClient,
-    private readonly tokenStore: TokenStore
+    private readonly tokenStore: TokenStore,
+    private readonly natCheck: () => Promise<NatVerdict> = () => checkNat()
   ) {
     super();
   }
@@ -68,6 +79,7 @@ export class RelayManager extends EventEmitter {
     this.syncLoginItem(mode);
 
     if (mode === 'OFF') {
+      this.unsupportedNetwork = null;
       await this.agent?.stop();
       this.agent = null;
       this.emit('modeChanged', this.getMode());
@@ -95,6 +107,19 @@ export class RelayManager extends EventEmitter {
       region = await detectNodeRegion();
       this.tokenStore.saveP2pRelayRegion(region);
     }
+
+    // Before registering: a peer nobody can reach is worse than none — it is
+    // listed, picked, and every session through it times out.
+    const verdict = await this.natCheck();
+    if (verdict === 'SYMMETRIC' || verdict === 'NO_UDP') {
+      this.unsupportedNetwork = verdict;
+      this.clearExpiryTimer();
+      this.tokenStore.saveP2pRelayMode('OFF', null);
+      this.syncLoginItem('OFF');
+      this.emit('modeChanged', this.getMode());
+      throw new Error(`${RELAY_UNSUPPORTED_PREFIX}${verdict}`);
+    }
+    this.unsupportedNetwork = null;
 
     const { token } = await this.apiClient.createP2pBootstrapToken();
     this.agent = new RelayAgent(this.apiClient.getGrpcTarget(), await this.buildNodeHostname(), region);
@@ -147,8 +172,18 @@ export class RelayManager extends EventEmitter {
     }
   }
 
-  getMode(): { mode: RelayMode; expiresAtEpochMs: number | null; durationMs: number | null; region: string | null } {
-    return { ...this.tokenStore.getP2pRelayMode(), region: this.tokenStore.getP2pRelayRegion() };
+  getMode(): {
+    mode: RelayMode;
+    expiresAtEpochMs: number | null;
+    durationMs: number | null;
+    region: string | null;
+    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
+  } {
+    return {
+      ...this.tokenStore.getP2pRelayMode(),
+      region: this.tokenStore.getP2pRelayRegion(),
+      unsupportedNetwork: this.unsupportedNetwork,
+    };
   }
 
   async shutdown(): Promise<void> {

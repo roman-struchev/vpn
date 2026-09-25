@@ -69,6 +69,9 @@ public class TokenStore {
     // screen know it *before* the status call returns, instead of rendering an
     // unaccepted state that flips a moment later.
     private static final String KEY_P2P_TERMS_ACCEPTED = "p2p_terms_accepted";
+    // Why relaying was refused on the current network (a NatCheck.Verdict
+    // name), until it is switched off or starts fine — see NatCheck.
+    private static final String KEY_P2P_RELAY_UNSUPPORTED = "p2p_relay_unsupported_network";
     public static final String P2P_RELAY_OFF = "OFF";
     public static final String P2P_RELAY_TIMED = "TIMED";
     public static final String P2P_RELAY_ALWAYS = "ALWAYS";
@@ -318,6 +321,15 @@ public class TokenStore {
                 .putString(KEY_P2P_RELAY_MODE, relayMode)
                 .putLong(KEY_P2P_RELAY_EXPIRES_AT, relayExpiresAtEpochMs)
                 .apply();
+    }
+
+    /** SYMMETRIC / NO_UDP when relaying was refused on this network, else null. */
+    public String getP2pRelayUnsupportedNetwork() {
+        return prefs.getString(KEY_P2P_RELAY_UNSUPPORTED, null);
+    }
+
+    public void saveP2pRelayUnsupportedNetwork(String verdict) {
+        prefs.edit().putString(KEY_P2P_RELAY_UNSUPPORTED, verdict).apply();
     }
 
     public long getP2pRelayExpiresAt() {

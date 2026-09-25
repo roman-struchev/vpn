@@ -108,6 +108,17 @@
             android:layout_marginBottom="16dp"
             android:visibility="gone" />
 
+        <!-- Why relaying was refused on this network (NatCheck), until it is
+             switched off or starts fine. -->
+        <TextView
+            android:id="@+id/p2pUnsupportedText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="@color/state_error"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/p2pApplyButton"
             style="@style/Widget.Material3.Button.TonalButton"

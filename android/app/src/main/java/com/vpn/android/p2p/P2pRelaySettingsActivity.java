@@ -100,6 +100,7 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
         }
 
         restoreCurrentSelection();
+        showUnsupportedNetwork();
         loadStatus();
     }
 
@@ -238,6 +239,55 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
     }
 
     private void startOrStopRelay(Selection selection) {
+        if (TokenStore.P2P_RELAY_OFF.equals(selection.mode())) {
+            tokenStore.saveP2pRelayUnsupportedNetwork(null);
+            launchRelay(selection);
+            return;
+        }
+        // Checked here too, not only in the service, so the answer comes on
+        // this screen, right after the tap, instead of as a notification.
+        binding.p2pApplyButton.setEnabled(false);
+        Async.run(
+                () -> NatCheck.check(NatCheck.servers(), 3000),
+                verdict -> {
+                    binding.p2pApplyButton.setEnabled(true);
+                    if (NatCheck.refuses(verdict)) {
+                        tokenStore.saveP2pRelayUnsupportedNetwork(verdict.name());
+                        showUnsupportedNetwork();
+                        new AlertDialog.Builder(this)
+                                .setTitle(R.string.p2p_relay_unsupported_title)
+                                .setMessage(P2pRelayService.unsupportedNetworkText(verdict))
+                                .setPositiveButton(android.R.string.ok, null)
+                                .show();
+                        return;
+                    }
+                    launchRelay(selection);
+                },
+                error -> {
+                    binding.p2pApplyButton.setEnabled(true);
+                    launchRelay(selection);
+                });
+    }
+
+    /** Shows why relaying was last refused here, or nothing. */
+    private void showUnsupportedNetwork() {
+        String saved = tokenStore.getP2pRelayUnsupportedNetwork();
+        if (saved == null) {
+            binding.p2pUnsupportedText.setVisibility(android.view.View.GONE);
+            return;
+        }
+        NatCheck.Verdict verdict;
+        try {
+            verdict = NatCheck.Verdict.valueOf(saved);
+        } catch (IllegalArgumentException e) {
+            verdict = NatCheck.Verdict.SYMMETRIC;
+        }
+        binding.p2pUnsupportedText.setText(getString(R.string.p2p_relay_unsupported_title) + "\n"
+                + getString(P2pRelayService.unsupportedNetworkText(verdict)));
+        binding.p2pUnsupportedText.setVisibility(android.view.View.VISIBLE);
+    }
+
+    private void launchRelay(Selection selection) {
         // Which option produced the window, so re-opening this screen can
         // re-select it exactly (see isEightHourWindow). The service persists
         // the mode and the expiry itself; only the duration is ours to keep.

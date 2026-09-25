@@ -154,6 +154,10 @@
     <string name="p2p_relay_status_error">Couldn\'t load status</string>
     <string name="p2p_relay_guest_blocked">Not available for a guest profile — sign in with email, Telegram or Google.</string>
     <string name="p2p_relay_accept_failed">Couldn\'t accept the terms. Check your connection.</string>
+    <string name="p2p_relay_unsupported_title">Relaying isn\u2019t supported on this network</string>
+    <string name="p2p_relay_unsupported_symmetric">Your provider (almost every mobile carrier does this) doesn\u2019t let direct connections reach this device, so nobody could connect through it. On another network \u2014 home Wi\u2011Fi, say \u2014 relaying may work.</string>
+    <string name="p2p_relay_unsupported_no_udp">UDP is blocked on this network, and direct connections to this device need it. On another network \u2014 home Wi\u2011Fi, say \u2014 relaying may work.</string>
+    <string name="p2p_relay_notification_stop">Turn off</string>
     <string name="p2p_relay_applied">P2P mode settings applied</string>
     <string name="p2p_relay_notification_title">P2P mode is active</string>
     <string name="p2p_relay_notification_text">Your device is relaying traffic and earning bonus traffic</string>

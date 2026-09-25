@@ -155,6 +155,10 @@
     <string name="p2p_relay_status_error">Не удалось загрузить статус</string>
     <string name="p2p_relay_guest_blocked">Недоступно для гостевого профиля — войдите с почтой, Telegram или Google.</string>
     <string name="p2p_relay_accept_failed">Не удалось принять условия. Проверьте подключение.</string>
+    <string name="p2p_relay_unsupported_title">С этой сети раздача не поддерживается</string>
+    <string name="p2p_relay_unsupported_symmetric">Ваш провайдер (так делают почти все мобильные операторы) не пропускает прямые подключения к устройству, поэтому к вам никто не сможет подключиться. С другой сети — например, домашнего Wi‑Fi — раздача может работать.</string>
+    <string name="p2p_relay_unsupported_no_udp">В этой сети заблокирован UDP, без него прямые подключения к устройству невозможны. С другой сети — например, домашнего Wi‑Fi — раздача может работать.</string>
+    <string name="p2p_relay_notification_stop">Отключить</string>
     <string name="p2p_relay_applied">Настройки P2P-режима применены</string>
     <string name="p2p_relay_notification_title">P2P-режим активен</string>
     <string name="p2p_relay_notification_text">Ваше устройство ретранслирует трафик и получает бонусный трафик</string>

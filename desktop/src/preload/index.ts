@@ -134,6 +134,7 @@ const vpnApi = {
     expiresAtEpochMs: number | null;
     durationMs: number | null;
     region: string | null;
+    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
   }> => ipcRenderer.invoke('p2p:getMode'),
   setP2pRelayMode: (mode: 'OFF' | 'TIMED' | 'ALWAYS', expiresAtEpochMs: number | null, durationMs?: number): Promise<void> =>
     ipcRenderer.invoke('p2p:setMode', mode, expiresAtEpochMs, durationMs),
@@ -145,11 +146,18 @@ const vpnApi = {
       expiresAtEpochMs: number | null;
       durationMs: number | null;
       region: string | null;
+      unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
     }) => void
   ) => {
     const listener = (
       _e: unknown,
-      mode: { mode: 'OFF' | 'TIMED' | 'ALWAYS'; expiresAtEpochMs: number | null; durationMs: number | null; region: string | null }
+      mode: {
+        mode: 'OFF' | 'TIMED' | 'ALWAYS';
+        expiresAtEpochMs: number | null;
+        durationMs: number | null;
+        region: string | null;
+        unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
+      }
     ) => callback(mode);
     ipcRenderer.on('p2p:mode', listener);
     return () => ipcRenderer.removeListener('p2p:mode', listener);

@@ -164,6 +164,11 @@ const translations = {
     p2pStatusOf: 'из',
     p2pExpiresAt: 'Действует до',
     p2pError: 'Не удалось изменить режим ретрансляции',
+    p2pUnsupportedTitle: 'С этой сети раздача не поддерживается',
+    p2pUnsupportedSymmetric:
+      'Ваш провайдер (так делают почти все мобильные операторы) не пропускает прямые подключения к устройству, поэтому к вам никто не сможет подключиться. С другой сети — например, домашнего Wi-Fi — раздача может работать.',
+    p2pUnsupportedNoUdp:
+      'В этой сети заблокирован UDP, без него прямые подключения к устройству невозможны. С другой сети — например, домашнего Wi-Fi — раздача может работать.',
     p2pRegionLabel: 'Местоположение узла',
   },
 
@@ -330,6 +335,11 @@ const translations = {
     p2pStatusOf: 'of',
     p2pExpiresAt: 'Active until',
     p2pError: 'Failed to change relay mode',
+    p2pUnsupportedTitle: 'Relaying isn’t supported on this network',
+    p2pUnsupportedSymmetric:
+      'Your provider (almost every mobile carrier does this) doesn’t let direct connections reach this device, so nobody could connect through it. On another network — home Wi-Fi, say — relaying may work.',
+    p2pUnsupportedNoUdp:
+      'UDP is blocked on this network, and direct connections to this device need it. On another network — home Wi-Fi, say — relaying may work.',
     p2pRegionLabel: 'Node location',
   },
 } satisfies Record<Lang, Record<string, string>>;

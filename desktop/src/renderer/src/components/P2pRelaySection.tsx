@@ -22,6 +22,7 @@ export default function P2pRelaySection() {
     expiresAtEpochMs: number | null;
     durationMs: number | null;
     region: string | null;
+    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -72,6 +73,13 @@ export default function P2pRelaySection() {
       setPending(null);
       reload();
     } catch (e) {
+      // Refused because of this network: RelayManager has already switched
+      // off and says why in the mode itself (rendered below), not an error.
+      if (e instanceof Error && e.message.includes('RELAY_UNSUPPORTED_NETWORK:')) {
+        setPending(null);
+        reload();
+        return;
+      }
       setError(t.p2pError + (e instanceof Error ? `: ${e.message}` : ''));
     } finally {
       setBusy(false);
@@ -127,6 +135,15 @@ export default function P2pRelaySection() {
           </button>
         ))}
       </div>
+
+      {mode?.unsupportedNetwork && (
+        <div data-testid="p2p-unsupported-network" className="mt-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5">
+          <p className="text-[11px] font-semibold text-amber-300">{t.p2pUnsupportedTitle}</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-200/80">
+            {mode.unsupportedNetwork === 'NO_UDP' ? t.p2pUnsupportedNoUdp : t.p2pUnsupportedSymmetric}
+          </p>
+        </div>
+      )}
 
       {pending && (
         <div className="mt-2.5 rounded-xl border border-dark-750/50 bg-dark-800/80 px-3 py-2.5">
