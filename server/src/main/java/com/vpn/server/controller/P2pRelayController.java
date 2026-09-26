@@ -170,9 +170,9 @@ public class P2pRelayController {
      * bytes) and anything outside their tariff's pool.
      */
     @GetMapping("/relays")
-    public ResponseEntity<?> availableRelays(Authentication auth) {
+    public ResponseEntity<?> availableRelays(Authentication auth, jakarta.servlet.http.HttpServletRequest request) {
         Long userId = (Long) auth.getPrincipal();
-        return ResponseEntity.ok(Map.of("relays", p2pRelayDirectory.availableRelaysFor(userId)));
+        return ResponseEntity.ok(Map.of("relays", p2pRelayDirectory.availableRelaysFor(userId, request.getRemoteAddr())));
     }
 
     /**
@@ -187,9 +187,10 @@ public class P2pRelayController {
      * treats a region that just went quiet, rather than surfacing a failure.
      */
     @GetMapping("/exits")
-    public ResponseEntity<?> availableExits(Authentication auth, @RequestParam(required = false) String region) {
+    public ResponseEntity<?> availableExits(Authentication auth, @RequestParam(required = false) String region,
+                                            jakarta.servlet.http.HttpServletRequest request) {
         Long userId = (Long) auth.getPrincipal();
-        return ResponseEntity.ok(Map.of("exits", p2pRelayDirectory.availableExitsFor(userId, region)));
+        return ResponseEntity.ok(Map.of("exits", p2pRelayDirectory.availableExitsFor(userId, region, request.getRemoteAddr())));
     }
 
     /**

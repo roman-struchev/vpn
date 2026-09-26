@@ -42,7 +42,11 @@ public class P2pReachabilityService {
 
     public enum State { PENDING, REACHABLE, UNREACHABLE, INCONCLUSIVE }
 
-    public record Status(State state, Instant checkedAt) {
+    /** {@code publicIp}: where the device answered from, when it did — see {@link #sameCarrierNetwork}. */
+    public record Status(State state, Instant checkedAt, String publicIp) {
+        public Status(State state, Instant checkedAt) {
+            this(state, checkedAt, null);
+        }
     }
 
     private final AgentStreamServiceImpl agentStreamService;
@@ -150,7 +154,8 @@ public class P2pReachabilityService {
             case UNREACHABLE -> State.UNREACHABLE;
             case INCONCLUSIVE -> State.INCONCLUSIVE;
         };
-        states.put(nodeId, new Status(state, Instant.now()));
+        String publicIp = result.answeredFrom() == null ? null : result.answeredFrom().getAddress().getHostAddress();
+        states.put(nodeId, new Status(state, Instant.now(), publicIp));
         log.info("P2P node {} reachability: {} ({})", nodeId, state, result.detail());
     }
 
@@ -175,8 +180,39 @@ public class P2pReachabilityService {
         return states.get(nodeId);
     }
 
+    /**
+     * Whether this client and this peer sit behind the same carrier's NAT
+     * under different public addresses — which, on a mobile carrier's CGNAT,
+     * means neither can reach the other: packets addressed from one of its
+     * public IPs to another are not looped back inside ("hairpinning"). Seen
+     * live on One Crna Gora (79.143.107.0/24): a laptop on an LTE router
+     * could not reach a phone relaying on the same carrier, while the probe,
+     * a server in Finland and a laptop on that phone's own hotspot all could.
+     *
+     * The same /24 is the test — a carrier's CGNAT pool, not "same country".
+     * The very same address is not: that is usually one home network, where
+     * the two meet over their local addresses and it works.
+     */
+    public boolean sameCarrierNetwork(Long nodeId, String clientIp) {
+        Status s = states.get(nodeId);
+        if (s == null || s.publicIp() == null || clientIp == null) return false;
+        return !s.publicIp().equals(clientIp) && sameSlash24(s.publicIp(), clientIp);
+    }
+
+    static boolean sameSlash24(String a, String b) {
+        String[] x = a.split("\\.");
+        String[] y = b.split("\\.");
+        if (x.length != 4 || y.length != 4 || a.indexOf(':') >= 0 || b.indexOf(':') >= 0) return false;
+        return x[0].equals(y[0]) && x[1].equals(y[1]) && x[2].equals(y[2]);
+    }
+
     /** Test seam. */
     void setStateForTests(Long nodeId, State state) {
         states.put(nodeId, new Status(state, Instant.now()));
+    }
+
+    /** Test seam. */
+    void setStateForTests(Long nodeId, State state, String publicIp) {
+        states.put(nodeId, new Status(state, Instant.now(), publicIp));
     }
 }

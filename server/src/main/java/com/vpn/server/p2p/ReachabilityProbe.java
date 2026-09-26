@@ -49,7 +49,11 @@ public class ReachabilityProbe {
         INCONCLUSIVE
     }
 
-    public record Result(Verdict verdict, String detail) {
+    /** {@code answeredFrom}: the device's public address that answered — set only when REACHABLE. */
+    public record Result(Verdict verdict, String detail, InetSocketAddress answeredFrom) {
+        public Result(Verdict verdict, String detail) {
+            this(verdict, detail, null);
+        }
     }
 
     /** The signaling path to one device: the same envelopes a client exchanges with a relay. */
@@ -194,7 +198,7 @@ public class ReachabilityProbe {
                 String remotePassword = remote.password.get();
                 if (target != null && remotePassword != null
                         && IceStun.hasValidIntegrity(packet.getData(), packet.getLength(), remotePassword)) {
-                    return new Result(Verdict.REACHABLE, "answered on " + target);
+                    return new Result(Verdict.REACHABLE, "answered on " + target, target);
                 }
             }
         }

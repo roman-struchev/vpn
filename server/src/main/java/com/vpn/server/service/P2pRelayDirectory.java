@@ -55,6 +55,16 @@ public class P2pRelayDirectory {
         return reachability == null || reachability.isOffered(node.getId());
     }
 
+    /**
+     * Not a peer behind the same carrier NAT as the client under another
+     * address: they can't reach each other, and the session would only time
+     * out (P2pReachabilityService#sameCarrierNetwork). Only narrows the lists
+     * — signaling to such a peer anyway is not refused, it just won't work.
+     */
+    private boolean reachableFrom(Node node, String clientIp) {
+        return reachability == null || !reachability.sameCarrierNetwork(node.getId(), clientIp);
+    }
+
     public P2pRelayDirectory(NodeRepository nodeRepository, SubscriptionRepository subscriptionRepository) {
         this.nodeRepository = nodeRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -91,10 +101,16 @@ public class P2pRelayDirectory {
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> availableExitsFor(Long userId, String region) {
+        return availableExitsFor(userId, region, null);
+    }
+
+    /** As above, leaving out peers this client can't reach from its network — see {@link #reachableFrom}. */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> availableExitsFor(Long userId, String region, String clientIp) {
         if (isOnTrialPlan(userId)) {
             return List.of();
         }
-        return eligiblePeersFor(userId)
+        return eligiblePeersFor(userId, clientIp)
                 .filter(node -> region == null || region.isBlank() || region.equalsIgnoreCase(node.getRegion()))
                 .map(P2pRelayDirectory::describe)
                 .toList();
@@ -140,9 +156,15 @@ public class P2pRelayDirectory {
      */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> availableRelaysFor(Long userId) {
+        return availableRelaysFor(userId, null);
+    }
+
+    /** As above, leaving out peers this client can't reach from its network — see {@link #reachableFrom}. */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> availableRelaysFor(Long userId, String clientIp) {
         boolean trial = isOnTrialPlan(userId);
 
-        return eligiblePeersFor(userId)
+        return eligiblePeersFor(userId, clientIp)
                 .filter(node -> trial
                         ? Boolean.TRUE.equals(node.getAvailableToTrial())
                         : Boolean.TRUE.equals(node.getAvailableToPaid()))
@@ -156,7 +178,7 @@ public class P2pRelayDirectory {
      * access rule, which differs: a relay follows the node's own pool flags,
      * an exit follows the caller's tariff.
      */
-    private java.util.stream.Stream<Node> eligiblePeersFor(Long userId) {
+    private java.util.stream.Stream<Node> eligiblePeersFor(Long userId, String clientIp) {
         return nodeRepository.findByTypeAndStatus("p2p", "ONLINE").stream()
                 // isEligibleForRelay, not just ONLINE: a TIMED window can lapse
                 // between heartbeats, and handing out a relay whose window is
@@ -164,6 +186,7 @@ public class P2pRelayDirectory {
                 // (AgentStreamServiceImpl checks it again on every signal).
                 .filter(Node::isEligibleForRelay)
                 .filter(this::offered)
+                .filter(node -> reachableFrom(node, clientIp))
                 .filter(node -> !node.isOwnRelayDeviceOf(userId))
                 .sorted((a, b) -> {
                     if (a.getLastHeartbeatAt() == null) return 1;

@@ -272,4 +272,20 @@ class P2pRelayDirectoryTest {
         assertEquals(java.util.Set.of(1L, 3L), directory.availableExitsFor(CALLER_ID, null).stream().map(e -> e.get("nodeId")).collect(java.util.stream.Collectors.toSet()));
         assertFalse(directory.mayConnectThrough(CALLER_ID, 2L), "and nobody can signal to it either");
     }
+
+    @Test
+    void aPeerBehindTheClientsCarrierNatUnderAnotherAddressIsNotOffered() {
+        givenTariffPool("paid");
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE")).thenReturn(List.of(
+                relay(1L, 99L, "ALWAYS", true, true),
+                relay(2L, 98L, "ALWAYS", true, true)));
+        com.vpn.server.service.P2pReachabilityService reachability = org.mockito.Mockito.mock(com.vpn.server.service.P2pReachabilityService.class);
+        when(reachability.isOffered(org.mockito.ArgumentMatchers.anyLong())).thenReturn(true);
+        when(reachability.sameCarrierNetwork(1L, "79.143.107.32")).thenReturn(true);
+        directory.setReachability(reachability);
+
+        assertEquals(List.of(2L), directory.availableExitsFor(CALLER_ID, null, "79.143.107.32").stream().map(e -> e.get("nodeId")).toList());
+        assertEquals(List.of(2L), directory.availableRelaysFor(CALLER_ID, "79.143.107.32").stream().map(e -> e.get("nodeId")).toList());
+        assertEquals(2, directory.availableExitsFor(CALLER_ID, null).size(), "no client address known: nothing is left out");
+    }
 }
