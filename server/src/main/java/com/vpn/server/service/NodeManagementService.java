@@ -270,6 +270,21 @@ public class NodeManagementService {
                 .anyMatch(cred -> passwordEncoder.matches(rawToken, cred.getTokenHash()));
     }
 
+    /**
+     * A p2p node whose live stream ended (relay switched off, app closed,
+     * device offline): no longer offered as of now. VPS nodes keep waiting
+     * for NodeHealthTask — their streams blip on every server restart.
+     */
+    @Transactional
+    public void markP2pNodeGone(Long nodeId) {
+        nodeRepository.findById(nodeId).ifPresent(node -> {
+            if (!node.isP2p() || "OFFLINE".equals(node.getStatus())) return;
+            node.setStatus("OFFLINE");
+            nodeRepository.save(node);
+            log.info("P2P node {} went away; no longer offered", nodeId);
+        });
+    }
+
     @Transactional
     public void processHeartbeat(Long nodeId, Heartbeat heartbeat) {
         nodeRepository.findById(nodeId).ifPresent(node -> {

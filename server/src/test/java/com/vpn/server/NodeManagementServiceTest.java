@@ -757,4 +757,26 @@ class NodeManagementServiceTest {
 
         assertEquals(12_345.0, saved.getRecentBytesPerSec());
     }
+
+    @Test
+    void aP2pNodeWhoseStreamEndedIsOfflineAtOnceButAVpsNodeIsNot() {
+        com.vpn.server.entity.Node peer = new com.vpn.server.entity.Node();
+        peer.setId(31L);
+        peer.setType("p2p");
+        peer.setStatus("ONLINE");
+        com.vpn.server.entity.Node vps = new com.vpn.server.entity.Node();
+        vps.setId(32L);
+        vps.setType("direct");
+        vps.setStatus("ONLINE");
+        when(nodeRepository.findById(31L)).thenReturn(java.util.Optional.of(peer));
+        when(nodeRepository.findById(32L)).thenReturn(java.util.Optional.of(vps));
+
+        nodeManagementService.markP2pNodeGone(31L);
+        nodeManagementService.markP2pNodeGone(32L);
+
+        assertEquals("OFFLINE", peer.getStatus());
+        assertEquals("ONLINE", vps.getStatus(), "a VPS stream blips on server restarts; NodeHealthTask decides");
+        verify(nodeRepository).save(peer);
+        verify(nodeRepository, never()).save(vps);
+    }
 }

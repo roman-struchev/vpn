@@ -140,18 +140,28 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
             @Override
             public void onError(Throwable t) {
                 log.warn("Stream error on node {}: {}", authenticatedNodeId, t.getMessage());
-                if (authenticatedNodeId != null) {
-                    activeStreams.remove(authenticatedNodeId);
-                }
+                streamEnded();
             }
 
             @Override
             public void onCompleted() {
                 log.info("Stream completed by node {}", authenticatedNodeId);
-                if (authenticatedNodeId != null) {
-                    activeStreams.remove(authenticatedNodeId);
-                }
+                streamEnded();
                 responseObserver.onCompleted();
+            }
+
+            /**
+             * Only this stream's own entry: a node that reconnected already put
+             * a new one there, and removing it made the node unreachable. A
+             * peer that is gone stops being offered right away — it used to
+             * stay listed for up to NodeHealthTask's 90 seconds, and every
+             * client that picked it waited out a session that could not start.
+             */
+            private void streamEnded() {
+                if (authenticatedNodeId == null) return;
+                if (activeStreams.remove(authenticatedNodeId, responseObserver)) {
+                    nodeManagementService.markP2pNodeGone(authenticatedNodeId);
+                }
             }
         };
     }

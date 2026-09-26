@@ -180,4 +180,30 @@ class AgentStreamServiceImplTest {
         assertFalse(overlapped.get(), "onNext must never run concurrently on one node's stream");
         assertEquals(before + 64, delivered.get());
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aNodeWhoseStreamEndsIsReportedGoneAtOnce() {
+        StreamObserver<AgentMessage> nodeStream = connectNode(21L, mock(StreamObserver.class));
+        nodeStream.onCompleted();
+        verify(nodeManagementService).markP2pNodeGone(21L);
+
+        StreamObserver<AgentMessage> failing = connectNode(22L, mock(StreamObserver.class));
+        failing.onError(new RuntimeException("device went offline"));
+        verify(nodeManagementService).markP2pNodeGone(22L);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void anOldStreamEndingAfterAReconnectLeavesTheNewOneAlone() {
+        StreamObserver<AgentMessage> oldStream = connectNode(23L, mock(StreamObserver.class));
+        StreamObserver<ServerMessage> newObserver = mock(StreamObserver.class);
+        connectNode(23L, newObserver);
+
+        oldStream.onCompleted();
+
+        verify(nodeManagementService, never()).markP2pNodeGone(23L);
+        when(nodeManagementService.isNodeEligibleForRelay(23L)).thenReturn(true);
+        assertTrue(service.sendSignalToNode(23L, "sess-reconnect", "hi".getBytes()), "the new stream still gets signals");
+    }
 }
