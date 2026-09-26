@@ -40,6 +40,7 @@ const P2P_EXIT_RETRY_DELAY_MS = 15_000;
 
 /** How often a CONNECTED tunnel is checked end to end, and how many misses in a row mean it is dead. */
 const HEALTH_CHECK_INTERVAL_MS = 30_000;
+const P2P_EXIT_HEALTH_CHECK_INTERVAL_MS = 10_000;
 const LIVENESS_FAILURES_BEFORE_RECONNECT = 2;
 
 /**
@@ -82,6 +83,8 @@ export class VpnController extends EventEmitter {
   // path keys off: there is no node list to walk and no transport to fall
   // back through in that mode, only other peers in the same region.
   private p2pExitRegion: string | null = null;
+  /** The peer the current P2P exit session goes through. */
+  private p2pExitNodeId: number | null = null;
   private grpcByHost = new Map<string, GrpcFallback>();
   private nodeIdByHost = new Map<string, number>();
   private stopping = false;
@@ -141,6 +144,7 @@ export class VpnController extends EventEmitter {
     if (state !== 'CONNECTED' && state !== 'CONNECTING' && state !== 'RECONNECTING') return;
     const gen = this.beginSession();
     this.p2pExitRegion = null;
+    this.p2pExitNodeId = null;
     await this.xrayProcess.stop();
     await this.teardownRelayBridge();
     if (this.getState() === 'CONNECTED') this.transition('TUNNEL_DOWN');
@@ -306,6 +310,7 @@ export class VpnController extends EventEmitter {
     this.stopping = true;
     this.clearTimers();
     this.p2pExitRegion = null;
+    this.p2pExitNodeId = null;
     await this.xrayProcess.stop();
     await this.teardownRelayBridge();
     try {
@@ -333,9 +338,19 @@ export class VpnController extends EventEmitter {
   private startHealthChecks(gen: number): void {
     this.stopHealthChecks();
     this.livenessFailures = 0;
+    // A P2P exit is a person's device and goes away without notice: checked
+    // every 10 seconds, and against the server's list, which drops a peer the
+    // moment its connection ends — two failed 30-second probes meant up to a
+    // minute without internet.
+    const interval = this.p2pExitRegion ? P2P_EXIT_HEALTH_CHECK_INTERVAL_MS : HEALTH_CHECK_INTERVAL_MS;
     this.healthTimer = setInterval(() => {
       void (async () => {
         if (!this.alive(gen) || this.getState() !== 'CONNECTED') return;
+        if (await this.p2pExitPeerGone()) {
+          console.warn(`P2P exit peer ${this.p2pExitNodeId} stopped relaying, moving on`);
+          if (this.alive(gen)) await this.handleFailure();
+          return;
+        }
         if (await probeThroughHttpProxy(PROBE_PORT)) {
           this.livenessFailures = 0;
           return;
@@ -349,7 +364,20 @@ export class VpnController extends EventEmitter {
           await this.handleFailure();
         }
       })();
-    }, HEALTH_CHECK_INTERVAL_MS);
+    }, interval);
+  }
+
+  /** Whether the peer this session goes out through is no longer offered. Unknown (API down) is not gone. */
+  private async p2pExitPeerGone(): Promise<boolean> {
+    const region = this.p2pExitRegion;
+    const nodeId = this.p2pExitNodeId;
+    if (!region || nodeId === null) return false;
+    try {
+      const exits = await this.apiClient.getP2pExits(region);
+      return !exits.some((e) => e.nodeId === nodeId);
+    } catch {
+      return false;
+    }
   }
 
   private stopHealthChecks(): void {
@@ -396,6 +424,7 @@ export class VpnController extends EventEmitter {
     this.setFailure(null);
     await this.xrayProcess.stop();
     this.p2pExitRegion = null;
+    this.p2pExitNodeId = null;
     await this.teardownRelayBridge();
     try {
       await this.systemProxy.disable();
@@ -523,6 +552,7 @@ export class VpnController extends EventEmitter {
         await this.systemProxy.enable();
 
         this.p2pExitRegion = region;
+        this.p2pExitNodeId = exit.nodeId;
         this.transition('TUNNEL_UP');
         this.startHealthChecks(gen);
         // Labelled as what it is: the exit is a person's own connection, so
@@ -572,6 +602,7 @@ export class VpnController extends EventEmitter {
     // re-enter handleP2pExitFailure; set back below if the attempt fails, so
     // this session still counts as a P2P exit for whatever fails next.
     this.p2pExitRegion = null;
+    this.p2pExitNodeId = null;
     if (this.stopping) return;
     if (await this.connectThroughP2pExit(region)) return;
 

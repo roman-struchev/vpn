@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/tmp', isPackaged: false, getAppPath: () => '/tmp' } }));
 vi.mock('../src/main/diagnostics', () => ({ reportError: vi.fn() }));
-vi.mock('../src/main/p2p/relayClient', () => ({ P2pRelayBridge: vi.fn() }));
+vi.mock('../src/main/p2p/relayClient', () => ({
+  P2pRelayBridge: vi.fn().mockImplementation(() => ({ start: vi.fn(async () => 41000), stop: vi.fn(async () => undefined) })),
+}));
 
 const xray = vi.hoisted(() => ({ running: false, starts: 0, stops: 0 }));
 vi.mock('../src/main/xray/xrayProcess', () => ({
@@ -178,5 +180,22 @@ describe('VpnController lifecycle', () => {
     expect(api.getSubscriptionLinks).toHaveBeenCalledTimes(2);
     expect(controller.getState()).toBe('CONNECTED');
     expect(xray.running).toBe(true);
+  });
+
+  it('leaves a P2P exit within seconds once its peer stops relaying, not after a minute', async () => {
+    const exits = [{ nodeId: 13, region: 'Montenegro, Podgorica', activeConnections: 0 }];
+    const api = fakeApi({
+      getSelectedRegion: () => 'p2p:Montenegro, Podgorica',
+      getP2pExits: vi.fn(async () => exits),
+    });
+    const { controller } = await build(api);
+    await controller.connect();
+    expect(controller.getState()).toBe('CONNECTED');
+
+    // The peer went away: the server dropped it from the list at once. The
+    // tunnel probe still passes here, so only the list can tell.
+    exits.length = 0;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(controller.getState()).not.toBe('CONNECTED');
   });
 });

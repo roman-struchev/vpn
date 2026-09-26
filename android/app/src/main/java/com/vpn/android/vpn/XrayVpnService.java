@@ -101,6 +101,8 @@ public class XrayVpnService extends VpnService implements DialerController {
      * transport to fall back through, only other peers in the same region.
      */
     private volatile String p2pExitRegion;
+    /** The peer the current P2P exit session goes through, -1 otherwise. */
+    private volatile long p2pExitNodeId = -1;
     /** The pending "look for a peer again" callback, kept so disconnect can cancel it. */
     private volatile Runnable p2pExitRetry;
 
@@ -502,7 +504,8 @@ public class XrayVpnService extends VpnService implements DialerController {
                 // the wrong expectation.
                 VpnStatusBus.activeRegion.postValue(getString(R.string.region_p2p_exit, region));
                 updateNotification();
-                mainHandler.postDelayed(healthCheck, 30_000);
+                p2pExitNodeId = exit.nodeId;
+                mainHandler.postDelayed(healthCheck, healthCheckDelayMs());
                 registerOrTouchDevice();
                 return true;
             } catch (Exception e) {
@@ -545,6 +548,7 @@ public class XrayVpnService extends VpnService implements DialerController {
         // re-enter handleP2pExitFailure; set back below if the attempt fails,
         // so the session still counts as a P2P exit for whatever fails next.
         p2pExitRegion = null;
+        p2pExitNodeId = -1;
         if (stopping) return;
         if (connectThroughP2pExit(region)) return;
 
@@ -882,6 +886,13 @@ public class XrayVpnService extends VpnService implements DialerController {
                 handleFailure();
                 return;
             }
+            // First, and before the probe: a probe through a peer that is gone
+            // only ends at its timeout, and the server's list already knows.
+            if (p2pExitPeerGone()) {
+                Log.w(TAG, "Health check: P2P exit peer " + p2pExitNodeId + " stopped relaying, moving on");
+                handleFailure();
+                return;
+            }
             // "xray is running" is not the same as "traffic actually flows": when the
             // server revokes this device's key (or the node stops accepting it), xray
             // keeps running happily while every connection fails, and the app kept
@@ -902,8 +913,34 @@ public class XrayVpnService extends VpnService implements DialerController {
             } else {
                 consecutiveLivenessFailures = 0;
             }
-            mainHandler.postDelayed(healthCheck, 30_000);
+            mainHandler.postDelayed(healthCheck, healthCheckDelayMs());
         });
+    }
+
+    /**
+     * A P2P exit is a person's device, and it goes away without notice — so
+     * it is checked every 10 seconds, not 30, and against the server's list
+     * too: the server drops a peer the moment its connection ends, well
+     * before two failed probes here would say so (up to a minute without
+     * internet, as it was).
+     */
+    private long healthCheckDelayMs() {
+        return p2pExitRegion != null ? 10_000 : 30_000;
+    }
+
+    /** Whether the peer this session goes out through is no longer offered. Unknown (API down) is not gone. */
+    private boolean p2pExitPeerGone() {
+        String region = p2pExitRegion;
+        long nodeId = p2pExitNodeId;
+        if (region == null || nodeId < 0) return false;
+        try {
+            for (RelayInfo exit : apiClient.getP2pExits(region)) {
+                if (exit.nodeId == nodeId) return false;
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /**
@@ -1070,6 +1107,7 @@ public class XrayVpnService extends VpnService implements DialerController {
     private void disconnect() {
         stopping = true;
         p2pExitRegion = null;
+        p2pExitNodeId = -1;
         VpnStatusBus.failureReason.postValue(null);
         mainHandler.removeCallbacks(healthCheck);
         if (p2pExitRetry != null) {
