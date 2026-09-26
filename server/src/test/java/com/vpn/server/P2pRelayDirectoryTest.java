@@ -254,4 +254,22 @@ class P2pRelayDirectoryTest {
         assertEquals(List.of(2L, 1L), exits.stream().map(e -> e.get("nodeId")).toList(),
                 "the client works down this list, so the peer most likely to still be there goes first");
     }
+
+    @Test
+    void aPeerIsNotOfferedWhileItsReachabilityIsCheckedNorAfterItFails() {
+        givenTariffPool("paid");
+        when(nodeRepository.findByTypeAndStatus("p2p", "ONLINE")).thenReturn(List.of(
+                relay(1L, 99L, "ALWAYS", true, true),
+                relay(2L, 98L, "ALWAYS", true, true),
+                relay(3L, 97L, "ALWAYS", true, true)));
+        when(nodeRepository.findById(2L)).thenReturn(Optional.of(relay(2L, 98L, "ALWAYS", true, true)));
+        com.vpn.server.service.P2pReachabilityService reachability = org.mockito.Mockito.mock(com.vpn.server.service.P2pReachabilityService.class);
+        when(reachability.isOffered(1L)).thenReturn(true);   // reachable
+        when(reachability.isOffered(2L)).thenReturn(false);  // still being checked, or unreachable
+        when(reachability.isOffered(3L)).thenReturn(true);   // checked: could not tell — offered as before
+        directory.setReachability(reachability);
+
+        assertEquals(java.util.Set.of(1L, 3L), directory.availableExitsFor(CALLER_ID, null).stream().map(e -> e.get("nodeId")).collect(java.util.stream.Collectors.toSet()));
+        assertFalse(directory.mayConnectThrough(CALLER_ID, 2L), "and nobody can signal to it either");
+    }
 }

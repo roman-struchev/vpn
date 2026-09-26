@@ -57,6 +57,32 @@ public class P2pRelayController {
         this.p2pSessionRegistry = p2pSessionRegistry;
     }
 
+    /** Null in tests that don't care; see P2pReachabilityService. */
+    private com.vpn.server.service.P2pReachabilityService reachability;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setReachability(com.vpn.server.service.P2pReachabilityService reachability) {
+        this.reachability = reachability;
+    }
+
+    /**
+     * Whether this device, just turned into a relay, can be reached from the
+     * internet (P2pReachabilityService). Its app polls this right after
+     * starting and turns relaying off with an explanation on UNREACHABLE.
+     * UNKNOWN: never checked (checking off, or an older server). Own nodes only.
+     */
+    @GetMapping("/nodes/{nodeId}/reachability")
+    public ResponseEntity<?> reachability(@PathVariable Long nodeId, Authentication auth) {
+        if (!ownsRelayNode(auth, nodeId)) {
+            return ResponseEntity.status(404).body(Map.of("error", "No such relay node of yours"));
+        }
+        com.vpn.server.service.P2pReachabilityService.Status status = reachability == null ? null : reachability.stateOf(nodeId);
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("state", status == null ? "UNKNOWN" : status.state().name());
+        body.put("checkedAt", status == null ? null : status.checkedAt().toString());
+        return ResponseEntity.ok(body);
+    }
+
     /** Same signal UserController#getProfile's own isGuest uses — no password/Telegram/Google credential means no real accountability yet. */
     private static boolean isGuestAccount(User user) {
         return user.getPasswordHash() == null && user.getTelegramId() == null && user.getGoogleSub() == null;

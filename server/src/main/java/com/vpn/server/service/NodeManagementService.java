@@ -199,6 +199,10 @@ public class NodeManagementService {
      * heartbeat to notice. Also true (a no-op check) for a non-p2p node,
      * though those never receive signals in practice.
      */
+    public boolean isP2pNode(Long nodeId) {
+        return nodeRepository.findById(nodeId).map(com.vpn.server.entity.Node::isP2p).orElse(false);
+    }
+
     public boolean isNodeEligibleForRelay(Long nodeId) {
         return nodeRepository.findById(nodeId).map(Node::isEligibleForRelay).orElse(false);
     }

@@ -26,6 +26,12 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
     private final DiagnosticsService diagnosticsService;
     // Map of active node streams: nodeId -> StreamObserver<ServerMessage>
     private final Map<Long, StreamObserver<ServerMessage>> activeStreams = new ConcurrentHashMap<>();
+    /** Told when a node opens its live stream (P2pReachabilityService checks p2p ones). */
+    private volatile java.util.function.Consumer<Long> nodeConnectedListener = id -> { };
+
+    public void setNodeConnectedListener(java.util.function.Consumer<Long> listener) {
+        this.nodeConnectedListener = listener != null ? listener : id -> { };
+    }
 
     // Pure message-routing state for P2P signaling (docs/research/
     // P2P_RELAY_FEASIBILITY.md §8.1) — the server never parses/understands
@@ -108,6 +114,11 @@ public class AgentStreamServiceImpl extends AgentStreamServiceGrpc.AgentStreamSe
                         responseObserver.onNext(syncMsg);
                     } catch (Exception e) {
                         log.error("Failed to build initial config for node {}", nodeId, e);
+                    }
+                    try {
+                        nodeConnectedListener.accept(nodeId);
+                    } catch (Exception e) {
+                        log.warn("Node-connected listener failed for node {}", nodeId, e);
                     }
                 } else if (!authenticatedNodeId.equals(nodeId)) {
                     log.warn("Node ID mismatch on established stream: expected {}, got {}", authenticatedNodeId, nodeId);

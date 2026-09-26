@@ -28,6 +28,10 @@ services:
     ports:
       - "${PORT:-8080}:8080"
       - "${GRPC_PORT:-9090}:9090"
+      # P2P reachability check (P2pReachabilityService): published 1:1, since
+      # Docker's NAT gives every outgoing UDP flow a random port — the device
+      # has to be able to reach the exact port the server told it about.
+      - "50000-50009:50000-50009/udp"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-vpn_db}
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-vpn_user}

@@ -41,6 +41,18 @@ vpn:
   # the API — the web dashboard is bundled into and served by this same server jar,
   # see server/build.gradle's buildWebDist) instead of the vpn.struchev.site
   # production domain — switch back once that's live again.
+  # Before a device that starts relaying is offered to anyone, the server
+  # checks it can be reached from the internet (P2pReachabilityService) —
+  # a phone behind a mobile carrier's NAT usually can't. The UDP ports are
+  # published 1:1 in docker-compose.yml; public-ip defaults to the host of
+  # vpn.public.web-base-url.
+  p2p:
+    reachability:
+      enabled: ${VPN_P2P_REACHABILITY_ENABLED:true}
+      public-ip: ${VPN_P2P_REACHABILITY_PUBLIC_IP:}
+      port-start: ${VPN_P2P_REACHABILITY_PORT_START:50000}
+      port-count: ${VPN_P2P_REACHABILITY_PORT_COUNT:10}
+      timeout-ms: ${VPN_P2P_REACHABILITY_TIMEOUT_MS:10000}
   public:
     web-base-url: ${VPN_PUBLIC_WEB_BASE_URL:http://217.216.79.46:8080}
     # Support contact, sent as Happ's `support-url` subscription header (its

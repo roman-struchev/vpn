@@ -42,6 +42,19 @@ public class P2pRelayDirectory {
     private final NodeRepository nodeRepository;
     private final SubscriptionRepository subscriptionRepository;
 
+    /** Null in tests that don't care; see P2pReachabilityService. */
+    private P2pReachabilityService reachability;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setReachability(P2pReachabilityService reachability) {
+        this.reachability = reachability;
+    }
+
+    /** Not while its reachability check runs, and never if it failed it. */
+    private boolean offered(Node node) {
+        return reachability == null || reachability.isOffered(node.getId());
+    }
+
     public P2pRelayDirectory(NodeRepository nodeRepository, SubscriptionRepository subscriptionRepository) {
         this.nodeRepository = nodeRepository;
         this.subscriptionRepository = subscriptionRepository;
@@ -116,6 +129,7 @@ public class P2pRelayDirectory {
         if (!node.isP2p()) return false;
         if (!"ONLINE".equalsIgnoreCase(node.getStatus()) || !node.isEligibleForRelay()) return false;
         if (node.isOwnRelayDeviceOf(userId)) return false;
+        if (!offered(node)) return false;
         return !isOnTrialPlan(userId) || Boolean.TRUE.equals(node.getAvailableToTrial());
     }
 
@@ -149,6 +163,7 @@ public class P2pRelayDirectory {
                 // over would only produce a session the node refuses anyway
                 // (AgentStreamServiceImpl checks it again on every signal).
                 .filter(Node::isEligibleForRelay)
+                .filter(this::offered)
                 .filter(node -> !node.isOwnRelayDeviceOf(userId))
                 .sorted((a, b) -> {
                     if (a.getLastHeartbeatAt() == null) return 1;
