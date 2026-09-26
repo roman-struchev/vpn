@@ -11,6 +11,8 @@ import { RelayAgent, type RelayMode } from './relayAgent';
 export const RELAY_UNSUPPORTED_PREFIX = 'RELAY_UNSUPPORTED_NETWORK:';
 
 const EXPIRY_CHECK_INTERVAL_MS = 30_000;
+/** Once a second, up to 20 s: the server's check caps at 10 s after the node's first heartbeat. */
+const REACHABILITY_POLLS = 20;
 
 /**
  * Owns the RelayAgent's lifecycle from the UI/IPC side: minting a fresh p2p
@@ -31,12 +33,13 @@ export class RelayManager extends EventEmitter {
    * starts fine: kept rather than only thrown, so a refused resume at launch
    * (nobody is looking then) still shows up when the screen is opened.
    */
-  private unsupportedNetwork: Exclude<NatVerdict, 'OK' | 'UNKNOWN'> | null = null;
+  private unsupportedNetwork: Exclude<NatVerdict, 'OK' | 'UNKNOWN'> | 'UNREACHABLE' | null = null;
 
   constructor(
     private readonly apiClient: ApiClient,
     private readonly tokenStore: TokenStore,
-    private readonly natCheck: () => Promise<NatVerdict> = () => checkNat()
+    private readonly natCheck: () => Promise<NatVerdict> = () => checkNat(),
+    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
   ) {
     super();
   }
@@ -129,6 +132,40 @@ export class RelayManager extends EventEmitter {
     );
     await this.agent.start(token, mode, expiresAtEpochMs);
     this.emit('modeChanged', this.getMode());
+    await this.awaitReachability();
+  }
+
+  /**
+   * The server tries to reach this device from the internet before offering
+   * it to anyone (P2pReachabilityService). Waits for that answer — a few
+   * seconds — and turns relaying off with the reason when nobody can reach
+   * us: the STUN check above can't tell a carrier NAT that only lets in
+   * whoever the device wrote to first (seen live: a phone on LTE passed it).
+   * An older server, or no answer in time, keeps relaying as before.
+   */
+  private async awaitReachability(): Promise<void> {
+    const nodeId = this.agent?.getNodeId();
+    if (nodeId == null) return;
+    for (let i = 0; i < REACHABILITY_POLLS; i++) {
+      let state: string;
+      try {
+        state = await this.apiClient.getP2pReachability(nodeId);
+      } catch {
+        return;
+      }
+      if (state === 'UNREACHABLE') {
+        await this.agent?.stop();
+        this.agent = null;
+        this.unsupportedNetwork = 'UNREACHABLE';
+        this.clearExpiryTimer();
+        this.tokenStore.saveP2pRelayMode('OFF', null);
+        this.syncLoginItem('OFF');
+        this.emit('modeChanged', this.getMode());
+        throw new Error(`${RELAY_UNSUPPORTED_PREFIX}UNREACHABLE`);
+      }
+      if (state !== 'PENDING') return;
+      await this.sleep(1000);
+    }
   }
 
   /**
@@ -177,7 +214,7 @@ export class RelayManager extends EventEmitter {
     expiresAtEpochMs: number | null;
     durationMs: number | null;
     region: string | null;
-    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
+    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | 'UNREACHABLE' | null;
   } {
     return {
       ...this.tokenStore.getP2pRelayMode(),

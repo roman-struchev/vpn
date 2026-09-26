@@ -97,3 +97,46 @@ describe('RelayManager on a network nobody can reach', () => {
     expect(manager.getMode().unsupportedNetwork).toBeNull();
   });
 });
+
+describe('RelayManager when the server cannot reach this device', () => {
+  async function build(states: string[]) {
+    vi.resetModules();
+    vi.doMock('electron', () => ({ app: { setLoginItemSettings: vi.fn() } }));
+    const agent = { on: vi.fn(), start: vi.fn(), stop: vi.fn(), getNodeId: () => 16 };
+    vi.doMock('../src/main/p2p/relayAgent', () => ({ RelayAgent: vi.fn().mockImplementation(() => agent) }));
+    const { RelayManager } = await import('../src/main/p2p/relayManager');
+    let saved = { mode: 'OFF', expiresAtEpochMs: null as number | null, durationMs: null as number | null };
+    const tokenStore = {
+      saveP2pRelayMode: vi.fn((mode, exp) => (saved = { mode, expiresAtEpochMs: exp, durationMs: null })),
+      getP2pRelayMode: () => saved,
+      getP2pRelayRegion: () => 'Montenegro, Podgorica',
+      saveP2pRelayRegion: vi.fn(),
+    };
+    const answers = [...states];
+    const apiClient = {
+      createP2pBootstrapToken: vi.fn(async () => ({ token: 't' })),
+      getGrpcTarget: () => 'x',
+      getProfile: vi.fn(async () => ({ email: 'a@b.c' })),
+      getP2pReachability: vi.fn(async () => answers.shift() ?? 'PENDING'),
+    };
+    const manager = new RelayManager(apiClient as never, tokenStore as never, async () => 'OK', async () => undefined);
+    return { manager, agent, apiClient };
+  }
+
+  it('turns relaying off with the reason once the server says nobody gets through', async () => {
+    const { manager, agent } = await build(['PENDING', 'PENDING', 'UNREACHABLE']);
+    await expect(manager.setMode('ALWAYS', null)).rejects.toThrow('RELAY_UNSUPPORTED_NETWORK:UNREACHABLE');
+    expect(agent.stop).toHaveBeenCalled();
+    expect(manager.getMode()).toMatchObject({ mode: 'OFF', unsupportedNetwork: 'UNREACHABLE' });
+  });
+
+  it('keeps relaying once reachable, and with a server that does not check', async () => {
+    for (const verdict of ['REACHABLE', 'UNKNOWN', 'INCONCLUSIVE']) {
+      const { manager, agent } = await build(['PENDING', verdict]);
+      await manager.setMode('ALWAYS', null);
+      expect(agent.stop).not.toHaveBeenCalled();
+      expect(manager.getMode()).toMatchObject({ mode: 'ALWAYS', unsupportedNetwork: null });
+    }
+  });
+});
+

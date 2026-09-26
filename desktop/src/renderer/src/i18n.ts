@@ -167,6 +167,9 @@ const translations = {
     p2pUnsupportedTitle: 'С этой сети раздача не поддерживается',
     p2pUnsupportedSymmetric:
       'Ваш провайдер (так делают почти все мобильные операторы) не пропускает прямые подключения к устройству, поэтому к вам никто не сможет подключиться. С другой сети — например, домашнего Wi-Fi — раздача может работать.',
+    p2pUnsupportedUnreachable:
+      'К устройству не удалось подключиться из интернета — так бывает у мобильных операторов и некоторых провайдеров. С другой сети — например, домашнего Wi‑Fi — раздача может работать.',
+    p2pChecking: 'Проверяем, смогут ли к вам подключиться…',
     p2pUnsupportedNoUdp:
       'В этой сети заблокирован UDP, без него прямые подключения к устройству невозможны. С другой сети — например, домашнего Wi-Fi — раздача может работать.',
     p2pRegionLabel: 'Местоположение узла',
@@ -338,6 +341,9 @@ const translations = {
     p2pUnsupportedTitle: 'Relaying isn’t supported on this network',
     p2pUnsupportedSymmetric:
       'Your provider (almost every mobile carrier does this) doesn’t let direct connections reach this device, so nobody could connect through it. On another network — home Wi-Fi, say — relaying may work.',
+    p2pUnsupportedUnreachable:
+      'This device could not be reached from the internet — common with mobile carriers and some providers. On another network — home Wi‑Fi, say — relaying may work.',
+    p2pChecking: 'Checking that others can connect to you…',
     p2pUnsupportedNoUdp:
       'UDP is blocked on this network, and direct connections to this device need it. On another network — home Wi-Fi, say — relaying may work.',
     p2pRegionLabel: 'Node location',

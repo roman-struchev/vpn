@@ -72,6 +72,11 @@ export class RelayAgent extends EventEmitter {
   private isShuttingDown = false;
 
   private nodeId: number | null = null;
+
+  /** This device's node id once registered, else null. */
+  getNodeId(): number | null {
+    return this.nodeId;
+  }
   private nodeToken: string | null = null;
   private relayMode: RelayMode = 'OFF';
   private relayExpiresAtEpochMs: number | null = null;

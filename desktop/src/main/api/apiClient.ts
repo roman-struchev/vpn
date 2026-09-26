@@ -496,6 +496,17 @@ export class ApiClient {
     return this.get('api/v1/user/p2p/status');
   }
 
+  /**
+   * Whether the server could reach this relaying device from the internet
+   * (P2pReachabilityService): PENDING while it checks, UNKNOWN from a server
+   * that doesn't check.
+   */
+  async getP2pReachability(nodeId: number): Promise<'PENDING' | 'REACHABLE' | 'UNREACHABLE' | 'INCONCLUSIVE' | 'UNKNOWN'> {
+    const r = await this.get<{ state: string }>(`api/v1/user/p2p/nodes/${nodeId}/reachability`);
+    const s = r?.state;
+    return s === 'PENDING' || s === 'REACHABLE' || s === 'UNREACHABLE' || s === 'INCONCLUSIVE' ? s : 'UNKNOWN';
+  }
+
   /** Mints a fresh, user-bound, short-lived (1h) bootstrap token for this device's own relay agent to register with. */
   createP2pBootstrapToken(): Promise<{ token: string; expiresAt: string }> {
     return this.post('api/v1/user/p2p/bootstrap-token', {}, true);

@@ -276,14 +276,8 @@ public class P2pRelaySettingsActivity extends AppCompatActivity {
             binding.p2pUnsupportedText.setVisibility(android.view.View.GONE);
             return;
         }
-        NatCheck.Verdict verdict;
-        try {
-            verdict = NatCheck.Verdict.valueOf(saved);
-        } catch (IllegalArgumentException e) {
-            verdict = NatCheck.Verdict.SYMMETRIC;
-        }
         binding.p2pUnsupportedText.setText(getString(R.string.p2p_relay_unsupported_title) + "\n"
-                + getString(P2pRelayService.unsupportedNetworkText(verdict)));
+                + getString(P2pRelayService.unsupportedNetworkText(saved)));
         binding.p2pUnsupportedText.setVisibility(android.view.View.VISIBLE);
     }
 

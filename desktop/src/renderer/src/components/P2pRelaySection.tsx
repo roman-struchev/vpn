@@ -22,7 +22,7 @@ export default function P2pRelaySection() {
     expiresAtEpochMs: number | null;
     durationMs: number | null;
     region: string | null;
-    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
+    unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | 'UNREACHABLE' | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -136,11 +136,21 @@ export default function P2pRelaySection() {
         ))}
       </div>
 
+      {/* Turning relaying on waits for the server to try reaching this device
+          (a few seconds) — said so, rather than buttons that just go grey. */}
+      {busy && !pending && (
+        <p className="mt-2.5 text-[11px] text-white/50">{t.p2pChecking}</p>
+      )}
+
       {mode?.unsupportedNetwork && (
         <div data-testid="p2p-unsupported-network" className="mt-2.5 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2.5">
           <p className="text-[11px] font-semibold text-amber-300">{t.p2pUnsupportedTitle}</p>
           <p className="mt-1 text-[11px] leading-relaxed text-amber-200/80">
-            {mode.unsupportedNetwork === 'NO_UDP' ? t.p2pUnsupportedNoUdp : t.p2pUnsupportedSymmetric}
+            {mode.unsupportedNetwork === 'NO_UDP'
+              ? t.p2pUnsupportedNoUdp
+              : mode.unsupportedNetwork === 'UNREACHABLE'
+                ? t.p2pUnsupportedUnreachable
+                : t.p2pUnsupportedSymmetric}
           </p>
         </div>
       )}

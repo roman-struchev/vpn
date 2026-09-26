@@ -139,6 +139,7 @@ public class P2pRelayService extends Service {
                             Log.w(TAG, "relay agent error: " + message));
                     newAgent.start(finalRelayMode, finalRelayExpiresAt);
                     agent = newAgent;
+                    scheduleReachabilityCheck(new ApiClient(tokenStore), tokenStore, tokenStore.getP2pNodeId(), 0);
                 } else {
                     agent.updateRelayMode(finalRelayMode, finalRelayExpiresAt);
                 }
@@ -193,12 +194,16 @@ public class P2pRelayService extends Service {
     }
 
     private void notifyUnsupportedNetwork(NatCheck.Verdict verdict) {
+        notifyUnsupportedNetwork(unsupportedNetworkText(verdict));
+    }
+
+    private void notifyUnsupportedNetwork(int textRes) {
         if (androidx.core.app.ActivityCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
                 != android.content.pm.PackageManager.PERMISSION_GRANTED
                 && android.os.Build.VERSION.SDK_INT >= 33) {
             return;
         }
-        String text = getString(unsupportedNetworkText(verdict));
+        String text = getString(textRes);
         Notification n = new NotificationCompat.Builder(this, VpnApp.VPN_STATUS_CHANNEL_ID)
                 .setContentTitle(getString(R.string.p2p_relay_unsupported_title))
                 .setContentText(text)
@@ -214,6 +219,48 @@ public class P2pRelayService extends Service {
         return verdict == NatCheck.Verdict.NO_UDP
                 ? R.string.p2p_relay_unsupported_no_udp
                 : R.string.p2p_relay_unsupported_symmetric;
+    }
+
+    /** The explanation for a saved reason: a NatCheck verdict name, or UNREACHABLE from the server's check. */
+    public static int unsupportedNetworkText(String reason) {
+        if (REASON_UNREACHABLE.equals(reason)) return R.string.p2p_relay_unsupported_unreachable;
+        try {
+            return unsupportedNetworkText(NatCheck.Verdict.valueOf(reason));
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return R.string.p2p_relay_unsupported_symmetric;
+        }
+    }
+
+    public static final String REASON_UNREACHABLE = "UNREACHABLE";
+    private static final int REACHABILITY_POLLS = 20;
+
+    /**
+     * The server tries to reach this device from the internet before offering
+     * it to anyone (P2pReachabilityService); asked once a second, up to 20 s,
+     * on relayExecutor without blocking it in between. Nobody got through:
+     * relaying stops, with the reason in a notification and on the settings
+     * screen. The STUN check alone let a phone on LTE through, seen live.
+     * An older server, a failed request or no answer in time: keep relaying.
+     */
+    private void scheduleReachabilityCheck(ApiClient api, TokenStore tokenStore, long nodeId, int attempt) {
+        if (nodeId < 0 || attempt >= REACHABILITY_POLLS) return;
+        relayExecutor.schedule(() -> {
+            if (agent == null) return;
+            String state;
+            try {
+                state = api.getP2pReachability(nodeId);
+            } catch (Exception e) {
+                return;
+            }
+            if (REASON_UNREACHABLE.equals(state)) {
+                Log.w(TAG, "not relaying: the server could not reach this device from the internet");
+                tokenStore.saveP2pRelayUnsupportedNetwork(REASON_UNREACHABLE);
+                notifyUnsupportedNetwork(unsupportedNetworkText(REASON_UNREACHABLE));
+                stopRelay();
+            } else if ("PENDING".equals(state)) {
+                scheduleReachabilityCheck(api, tokenStore, nodeId, attempt + 1);
+            }
+        }, attempt == 0 ? 500 : 1000, TimeUnit.MILLISECONDS);
     }
 
     private Notification buildNotification() {

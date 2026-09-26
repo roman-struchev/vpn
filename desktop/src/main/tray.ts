@@ -130,7 +130,7 @@ export interface RelayModeView {
   mode: RelayMode;
   expiresAtEpochMs: number | null;
   durationMs: number | null;
-  unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | null;
+  unsupportedNetwork: 'SYMMETRIC' | 'NO_UDP' | 'UNREACHABLE' | null;
 }
 
 /** The status line for the relay, also used in the tooltip. */

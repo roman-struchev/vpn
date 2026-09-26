@@ -12,6 +12,7 @@ vi.mock('../src/main/p2p/relayAgent', () => ({
       start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
       setRelayMode: vi.fn(),
+      getNodeId: () => null,
     };
     relayAgentInstances.push(instance);
     return instance;

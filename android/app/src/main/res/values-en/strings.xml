@@ -158,6 +158,7 @@
     <string name="p2p_relay_unsupported_symmetric">Your provider (almost every mobile carrier does this) doesn\u2019t let direct connections reach this device, so nobody could connect through it. On another network \u2014 home Wi\u2011Fi, say \u2014 relaying may work.</string>
     <string name="p2p_relay_unsupported_no_udp">UDP is blocked on this network, and direct connections to this device need it. On another network \u2014 home Wi\u2011Fi, say \u2014 relaying may work.</string>
     <string name="p2p_relay_notification_stop">Turn off</string>
+    <string name="p2p_relay_unsupported_unreachable">This device could not be reached from the internet \u2014 common with mobile carriers and some providers. On another network \u2014 home Wi\u2011Fi, say \u2014 relaying may work.</string>
     <string name="p2p_relay_applied">P2P mode settings applied</string>
     <string name="p2p_relay_notification_title">P2P mode is active</string>
     <string name="p2p_relay_notification_text">Your device is relaying traffic and earning bonus traffic</string>

@@ -414,6 +414,17 @@ public class ApiClient {
         }
     }
 
+    /**
+     * Whether the server could reach this relaying device from the internet
+     * (P2pReachabilityService): PENDING while it checks, UNKNOWN from a server
+     * that doesn't check.
+     */
+    public String getP2pReachability(long nodeId) throws ApiException, IOException {
+        JsonObject resp = get("api/v1/user/p2p/nodes/" + nodeId + "/reachability", JsonObject.class);
+        String state = resp != null && resp.has("state") && !resp.get("state").isJsonNull() ? resp.get("state").getAsString() : null;
+        return state == null ? "UNKNOWN" : state;
+    }
+
     public void closeP2pSession(String sessionId) {
         try {
             delete("api/v1/user/p2p/sessions/" + sessionId);
