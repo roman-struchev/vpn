@@ -37,7 +37,10 @@ public class MainActivity extends AppCompatActivity {
         requestNotificationPermissionIfNeeded();
 
         if (savedInstanceState == null) {
-            showTab(TAG_CONNECT);
+            // Straight to the profile when the relay notification opened us —
+            // starting on Connect and switching a moment later is what left
+            // both tabs on screen (see showTab).
+            showTab(getIntent().getBooleanExtra(EXTRA_OPEN_PROFILE, false) ? TAG_PROFILE : TAG_CONNECT);
             new AppUpdateManager(this).checkAndPrompt(this);
         }
 
@@ -120,7 +123,10 @@ public class MainActivity extends AppCompatActivity {
         } else if (target.isHidden()) {
             tx.show(target);
         }
-        tx.commit();
+        // Now, not queued: a second switch right behind a queued one (a cold
+        // start from the relay notification: Connect, then Profile) did not
+        // see the first tab yet, so it never hid it and both were shown.
+        tx.commitNow();
     }
 
     private void requestNotificationPermissionIfNeeded() {
