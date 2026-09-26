@@ -408,10 +408,10 @@ public class UserController {
      * picker (product ask: choose a connection region and see its congestion).
      */
     @GetMapping("/regions")
-    public ResponseEntity<?> getRegions(Authentication auth) {
+    public ResponseEntity<?> getRegions(Authentication auth, HttpServletRequest request) {
         Long userId = (Long) auth.getPrincipal();
         try {
-            List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(userId);
+            List<SubscriptionExportService.RegionSummary> regions = exportService.getAvailableRegions(userId, request.getRemoteAddr());
             return ResponseEntity.ok(Map.of("regions", regions));
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));

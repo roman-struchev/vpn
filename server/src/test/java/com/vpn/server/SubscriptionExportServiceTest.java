@@ -3,6 +3,7 @@ package com.vpn.server;
 import com.vpn.server.entity.*;
 import com.vpn.server.repository.*;
 import com.vpn.server.service.NodeManagementService;
+import com.vpn.server.service.P2pReachabilityService;
 import com.vpn.server.service.SubscriptionExportService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Set;
@@ -1086,6 +1088,68 @@ class SubscriptionExportServiceTest {
                 exportService.getAvailableRegions(76L).stream()
                         .map(SubscriptionExportService.RegionSummary::region)
                         .toList());
+    }
+
+    @Test
+    void testAP2pRowCountsOnlyPeersThisClientCanGoOutThrough() {
+        // Seen live: the picker said "Montenegro · P2P (1 peer)", but the only
+        // peer sat behind the caller's own carrier NAT, the exit list came back
+        // empty, and the app quietly connected to Finland instead.
+        User user = new User();
+        user.setId(78L);
+        User somebodyElse = new User();
+        somebodyElse.setId(79L);
+
+        Tariff pro = new Tariff();
+        pro.setId("pro");
+        pro.setServerPool("paid");
+
+        Subscription sub = new Subscription();
+        sub.setUser(user);
+        sub.setTariff(pro);
+        sub.setStatus("ACTIVE");
+        sub.setCurrentPeriodEnd(Instant.now().plus(30, ChronoUnit.DAYS));
+
+        Node vps = new Node();
+        vps.setId(88L);
+        vps.setRegion("Finland, Helsinki");
+        vps.setStatus("ONLINE");
+        vps.setType("vps");
+        vps.setAvailableToPaid(true);
+
+        List<Node> peers = new ArrayList<>();
+        for (long id : new long[]{89L, 90L, 91L}) {
+            Node peer = new Node();
+            peer.setId(id);
+            peer.setRegion("Montenegro, Podgorica");
+            peer.setStatus("ONLINE");
+            peer.setType("p2p");
+            peer.setRelayMode("ALWAYS");
+            peer.setAvailableToPaid(true);
+            peer.setOwnerUser(somebodyElse);
+            peers.add(peer);
+        }
+        List<Node> online = new ArrayList<>(peers);
+        online.add(vps);
+
+        when(subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(78L, "ACTIVE"))
+                .thenReturn(Optional.of(sub));
+        when(nodeRepository.findByAvailableToPaidTrueAndStatus("ONLINE")).thenReturn(List.of(vps));
+        when(nodeRepository.findByStatus("ONLINE")).thenReturn(online);
+        P2pReachabilityService reachability = mock(P2pReachabilityService.class);
+        when(reachability.isOffered(89L)).thenReturn(true);
+        when(reachability.isOffered(90L)).thenReturn(false);  // still being checked
+        when(reachability.isOffered(91L)).thenReturn(true);
+        when(reachability.sameCarrierNetwork(91L, "79.143.107.32")).thenReturn(true);
+        exportService.setReachability(reachability);
+
+        SubscriptionExportService.RegionSummary fromElsewhere = exportService.getAvailableRegions(78L, "37.27.250.158").stream()
+                .filter(SubscriptionExportService.RegionSummary::p2p).findFirst().orElseThrow();
+        assertEquals(2, fromElsewhere.nodeCount(), "the peer still being checked is not capacity yet");
+
+        when(reachability.isOffered(89L)).thenReturn(false);
+        assertTrue(exportService.getAvailableRegions(78L, "79.143.107.32").stream().noneMatch(SubscriptionExportService.RegionSummary::p2p),
+                "no peer this client can reach: no P2P row to pick");
     }
 
     @Test

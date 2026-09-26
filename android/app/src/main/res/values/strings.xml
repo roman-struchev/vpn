@@ -46,10 +46,10 @@
     <string name="region_picker_title">Регион подключения</string>
     <string name="region_auto">Авто (лучший доступный)</string>
     <string name="region_in_use_instead_of">%1$s (вместо %2$s)</string>
-    <string name="region_row_format">%1$s — %2$s (%3$d нод)</string>
+    <string name="region_row_format">%1$s — %2$s (нод: %3$d)</string>
     <!-- A P2P row counts people, not servers, and never carries a ping (a peer has no address to measure). -->
-    <string name="region_row_p2p_format">%1$s · P2P — %2$s (%3$d участников)</string>
-    <string name="region_row_with_ping">%1$s — ⚡ %2$d мс • %3$s (%4$d нод)</string>
+    <string name="region_row_p2p_format">%1$s · P2P — %2$s (участников: %3$d)</string>
+    <string name="region_row_with_ping">%1$s — ⚡ %2$d мс • %3$s (нод: %4$d)</string>
     <string name="region_ping_value">⚡ %1$d мс</string>
     <string name="region_load_low">низкая загрузка</string>
     <string name="region_load_medium">средняя загрузка</string>

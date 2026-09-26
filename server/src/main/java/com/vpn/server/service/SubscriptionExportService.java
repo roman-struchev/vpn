@@ -21,6 +21,14 @@ public class SubscriptionExportService {
     private final DeviceNodeKeyRepository deviceNodeKeyRepository;
     private final NodeManagementService nodeManagementService;
 
+    /** Null in tests that don't care; see P2pReachabilityService. */
+    private P2pReachabilityService reachability;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setReachability(P2pReachabilityService reachability) {
+        this.reachability = reachability;
+    }
+
     public SubscriptionExportService(
             SubscriptionRepository subscriptionRepository,
             DeviceRepository deviceRepository,
@@ -149,6 +157,17 @@ public class SubscriptionExportService {
      */
     @Transactional(readOnly = true)
     public List<RegionSummary> getAvailableRegions(Long userId) {
+        return getAvailableRegions(userId, null);
+    }
+
+    /**
+     * As above, counting a P2P peer only if this client could actually go out
+     * through it — the same peers GET /p2p/exits would hand this caller. A row
+     * that said "1 peer" while the exit list came back empty made the app
+     * quietly connect to another country instead.
+     */
+    @Transactional(readOnly = true)
+    public List<RegionSummary> getAvailableRegions(Long userId, String clientIp) {
         Subscription sub = subscriptionRepository.findFirstByUserIdAndStatusOrderByCurrentPeriodEndDesc(userId, "ACTIVE")
                 .orElseThrow(() -> new IllegalStateException("Active subscription not found"));
         if (!"ACTIVE".equals(sub.getUser().getStatus())) {
@@ -231,7 +250,7 @@ public class SubscriptionExportService {
                     accessible, keyFor(entry.getKey(), false), false));
         }
 
-        summaries.addAll(p2pExitSummaries(onlineNodes, effectiveTariff));
+        summaries.addAll(p2pExitSummaries(onlineNodes, effectiveTariff, clientIp));
 
         // Region first (so the two kinds of a given country sit together),
         // then key — which puts the VPS row ahead of the "p2p:"-prefixed one.
@@ -267,7 +286,7 @@ public class SubscriptionExportService {
      *       reconnect rather than a dead row in the picker.</li>
      * </ul>
      */
-    private List<RegionSummary> p2pExitSummaries(List<Node> onlineNodes, Tariff effectiveTariff) {
+    private List<RegionSummary> p2pExitSummaries(List<Node> onlineNodes, Tariff effectiveTariff, String clientIp) {
         String pool = (effectiveTariff != null && effectiveTariff.getServerPool() != null)
                 ? effectiveTariff.getServerPool() : "paid";
         boolean trial = "trial".equalsIgnoreCase(pool);
@@ -278,6 +297,11 @@ public class SubscriptionExportService {
                 // any more, even though its last heartbeat left it ONLINE —
                 // same gate P2pRelayDirectory applies before handing one out.
                 .filter(Node::isEligibleForRelay)
+                // Still being checked, failed the check, or behind this
+                // client's own carrier NAT — P2pRelayDirectory leaves these
+                // out of the exit list, so they are not capacity either.
+                .filter(n -> reachability == null
+                        || (reachability.isOffered(n.getId()) && !reachability.sameCarrierNetwork(n.getId(), clientIp)))
                 .filter(n -> n.getRegion() != null && !n.getRegion().isBlank())
                 .collect(Collectors.groupingBy(Node::getRegion, LinkedHashMap::new, Collectors.toList()));
 

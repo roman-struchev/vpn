@@ -331,12 +331,12 @@ class UserControllerTest {
 
     @Test
     void testGetRegionsSuccess() {
-        when(exportService.getAvailableRegions(10L)).thenReturn(List.of(
+        when(exportService.getAvailableRegions(10L, null)).thenReturn(List.of(
                 new SubscriptionExportService.RegionSummary("nl-ams", 2, 35.5, 40L, 5_000_000.0, 41.0, "LOW", true, "nl-ams", false),
                 new SubscriptionExportService.RegionSummary("us-lax", 1, 88.0, 120L, 60_000_000.0, 70.0, "HIGH", false, "us-lax", false)
         ));
 
-        ResponseEntity<?> res = userController.getRegions(auth);
+        ResponseEntity<?> res = userController.getRegions(auth, request);
         assertEquals(200, res.getStatusCode().value());
         Map<?, ?> body = (Map<?, ?>) res.getBody();
         @SuppressWarnings("unchecked")
@@ -350,10 +350,10 @@ class UserControllerTest {
 
     @Test
     void testGetRegionsNoActiveSubscriptionReturnsBadRequest() {
-        when(exportService.getAvailableRegions(10L))
+        when(exportService.getAvailableRegions(10L, null))
                 .thenThrow(new IllegalStateException("Active subscription not found"));
 
-        ResponseEntity<?> res = userController.getRegions(auth);
+        ResponseEntity<?> res = userController.getRegions(auth, request);
         assertEquals(400, res.getStatusCode().value());
     }
 

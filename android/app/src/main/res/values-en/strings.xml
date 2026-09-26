@@ -41,10 +41,10 @@
     <string name="region_picker_title">Connection region</string>
     <string name="region_auto">Auto (best available)</string>
     <string name="region_in_use_instead_of">%1$s (instead of %2$s)</string>
-    <string name="region_row_format">%1$s — %2$s (%3$d nodes)</string>
+    <string name="region_row_format">%1$s — %2$s (nodes: %3$d)</string>
     <!-- A P2P row counts people, not servers, and never carries a ping (a peer has no address to measure). -->
-    <string name="region_row_p2p_format">%1$s · P2P — %2$s (%3$d peers)</string>
-    <string name="region_row_with_ping">%1$s — ⚡ %2$d ms • %3$s (%4$d nodes)</string>
+    <string name="region_row_p2p_format">%1$s · P2P — %2$s (peers: %3$d)</string>
+    <string name="region_row_with_ping">%1$s — ⚡ %2$d ms • %3$s (nodes: %4$d)</string>
     <string name="region_ping_value">⚡ %1$d ms</string>
     <string name="region_load_low">low load</string>
     <string name="region_load_medium">medium load</string>

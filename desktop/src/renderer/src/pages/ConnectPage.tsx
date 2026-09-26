@@ -250,7 +250,7 @@ export default function ConnectPage({
               return (
                 <option key={key} value={key} disabled={!r.accessible}>
                   {r.accessible
-                    ? `${label} — ${LOAD_LABEL[r.loadLevel]} (${r.nodeCount} ${countSuffix})${pingText}`
+                    ? `${label} — ${LOAD_LABEL[r.loadLevel]} (${countSuffix}: ${r.nodeCount})${pingText}`
                     : `🔒 ${label} — ${t.regionLockedSuffix}`}
                 </option>
               );
@@ -260,8 +260,7 @@ export default function ConnectPage({
             <div className="mt-2 flex items-center justify-between text-xs">
               <span className={LOAD_COLOR[selectedRegionInfo.loadLevel]}>{LOAD_LABEL[selectedRegionInfo.loadLevel]}</span>
               <span className="text-white/40">
-                {selectedRegionInfo.nodeCount}{' '}
-                {selectedRegionInfo.p2p ? t.regionPeerCountSuffix : t.regionNodeCountSuffix}
+                {selectedRegionInfo.p2p ? t.regionPeerCountSuffix : t.regionNodeCountSuffix}: {selectedRegionInfo.nodeCount}
               </span>
             </div>
           )}
